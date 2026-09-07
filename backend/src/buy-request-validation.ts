@@ -18,6 +18,8 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
     if (required('unit') && !REQUEST_UNITS.includes(input.unit as typeof REQUEST_UNITS[number])) errors.push('unit')
     if (required('currency') && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) errors.push('currency')
     if (required('geoArea') && (typeof input.geoArea !== 'string' || input.geoArea.trim().length < 1 || input.geoArea.length > 160)) errors.push('geoArea')
+    if (input.latitude !== undefined && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90)) errors.push('latitude')
+    if (input.longitude !== undefined && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180)) errors.push('longitude')
     if (input.delivery !== undefined && !['no', 'yes', 'preferred'].includes(String(input.delivery))) errors.push('delivery')
     if (!partial && input.delivery === undefined && input.deliveryRequired === undefined) errors.push('delivery')
     if (input.deliveryRequired !== undefined && typeof input.deliveryRequired !== 'boolean') errors.push('deliveryRequired')

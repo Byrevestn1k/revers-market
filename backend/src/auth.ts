@@ -65,6 +65,21 @@ export const requireAuth: RequestHandler = async (request, response, next: NextF
     }
 }
 
+export const optionalAuth: RequestHandler = async (request, response, next: NextFunction) => {
+    const token = getCookie(request)
+    if (!token) { next(); return }
+    try {
+        const result = await pool.query(
+            `SELECT u.id, u.username, u.country_code, u.phone
+             FROM user_sessions s JOIN users u ON u.id = s.user_id
+             WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`
+            , [hashToken(token)],
+        )
+        if (result.rowCount) request.authUser = publicUser(result.rows[0])
+        next()
+    } catch (error) { next(error) }
+}
+
 declare global {
     namespace Express { interface Request { authUser?: AuthUser } }
 }

@@ -2,10 +2,13 @@ import cors from 'cors'
 import express from 'express'
 import { fileURLToPath } from 'node:url'
 import { checkDatabase } from './db/client.js'
-import { login, logout, register, requireAuth } from './auth.js'
+import { login, logout, optionalAuth, register, requireAuth } from './auth.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listOffers, updateBuyRequest } from './buy-requests.js'
+import { adaptiveRadius, MapService } from './map-service.js'
+
+const mapService = new MapService()
 
 export const createApp = () => {
     const app = express()
@@ -64,6 +67,26 @@ export const createApp = () => {
         try { const result = await listCategories(); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 
+    app.get('/api/map/markers', async (request, response, next) => {
+        try {
+            const latitude = Number(request.query.latitude)
+            const longitude = Number(request.query.longitude)
+            if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+                response.status(400).json({ error: 'INVALID_MAP_CENTER' })
+                return
+            }
+            const radiusKm = adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
+            const markers = await mapService.findMarkers({ latitude, longitude }, {
+                categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,
+                geoZone: typeof request.query.geoZone === 'string' ? request.query.geoZone : undefined,
+                radiusKm,
+                showProducts: request.query.showProducts !== 'false',
+                showBuyRequests: request.query.showBuyRequests !== 'false',
+            })
+            response.json({ markers, filters: { radiusKm, showProducts: request.query.showProducts !== 'false', showBuyRequests: request.query.showBuyRequests !== 'false' } })
+        } catch (error) { next(error) }
+    })
+
     app.get('/api/products', async (request, response, next) => {
         try { const result = await listProducts(request.query, request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
@@ -92,7 +115,7 @@ export const createApp = () => {
         try { const result = await listBuyRequests(request.query, request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 
-    app.get('/api/buy-requests/:id', async (request, response, next) => {
+    app.get('/api/buy-requests/:id', optionalAuth, async (request, response, next) => {
         try { const result = await getBuyRequest(String(request.params.id), request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 

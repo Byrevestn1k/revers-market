@@ -1,9 +1,14 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 type User = { id: string; username: string; countryCode: string; phone: string }
 type Category = { id: string; code?: string; name: string; path?: string }
 type Product = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; status: string; owner: { id: string }; category: { id: string; name: string } }
-type View = 'home' | 'products' | 'mine' | 'create' | 'profile'
+type View = 'home' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'profile'
+type MapPoint = { latitude: number; longitude: number }
+type MapMarker = MapPoint & { id: string; kind: 'product' | 'buyRequest'; title: string; geoZone: string; category: { id: string; name: string }; approximate: true; distanceKm: number }
+type BuyRequest = { id: string; title: string; description: string; geoArea: string; category: { name: string }; quantity: number; unit: string; status: string; coordinates: MapPoint | null }
 type ApiError = Error & { fields?: string[] }
 const API = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3000'
 const FALLBACK = 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=900&q=80'
@@ -40,6 +45,86 @@ function Pagination({ page, pages, onPage }: { page: number; pages: number; onPa
 
 function ProductDetail({ product, close, owner, edit }: { product: Product; close: () => void; owner: boolean; edit: () => void }) {
     return <div className="modal-backdrop" onClick={close}><section className="detail-modal" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={close}>×</button><img className="detail-image" src={imageUrl(product.photos[0]?.url || FALLBACK)} alt={product.title} /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h2>{product.title}</h2><strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {product.unit}</small></strong><p className="detail-description">{product.description || 'Опис товару ще не додано.'}</p><div className="detail-facts"><span>⌖ <b>{product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {product.unit}</b><small>Кількість</small></span><span>♧ <b>{product.deliveryMode}</b><small>Доставка</small></span></div>{owner && <button className="primary-button" onClick={edit}>Редагувати товар <span>→</span></button>}</div></section></div>
+}
+
+function MapView({ categories, openProduct, notify }: { categories: Category[]; openProduct: (product: Product) => void; notify: (message: string) => void }) {
+    const mapElement = useRef<HTMLDivElement>(null)
+    const mapInstance = useRef<L.Map | null>(null)
+    const markerLayer = useRef<L.LayerGroup | null>(null)
+    const [center, setCenter] = useState<MapPoint>({ latitude: 50.45, longitude: 30.52 })
+    const [radius, setRadius] = useState(25)
+    const [zoom, setZoom] = useState(10)
+    const [geoZone, setGeoZone] = useState('')
+    const [categoryId, setCategoryId] = useState('')
+    const [showProducts, setShowProducts] = useState(true)
+    const [showBuyRequests, setShowBuyRequests] = useState(true)
+    const [markers, setMarkers] = useState<MapMarker[]>([])
+    const [selectedRequest, setSelectedRequest] = useState<BuyRequest | null>(null)
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+
+    const loadMarkers = async () => {
+        setLoading(true); setError('')
+        const params = new URLSearchParams({ latitude: String(center.latitude), longitude: String(center.longitude), radiusKm: String(radius), zoom: String(zoom), showProducts: String(showProducts), showBuyRequests: String(showBuyRequests) })
+        if (geoZone.trim()) params.set('geoZone', geoZone.trim())
+        if (categoryId) params.set('categoryId', categoryId)
+        try { setMarkers((await request(`/api/map/markers?${params}`)).markers) }
+        catch (caught) { setError((caught as Error).message); setMarkers([]) }
+        finally { setLoading(false) }
+    }
+
+    useEffect(() => { loadMarkers() }, [center.latitude, center.longitude, radius, zoom, showProducts, showBuyRequests, categoryId, geoZone])
+
+    useEffect(() => {
+        if (!mapElement.current || mapInstance.current) return
+        const map = L.map(mapElement.current, { zoomControl: true, attributionControl: true }).setView([center.latitude, center.longitude], zoom)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map)
+        markerLayer.current = L.layerGroup().addTo(map)
+        map.on('moveend', () => {
+            const nextCenter = map.getCenter()
+            const nextZoom = map.getZoom()
+            setCenter({ latitude: Number(nextCenter.lat.toFixed(5)), longitude: Number(nextCenter.lng.toFixed(5)) })
+            setZoom(nextZoom)
+        })
+        mapInstance.current = map
+        return () => { map.remove(); mapInstance.current = null; markerLayer.current = null }
+    }, [])
+
+    useEffect(() => {
+        const map = mapInstance.current
+        if (!map) return
+        const current = map.getCenter()
+        if (Math.abs(current.lat - center.latitude) > 0.00001 || Math.abs(current.lng - center.longitude) > 0.00001 || map.getZoom() !== zoom) {
+            map.setView([center.latitude, center.longitude], zoom)
+        }
+    }, [center.latitude, center.longitude, zoom])
+
+    useEffect(() => {
+        if (!markerLayer.current) return
+        markerLayer.current.clearLayers()
+        markers.forEach((marker) => {
+            const color = marker.kind === 'product' ? '#16a05a' : '#d47e4b'
+            const leafletMarker = L.circleMarker([marker.latitude, marker.longitude], { radius: 9, color, fillColor: color, fillOpacity: .9, weight: 3 })
+            leafletMarker.bindTooltip(`${marker.title} · ${marker.distanceKm} км`)
+            leafletMarker.on('click', () => openMarker(marker))
+            leafletMarker.addTo(markerLayer.current!)
+        })
+    }, [markers])
+
+    const useMyLocation = () => navigator.geolocation.getCurrentPosition(
+        (position) => setCenter({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+        () => notify('Не вдалося отримати ваше місцезнаходження'),
+        { enableHighAccuracy: false, maximumAge: 300000 },
+    )
+    const openMarker = async (marker: MapMarker) => {
+        try {
+            if (marker.kind === 'product') openProduct((await request(`/api/products/${marker.id}`)).product)
+            else setSelectedRequest((await request(`/api/buy-requests/${marker.id}`)).buyRequest)
+        } catch (caught) { notify((caught as Error).message) }
+    }
+    const project = (point: MapPoint) => ({ left: `${Math.min(94, Math.max(6, 50 + (point.longitude - center.longitude) * 7 * (zoom / 10)))}%`, top: `${Math.min(88, Math.max(10, 50 - (point.latitude - center.latitude) * 7 * (zoom / 10)))}%` })
+
+    return <section className="content map-view"><div className="view-header"><div><span className="eyebrow">Орієнтир</span><h1>Мапа поруч</h1><p className="view-subtitle">Показуємо приблизні точки, без домашніх адрес.</p></div><button className="outline-button" onClick={useMyLocation}>⌖ Моє місце</button></div><div className="map-toolbar"><label>Радіус <strong>{radius} км</strong><input type="range" min="1" max="200" step="1" value={radius} onChange={(event) => setRadius(Number(event.target.value))} /></label><label>Категорія<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Усі категорії</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Місце<input value={geoZone} onChange={(event) => setGeoZone(event.target.value)} placeholder="Область або місто" /></label><label>Масштаб <strong>{zoom}</strong><input type="range" min="3" max="19" step="1" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label><div className="map-toggles"><label><input type="checkbox" checked={showProducts} onChange={(event) => setShowProducts(event.target.checked)} /> Продавці</label><label><input type="checkbox" checked={showBuyRequests} onChange={(event) => setShowBuyRequests(event.target.checked)} /> Запити</label></div></div><div className="map-layout"><div ref={mapElement} className="map-canvas" aria-label="Мапа товарів та запитів">{loading && <span className="map-status">Оновлення…</span>}{!loading && !markers.length && <span className="map-status">У цьому радіусі немає точок</span>}</div><aside className="map-summary"><span className="eyebrow">Результати</span><h2>{markers.length} точок</h2><p>Точки округлені для приватності. Натисніть маркер або рядок, щоб відкрити деталі.</p><div className="map-result-list">{markers.map((marker) => <button key={`result-${marker.kind}-${marker.id}`} className="map-result" onClick={() => openMarker(marker)}><i className={`legend-${marker.kind === 'product' ? 'product' : 'request'}`} /><span><strong>{marker.title}</strong><small>{marker.kind === 'product' ? 'Товар' : 'Запит'} · {marker.distanceKm} км · {marker.geoZone}</small></span></button>)}</div><div className="map-legend"><span><i className="legend-product" /> Товари продавців</span><span><i className="legend-request" /> Запити покупців</span></div>{error && <p className="form-error">{error}</p>}</aside></div>{selectedRequest && <div className="map-request-panel"><button className="modal-close" onClick={() => setSelectedRequest(null)}>×</button><span className="eyebrow">Запит покупця</span><h2>{selectedRequest.title}</h2><p>{selectedRequest.description || 'Опис ще не додано.'}</p><div className="detail-facts"><span>⌖ <b>{selectedRequest.geoArea}</b><small>Приблизне місце</small></span><span>▧ <b>{selectedRequest.quantity} {selectedRequest.unit}</b><small>Потрібно</small></span><span>♧ <b>{selectedRequest.category.name}</b><small>Категорія</small></span></div></div>}</section>
 }
 
 function LegacyProductForm({ categories, product, onSaved, onCancel }: { categories: Category[]; product?: Product; onSaved: () => void; onCancel: () => void }) {
@@ -81,6 +166,29 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
 
 const ProductForm = ProductEditor
 
+function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Category[]; onSaved: () => void; onCancel: () => void }) {
+    const [latitude, setLatitude] = useState('50.4506')
+    const [longitude, setLongitude] = useState('30.5239')
+    const [busy, setBusy] = useState(false)
+    const [error, setError] = useState('')
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+    const useLocation = () => navigator.geolocation.getCurrentPosition(
+        (position) => { setLatitude(position.coords.latitude.toFixed(6)); setLongitude(position.coords.longitude.toFixed(6)) },
+        () => setError('Не вдалося отримати ваше місцезнаходження'),
+        { enableHighAccuracy: false, maximumAge: 300000 },
+    )
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault(); setBusy(true); setError(''); setFieldErrors({})
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
+        const payload = { categoryId: data.categoryId, title: data.title.trim(), description: data.description ?? '', quantity: Number(data.quantity), unit: data.unit, currency: data.currency, minPrice: Number(data.minPrice), maxPrice: Number(data.maxPrice), delivery: data.delivery, preferredDelivery: data.preferredDelivery || null, geoArea: data.geoArea.trim(), address: data.address.trim() || null, latitude: Number(latitude), longitude: Number(longitude), deadline: data.deadline ? new Date(`${data.deadline}T23:59:59.000Z`).toISOString() : null }
+        try { await request('/api/buy-requests', { method: 'POST', body: JSON.stringify(payload) }); onSaved() }
+        catch (caught) { const apiError = caught as ApiError; setError(apiError.message); for (const field of apiError.fields ?? []) setFieldErrors((current) => ({ ...current, [field]: 'Перевірте це поле' })) }
+        finally { setBusy(false) }
+    }
+    const fieldError = (field: string) => fieldErrors[field] ? <span className="field-error">{fieldErrors[field]}</span> : null
+    return <section className="form-view"><div className="view-header"><div><span className="eyebrow">Попит</span><h1>Створити запит на купівлю</h1><p className="view-subtitle">Продавці поблизу побачать лише приблизну точку.</p></div><button className="icon-button" type="button" onClick={onCancel}>×</button></div><form className="product-form request-form" onSubmit={submit}><label className={fieldErrors.title ? 'field-invalid' : ''}>Що потрібно<input name="title" placeholder="Наприклад, пшениця для господарства" required />{fieldError('title')}</label><label className={fieldErrors.categoryId ? 'field-invalid' : ''}>Категорія<select name="categoryId" defaultValue={categories[0]?.id ?? ''} required><option value="" disabled>Оберіть категорію</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>{fieldError('categoryId')}</label><label>Опис<textarea name="description" rows={4} placeholder="Коротко опишіть вимоги" /></label><div className="field-row"><label>Кількість<input name="quantity" type="number" min=".001" step=".001" defaultValue="1" required />{fieldError('quantity')}</label><label>Одиниця<select name="unit" defaultValue="kg"><option value="kg">кг</option><option value="ton">тонна</option><option value="litre">літр</option><option value="piece">шт.</option><option value="box">ящик</option></select></label></div><div className="field-row"><label>Мінімальна ціна<input name="minPrice" type="number" min="0" step=".01" defaultValue="0" required />{fieldError('minPrice')}</label><label>Максимальна ціна<input name="maxPrice" type="number" min="0" step=".01" defaultValue="0" required />{fieldError('maxPrice')}</label></div><label>Валюта<select name="currency" defaultValue="UAH"><option>UAH</option><option>EUR</option><option>PLN</option></select></label><div className="field-row"><label>Доставка<select name="delivery" defaultValue="preferred"><option value="no">Не потрібна</option><option value="yes">Потрібна</option><option value="preferred">Бажана</option></select></label><label>До дати<input name="deadline" type="date" /></label></div><label>Регіон пошуку<input name="geoArea" placeholder="Київ, Київська область" required />{fieldError('geoArea')}</label><label>Точна адреса для доставки <small className="form-hint">не показується на мапі</small><input name="address" placeholder="Необов’язково" /></label><div className="request-location"><div><strong>Приблизна точка на мапі</strong><small>Використовується тільки для пошуку поруч</small></div><button type="button" className="outline-button" onClick={useLocation}>⌖ Моє місце</button><div className="field-row"><label>Широта<input value={latitude} onChange={(event) => setLatitude(event.target.value)} type="number" step=".000001" min="-90" max="90" required /></label><label>Довгота<input value={longitude} onChange={(event) => setLongitude(event.target.value)} type="number" step=".000001" min="-180" max="180" required /></label></div></div>{error && <p className="form-error">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Опублікувати запит'} <span>→</span></button></form></section>
+}
+
 function App() {
     const [user, setUser] = useState<User | null>(null)
     const [view, setView] = useState<View>('home')
@@ -100,12 +208,13 @@ function App() {
     const go = (next: View) => { setView(next); setSelected(null); setEditing(undefined) }
     const logout = async () => { await request('/api/auth/logout', { method: 'POST' }); setUser(null) }
     const saved = () => { setView('mine'); setEditing(undefined); loadProducts(page); loadMine(); notify('Товар збережено') }
+    const requestSaved = () => { setView('map'); notify('Запит опубліковано на мапі') }
     const removeProduct = async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; try { await request(`/api/products/${product.id}`, { method: 'DELETE' }); setSelected(null); await loadProducts(page); await loadMine(); notify('Товар видалено') } catch (error) { notify((error as Error).message) } }
     useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined); request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, [])
     useEffect(() => { if (user) { loadProducts(); loadMine() } }, [user])
     if (!user) return <Auth onLogin={setUser} />
-    const nav = [['home', '⌂', 'Головна'], ['products', '⌕', 'Знайти товари'], ['mine', '▣', 'Мої товари'], ['create', '＋', 'Додати товар']] as const
-    return <div className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark">N</span> Навпаки</div><div className="seller-badge"><div className="avatar">{user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></div><nav>{nav.map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key)}><span>{icon}</span>{text}</button>)}<button onClick={() => notify('Розділ повідомлень готується')}><span>♧</span>Повідомлення</button></nav><button className="sidebar-exit" onClick={logout}>↪ Вийти</button></aside><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('home')}><span className="brand-mark">N</span> Навпаки</button><div className="topbar-actions"><button className="notification" onClick={() => notify('Нових повідомлень немає')}>♧</button><button className="top-avatar" onClick={() => go('profile')}>{user.username[0].toUpperCase()}</button></div></header>{view === 'home' && <Home user={user} products={products} open={setSelected} explore={() => go('products')} create={() => go('create')} />}{view === 'products' && <Catalog products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={setSelected} />}{view === 'mine' && <Mine products={mine} open={setSelected} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'profile' && <Profile user={user} logout={logout} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['products', '⌕', 'Пошук'], ['create', '＋', 'Додати'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}</button>)}</nav>{selected && <ProductDetail product={selected} close={() => setSelected(null)} owner={selected.owner.id === user.id} edit={() => { setEditing(selected); setSelected(null); setView('create') }} />}{toast && <div className="toast">{toast}</div>}</div>
+    const nav = [['home', '⌂', 'Головна'], ['products', '⌕', 'Знайти товари'], ['map', '⌖', 'Мапа поруч'], ['request', '↗', 'Запит на купівлю'], ['mine', '▣', 'Мої товари'], ['create', '＋', 'Додати товар']] as const
+    return <div className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark">N</span> Навпаки</div><div className="seller-badge"><div className="avatar">{user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></div><nav>{nav.map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key)}><span>{icon}</span>{text}</button>)}<button onClick={() => notify('Розділ повідомлень готується')}><span>♧</span>Повідомлення</button></nav><button className="sidebar-exit" onClick={logout}>↪ Вийти</button></aside><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('home')}><span className="brand-mark">N</span> Навпаки</button><div className="topbar-actions"><button className="notification" onClick={() => notify('Нових повідомлень немає')}>♧</button><button className="top-avatar" onClick={() => go('profile')}>{user.username[0].toUpperCase()}</button></div></header>{view === 'home' && <Home user={user} products={products} open={setSelected} explore={() => go('products')} create={() => go('create')} />}{view === 'products' && <Catalog products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={setSelected} />}{view === 'map' && <MapView categories={categories} openProduct={setSelected} notify={notify} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} open={setSelected} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'profile' && <Profile user={user} logout={logout} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['products', '⌕', 'Пошук'], ['map', '⌖', 'Мапа'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}</button>)}</nav>{selected && <ProductDetail product={selected} close={() => setSelected(null)} owner={selected.owner.id === user.id} edit={() => { setEditing(selected); setSelected(null); setView('create') }} />}{toast && <div className="toast">{toast}</div>}</div>
 }
 
 function Home({ user, products, open, explore, create }: { user: User; products: Product[]; open: (product: Product) => void; explore: () => void; create: () => void }) { return <section className="content"><div className="welcome"><div><span className="eyebrow">Понеділок, гарного дня</span><h1>Привіт, {user.username} <span>✦</span></h1><p>Що шукаєте або продаєте сьогодні?</p></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="hero-strip"><div><span className="eyebrow">Локальний маркетплейс</span><h2>Ваш врожай<br /><em>має значення.</em></h2><button className="light-button" onClick={explore}>Переглянути товари <span>→</span></button></div><div className="hero-art">✦</div></div><div className="section-heading"><div><span className="eyebrow">Рекомендоване</span><h2>Товари поруч</h2></div><button className="text-button" onClick={explore}>Дивитись всі →</button></div><div className="product-grid">{products.slice(0, 4).map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} />)}</div>{!products.length && <Empty text="Поки немає активних товарів" />}</section> }
