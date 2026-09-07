@@ -5,6 +5,7 @@ import { checkDatabase } from './db/client.js'
 import { login, logout, register, requireAuth } from './auth.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
+import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listOffers, updateBuyRequest } from './buy-requests.js'
 
 export const createApp = () => {
     const app = express()
@@ -85,6 +86,34 @@ export const createApp = () => {
 
     app.delete('/api/products/:id', requireAuth, async (request, response, next) => {
         try { const result = await deleteProduct(request.authUser!, String(request.params.id)); if (result.status === 204) response.status(204).send(); else response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/buy-requests', async (request, response, next) => {
+        try { const result = await listBuyRequests(request.query, request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/buy-requests/:id', async (request, response, next) => {
+        try { const result = await getBuyRequest(String(request.params.id), request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.post('/api/buy-requests', requireAuth, async (request, response, next) => {
+        try { const result = await createBuyRequest(request.authUser!, request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.patch('/api/buy-requests/:id', requireAuth, async (request, response, next) => {
+        try { const result = await updateBuyRequest(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/buy-requests/:id/offers', requireAuth, async (request, response, next) => {
+        try { const result = await listOffers(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.post('/api/buy-requests/:id/offers', requireAuth, async (request, response, next) => {
+        try { const result = await createOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.post('/api/offers/:id/accept', requireAuth, async (request, response, next) => {
+        try { const result = await acceptOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 
     app.use((_error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
