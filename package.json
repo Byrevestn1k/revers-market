@@ -1,16 +1,23 @@
 {
-  "name": "marketplace-navpaky",
-  "private": true,
-  "version": "0.1.0",
-  "description": "Minimal full-stack foundation for a location-aware web platform.",
-  "workspaces": ["frontend", "backend"],
-  "scripts": {
-    "dev": "concurrently -k -n frontend,backend -c blue,green \"npm run dev --workspace frontend\" \"npm run dev --workspace backend\"",
-    "build": "npm run build --workspace frontend && npm run build --workspace backend",
-    "typecheck": "npm run typecheck --workspace frontend && npm run typecheck --workspace backend",
-    "start": "npm run start --workspace backend"
-  },
-  "devDependencies": {
-    "concurrently": "^9.1.2"
-  }
+    "name": "marketplace-navpaky",
+    "private": true,
+    "version": "0.1.0",
+    "description": "Minimal full-stack foundation for a location-aware web platform.",
+    "workspaces": [
+        "frontend",
+        "backend"
+    ],
+    "scripts": {
+        "db:up": "docker compose up -d --wait",
+        "db:down": "docker compose down",
+        "db:migrate": "npm run db:migrate --workspace backend",
+        "db:status": "docker compose ps",
+        "dev": "concurrently -k -n frontend,backend -c blue,green \"npm run dev --workspace frontend\" \"npm run dev --workspace backend\"",
+        "build": "npm run build --workspace frontend && npm run build --workspace backend",
+        "typecheck": "npm run typecheck --workspace frontend && npm run typecheck --workspace backend",
+        "start": "npm run start --workspace backend"
+    },
+    "devDependencies": {
+        "concurrently": "^9.1.2"
+    }
 }

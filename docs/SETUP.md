@@ -4,8 +4,9 @@
 
 - Node.js 20+
 - npm 10+
+- Docker Desktop with Linux containers
 
-База даних для стартового каркаса не потрібна. PostgreSQL/PostGIS буде підключено окремим етапом через змінну `DATABASE_URL`.
+PostgreSQL/PostGIS запускається окремо через Docker. Повна інструкція знаходиться в [DATABASE_SETUP.md](../DATABASE_SETUP.md).
 
 ## Встановлення
 
@@ -14,6 +15,8 @@
 ```bash
 npm install
 copy .env.example .env
+npm run db:up
+npm run db:migrate
 ```
 
 Для PowerShell:
@@ -30,7 +33,7 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-Команда запускає Vite на `http://localhost:5173` та API на `http://localhost:3000`. Backend слухає лише `localhost`, тому локальні сервіси не відкриваються у публічний інтернет.
+Команда запускає Vite на `http://localhost:5173` та API на `http://localhost:3000`. Backend слухає лише `localhost`, а PostgreSQL порт прив'язаний до `127.0.0.1`, тому локальні сервіси не відкриваються у публічний інтернет.
 
 Перевірка API:
 
@@ -38,7 +41,7 @@ npm run dev
 curl http://localhost:3000/health
 ```
 
-Очікувана відповідь містить `status: "ok"`.
+Очікувана відповідь містить `status: "ok"` і `database.status: "ok"`.
 
 ## Перевірки
 
@@ -49,6 +52,6 @@ npm run build
 
 ## Майбутні інтеграції
 
-- PostgreSQL/PostGIS: додати окремий persistence-модуль у `backend` і міграції.
+- PostgreSQL/PostGIS: persistence-модуль, міграції та seed категорій знаходяться в `backend/db`.
 - Flutter: використовувати HTTP API як незалежний клієнтський контракт.
 - Карти, чат та AI: додавати окремими модулями після узгодження API та безпеки.
