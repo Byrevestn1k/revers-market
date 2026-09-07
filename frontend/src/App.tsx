@@ -1,144 +1,115 @@
 import { FormEvent, useEffect, useState } from 'react'
 
-type User = { username: string; countryCode: string; phone: string }
-type Mode = 'register' | 'login'
+type User = { id: string; username: string; countryCode: string; phone: string }
+type Category = { id: string; code?: string; name: string; path?: string }
+type Product = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; status: string; owner: { id: string }; category: { id: string; name: string } }
+type View = 'home' | 'products' | 'mine' | 'create' | 'profile'
 type ApiError = Error & { fields?: string[] }
-const countryOptions = [
-    { code: 'UA', dial: '+380', min: 9, max: 10 },
-    { code: 'PL', dial: '+48', min: 9, max: 9 },
-    { code: 'DE', dial: '+49', min: 10, max: 11 },
-    { code: 'CZ', dial: '+420', min: 9, max: 9 },
-    { code: 'SK', dial: '+421', min: 9, max: 9 },
-    { code: 'RO', dial: '+40', min: 9, max: 9 },
-    { code: 'HU', dial: '+36', min: 9, max: 9 },
-    { code: 'LT', dial: '+370', min: 8, max: 8 },
-    { code: 'LV', dial: '+371', min: 8, max: 8 },
-    { code: 'EE', dial: '+372', min: 7, max: 8 },
-    { code: 'MD', dial: '+373', min: 8, max: 8 },
-    { code: 'GB', dial: '+44', min: 10, max: 10 },
-    { code: 'US', dial: '+1', min: 10, max: 10 },
-    { code: 'CA', dial: '+1', min: 10, max: 10 },
-]
-
-const apiUrl = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3000'
+const API = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3000'
+const FALLBACK = 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=900&q=80'
+const STATUS: Record<string, string> = { draft: 'Чернетка', active: 'Активний', paused: 'Призупинений', sold: 'Проданий', expired: 'Завершений' }
+const imageUrl = (url: string) => url.startsWith('/') ? `${API}${url}` : url
 
 async function request(path: string, options?: RequestInit) {
-    let response: Response
-    try {
-        response = await fetch(`${apiUrl}${path}`, {
-            ...options,
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-        })
-    } catch {
-        throw new Error('Не вдалося з’єднатися із сервером')
-    }
+    const response = await fetch(`${API}${path}`, { ...options, credentials: 'include', headers: { 'Content-Type': 'application/json', ...options?.headers } })
     const body = response.status === 204 ? null : await response.json()
-    if (!response.ok) {
-        const error = new Error(body?.message ?? 'Не вдалося виконати запит') as ApiError
-        error.fields = body?.fields ?? []
-        throw error
-    }
+    if (!response.ok) { const error = new Error(body?.message ?? 'Не вдалося виконати запит') as ApiError; error.fields = body?.fields ?? []; throw error }
     return body
 }
+const formatPrice = (amount: number, currency: string) => `${new Intl.NumberFormat('uk-UA').format(amount)} ${currency}`
 
-function App() {
-    const [mode, setMode] = useState<Mode>('register')
-    const [user, setUser] = useState<User | null>(null)
+function Auth({ onLogin }: { onLogin: (user: User) => void }) {
+    const [register, setRegister] = useState(false)
     const [error, setError] = useState('')
-    const [errorFields, setErrorFields] = useState<string[]>([])
-    const [notice, setNotice] = useState('')
-    const [showPassword, setShowPassword] = useState(false)
-    const [showConfirmation, setShowConfirmation] = useState(false)
     const [busy, setBusy] = useState(false)
-    const [countryCode, setCountryCode] = useState('UA')
-    const [phone, setPhone] = useState('')
-
-    useEffect(() => {
-        request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined)
-    }, [])
-
     const submit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault()
-        setError('')
-        setErrorFields([])
-        setNotice('')
-        setBusy(true)
-        const form = new FormData(event.currentTarget)
-        const payload = Object.fromEntries(form.entries())
-        if (mode === 'register') {
-            const country = countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0]
-            const enteredPhone = String(payload.phone ?? '').trim()
-            payload.countryCode = country.code
-            payload.phone = enteredPhone
-        }
-        try {
-            const result = await request(`/api/auth/${mode}`, { method: 'POST', body: JSON.stringify(payload) })
-            setUser(result.user)
-            setNotice(mode === 'register' ? 'Обліковий запис створено' : 'Ви увійшли в обліковий запис')
-        } catch (requestError) {
-            const apiError = requestError as ApiError
-            setError(apiError instanceof Error ? apiError.message : 'Невідома помилка')
-            setErrorFields(apiError.fields ?? [])
-        } finally {
-            setBusy(false)
-        }
+        event.preventDefault(); setBusy(true); setError('')
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries())
+        if (register) data.countryCode = 'UA'
+        try { const result = await request(`/api/auth/${register ? 'register' : 'login'}`, { method: 'POST', body: JSON.stringify(data) }); onLogin(result.user) }
+        catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
     }
-
-    const hasFieldError = (field: string) => errorFields.some((message) => {
-        if (field === 'username') return message.includes('Ім’я користувача')
-        if (field === 'countryCode') return message.includes('код країни')
-        if (field === 'phone') return message.includes('номер телефону')
-        if (field === 'password') return message.startsWith('Пароль:')
-        if (field === 'passwordConfirmation') return message.includes('Паролі')
-        return false
-    })
-    const selectedCountry = countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0]
-
-    const signOut = async () => {
-        await request('/api/auth/logout', { method: 'POST' })
-        setUser(null)
-        setNotice('Ви вийшли з облікового запису')
-    }
-
-    return (
-        <main className="shell">
-            <section className="auth-layout" aria-labelledby="page-title">
-                <div className="intro">
-                    <h1 id="page-title">Обліковий запис</h1>
-                </div>
-                <div className="auth-panel">
-                    {user ? (
-                        <div className="signed-in">
-                            <p className="panel-label">Ви увійшли як</p>
-                            <h2>{user.username}</h2>
-                            <p>{user.countryCode} · {user.phone}</p>
-                            <button className="button secondary" type="button" onClick={signOut}>Вийти</button>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="mode-switch" role="tablist" aria-label="Дія з обліковим записом">
-                                <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => setMode('register')}>Реєстрація</button>
-                                <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>Вхід</button>
-                            </div>
-                            <form onSubmit={submit} noValidate>
-                                <label className={hasFieldError('username') ? 'invalid' : ''}>Ім’я користувача<input className={hasFieldError('username') ? 'invalid' : ''} name="username" autoComplete="username" required minLength={3} maxLength={32} /></label>
-                                {mode === 'register' && <div className="two-columns">
-                                    <label className={hasFieldError('countryCode') ? 'invalid' : ''}>Код країни<select className={hasFieldError('countryCode') ? 'invalid' : ''} name="countryCode" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} required>{countryOptions.map((option) => <option key={option.code} value={option.code}>{option.code} {option.dial}</option>)}</select></label>
-                                    <label className={hasFieldError('phone') ? 'invalid' : ''}>Телефон<input className={hasFieldError('phone') ? 'invalid' : ''} name="phone" type="tel" inputMode="numeric" pattern="[0-9]*" minLength={selectedCountry.min} maxLength={selectedCountry.max} autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} required /></label>
-                                </div>}
-                                <label className={hasFieldError('password') ? 'invalid' : ''}>Пароль<div className={`password-field${hasFieldError('password') ? ' invalid' : ''}`}><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} required /><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Сховати' : 'Показати'}</button></div></label>
-                                {mode === 'register' && <label className={hasFieldError('passwordConfirmation') ? 'invalid' : ''}>Підтвердження пароля<div className={`password-field${hasFieldError('passwordConfirmation') ? ' invalid' : ''}`}><input name="passwordConfirmation" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" required /><button type="button" className="password-toggle" onClick={() => setShowConfirmation(!showConfirmation)}>{showConfirmation ? 'Сховати' : 'Показати'}</button></div></label>}
-                                {error && <div className="form-message error" role="alert"><p>{error}</p>{errorFields.length > 0 && <ul>{errorFields.map((fieldError) => <li key={fieldError}>{fieldError}</li>)}</ul>}</div>}
-                                {notice && <p className="form-message success" role="status">{notice}</p>}
-                                <button className="button" type="submit" disabled={busy}>{busy ? 'Зачекайте...' : mode === 'register' ? 'Створити обліковий запис' : 'Увійти'}</button>
-                            </form>
-                        </>
-                    )}
-                </div>
-            </section>
-        </main>
-    )
+    return <main className="auth-page"><div className="auth-story"><div className="brand"><span className="brand-mark">N</span> Навпаки</div><span className="eyebrow">Маркетплейс поруч</span><h1>Продавайте те,<br /><em>що росте.</em></h1><p>Агропродукція від своїх. Чесно, локально, без зайвих кроків.</p></div><section className="auth-card"><span className="eyebrow">Ласкаво просимо</span><h2>{register ? 'Створіть акаунт' : 'З поверненням'}</h2><p>{register ? 'Почніть продавати врожай поруч.' : 'Увійдіть, щоб керувати товарами.'}</p><div className="auth-tabs"><button className={!register ? 'selected' : ''} onClick={() => setRegister(false)}>Увійти</button><button className={register ? 'selected' : ''} onClick={() => setRegister(true)}>Реєстрація</button></div><form onSubmit={submit}><label>Ім’я користувача<input name="username" required /></label>{register && <label>Телефон<input name="phone" required /></label>}<label>Пароль<input name="password" type="password" required /></label>{register && <label>Підтвердження пароля<input name="passwordConfirmation" type="password" required /></label>}{error && <p className="form-error">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Зачекайте...' : register ? 'Створити акаунт' : 'Увійти в акаунт'} <span>→</span></button></form></section></main>
 }
 
+function Card({ product, onOpen, onEdit, onDelete }: { product: Product; onOpen: () => void; onEdit?: () => void; onDelete?: () => void }) {
+    return <article className="product-card" onClick={onOpen}><div className="product-image"><img src={imageUrl(product.photos[0]?.url || FALLBACK)} alt={product.photos[0]?.alt || product.title} /><span className={`status status-${product.status}`}>{STATUS[product.status]}</span>{onEdit && <button className="card-edit" onClick={(event) => { event.stopPropagation(); onEdit() }}>•••</button>}{onDelete && <button className="card-delete" onClick={(event) => { event.stopPropagation(); onDelete() }}>×</button>}</div><div className="product-card-body"><div className="product-card-title"><h3>{product.title}</h3><span className="heart">♡</span></div><strong className="price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {product.unit}</small></strong><p><span>⌖</span> {product.geoZone}</p><div className="card-meta"><span>{product.quantity} {product.unit}</span><span>{product.category.name}</span></div></div></article>
+}
+function Empty({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) { return <div className="empty-state"><span>✦</span><h3>{text}</h3>{action && <button className="primary-button compact" onClick={onAction}>{action}</button>}</div> }
+function Pagination({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) { return pages > 1 ? <div className="pagination"><button disabled={page === 1} onClick={() => onPage(page - 1)}>←</button><span>{page} / {pages}</span><button disabled={page === pages} onClick={() => onPage(page + 1)}>→</button></div> : null }
+
+function ProductDetail({ product, close, owner, edit }: { product: Product; close: () => void; owner: boolean; edit: () => void }) {
+    return <div className="modal-backdrop" onClick={close}><section className="detail-modal" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={close}>×</button><img className="detail-image" src={imageUrl(product.photos[0]?.url || FALLBACK)} alt={product.title} /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h2>{product.title}</h2><strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {product.unit}</small></strong><p className="detail-description">{product.description || 'Опис товару ще не додано.'}</p><div className="detail-facts"><span>⌖ <b>{product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {product.unit}</b><small>Кількість</small></span><span>♧ <b>{product.deliveryMode}</b><small>Доставка</small></span></div>{owner && <button className="primary-button" onClick={edit}>Редагувати товар <span>→</span></button>}</div></section></div>
+}
+
+function LegacyProductForm({ categories, product, onSaved, onCancel }: { categories: Category[]; product?: Product; onSaved: () => void; onCancel: () => void }) {
+    const [photo, setPhoto] = useState(product?.photos[0]?.url ?? '')
+    const [error, setError] = useState('')
+    const [busy, setBusy] = useState(false)
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault(); setBusy(true); setError('')
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
+        const payload = { categoryId: data.categoryId, title: data.title, description: data.description, quantity: Number(data.quantity), unit: data.unit, price: Number(data.price), currency: data.currency, deliveryMode: data.deliveryMode, geoZone: data.geoZone, status: data.status, photos: photo ? [{ url: photo, alt: data.title }] : [] }
+        try { await request(product ? `/api/products/${product.id}` : '/api/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); onSaved() } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
+    }
+    return <section className="form-view"><div className="view-header"><div><span className="eyebrow">{product ? 'Редагування' : 'Новий товар'}</span><h1>{product ? 'Оновити товар' : 'Додати товар'}</h1></div><button className="icon-button" onClick={onCancel}>×</button></div><form className="product-form" onSubmit={submit}><div className="photo-drop"><span className="photo-icon">▧</span><strong>{photo ? 'Фото додано' : 'Додайте фото товару'}</strong><small>URL зображення</small><input value={photo} onChange={(event) => setPhoto(event.target.value)} placeholder="https://..." /></div><label>Назва товару<input name="title" defaultValue={product?.title} required /></label><label>Категорія<select name="categoryId" defaultValue={product?.category.id ?? categories[0]?.id} required>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><div className="field-row"><label>Кількість<input name="quantity" type="number" min=".001" step=".001" defaultValue={product?.quantity ?? 1} required /></label><label>Одиниця<select name="unit" defaultValue={product?.unit ?? 'kg'}><option value="kg">кг</option><option value="ton">тонна</option><option value="litre">літр</option><option value="piece">шт.</option></select></label></div><div className="field-row"><label>Ціна<input name="price" type="number" min="0" step=".01" defaultValue={product?.price.amount ?? 0} required /></label><label>Валюта<select name="currency" defaultValue={product?.price.currency ?? 'UAH'}><option>UAH</option><option>EUR</option><option>PLN</option></select></label></div><label>Місце / геозона<input name="geoZone" defaultValue={product?.geoZone} placeholder="Рівне, область" required /></label><label>Доставка<select name="deliveryMode" defaultValue={product?.deliveryMode ?? 'pickup'}><option value="pickup">Самовивіз</option><option value="seller_delivery">Доставка продавця</option><option value="carrier">Перевізник</option></select></label><label>Статус<select name="status" defaultValue={product?.status ?? 'draft'}>{Object.entries(STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Опис<textarea name="description" defaultValue={product?.description} rows={4} /></label>{error && <p className="form-error">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Збереження...' : product ? 'Зберегти зміни' : 'Опублікувати товар'} <span>→</span></button></form></section>
+}
+
+function ProductEditor({ categories, product, onSaved, onCancel }: { categories: Category[]; product?: Product; onSaved: () => void; onCancel: () => void }) {
+    const [title, setTitle] = useState(product?.title ?? '')
+    const [categoryId, setCategoryId] = useState(product?.category.id ?? categories[0]?.id ?? '')
+    const [categoryQuery, setCategoryQuery] = useState(product?.category.name ?? '')
+    const [photo, setPhoto] = useState(product?.photos[0]?.url ?? '')
+    const [errors, setErrors] = useState<Record<string, string>>({})
+    const [busy, setBusy] = useState(false)
+    const categorySuggestions = categoryQuery.trim().length >= 3
+        ? categories.filter((category) => category.name.toLocaleLowerCase('uk-UA').includes(categoryQuery.trim().toLocaleLowerCase('uk-UA'))).slice(0, 8)
+        : []
+    const selectCategory = (category: Category) => { setCategoryId(category.id); setCategoryQuery(category.name); setErrors((current) => ({ ...current, categoryId: '' })) }
+    const fieldError = (field: string) => errors[field] ? <span className="field-error">{errors[field]}</span> : null
+    const readFile = (file?: File) => { if (!file) return; const reader = new FileReader(); reader.onload = () => setPhoto(String(reader.result)); reader.readAsDataURL(file) }
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault(); setBusy(true); setErrors({})
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
+        const payload = { categoryId, title: title.trim(), description: data.description, quantity: Number(data.quantity), unit: data.unit, price: Number(data.price), currency: data.currency, deliveryMode: data.deliveryMode, geoZone: data.geoZone, status: data.status, photos: photo ? [{ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: title.trim() }] : [] }
+        try { await request(product ? `/api/products/${product.id}` : '/api/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); onSaved() }
+        catch (caught) { const error = caught as ApiError; const nextErrors: Record<string, string> = {}; for (const field of error.fields ?? []) nextErrors[field] = ({ categoryId: 'Оберіть категорію', title: 'Введіть назву від 2 до 160 символів', description: 'Опис не може бути довшим за 5000 символів', quantity: 'Кількість має бути більшою за нуль', unit: 'Оберіть одиницю виміру', price: 'Ціна не може бути від’ємною', currency: 'Оберіть коректну валюту', deliveryMode: 'Оберіть спосіб доставки', geoZone: 'Вкажіть геозону', photos: 'Додайте коректне зображення' } as Record<string, string>)[field] ?? error.message; setErrors(nextErrors) }
+        finally { setBusy(false) }
+    }
+    return <section className="form-view"><div className="view-header"><div><span className="eyebrow">{product ? 'Редагування' : 'Новий товар'}</span><h1>{product ? 'Оновити товар' : 'Додати товар'}</h1></div><button className="icon-button" type="button" onClick={onCancel}>×</button></div><form className="product-form" onSubmit={submit}><div className="photo-drop"><span className="photo-icon">▧</span><strong>{photo ? 'Фото додано' : 'Додайте фото товару'}</strong><small>PNG, JPG, WEBP або URL</small>{photo && <img className="photo-preview" src={photo} alt="Попередній перегляд" />}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => readFile(event.target.files?.[0])} /><input value={photo.startsWith('data:') ? '' : photo} onChange={(event) => setPhoto(event.target.value)} placeholder="Або вставте URL зображення" />{fieldError('photos')}</div><label className={errors.title ? 'field-invalid' : ''}>Назва товару<input value={title} onChange={(event) => { setTitle(event.target.value); setErrors((current) => ({ ...current, title: '' })) }} required />{fieldError('title')}</label><label className={errors.categoryId ? 'field-invalid' : ''}>Категорія<input value={categoryQuery} onChange={(event) => setCategoryQuery(event.target.value)} placeholder="Введіть мінімум 3 символи" autoComplete="off" required />{categorySuggestions.length > 0 && <div className="category-suggestions">{categorySuggestions.map((category) => <button type="button" key={category.id} onClick={() => selectCategory(category)}>{category.name}<small>{category.path ?? 'Агропродукція'}</small></button>)}</div>}{categoryQuery.length >= 3 && !categoryId && <span className="field-error">Оберіть категорію зі списку</span>}{fieldError('categoryId')}</label><input type="hidden" name="categoryId" value={categoryId} /><div className="field-row"><label className={errors.quantity ? 'field-invalid' : ''}>Кількість<input name="quantity" type="number" min=".001" step=".001" defaultValue={product?.quantity ?? 1} required />{fieldError('quantity')}</label><label className={errors.unit ? 'field-invalid' : ''}>Одиниця<select name="unit" defaultValue={product?.unit ?? 'kg'}><option value="kg">кг</option><option value="ton">тонна</option><option value="litre">літр</option><option value="piece">шт.</option><option value="box">ящик</option></select>{fieldError('unit')}</label></div><div className="field-row"><label className={errors.price ? 'field-invalid' : ''}>Ціна<input name="price" type="number" min="0" step=".01" defaultValue={product?.price.amount ?? 0} required />{fieldError('price')}</label><label className={errors.currency ? 'field-invalid' : ''}>Валюта<select name="currency" defaultValue={product?.price.currency ?? 'UAH'}><option>UAH</option><option>EUR</option><option>PLN</option></select>{fieldError('currency')}</label></div><label className={errors.geoZone ? 'field-invalid' : ''}>Місце / геозона<input name="geoZone" defaultValue={product?.geoZone} placeholder="Рівне, область" required />{fieldError('geoZone')}</label><label className={errors.deliveryMode ? 'field-invalid' : ''}>Доставка<select name="deliveryMode" defaultValue={product?.deliveryMode ?? 'pickup'}><option value="pickup">Самовивіз</option><option value="seller_delivery">Доставка продавця</option><option value="carrier">Перевізник</option></select>{fieldError('deliveryMode')}</label><label>Статус<select name="status" defaultValue={product?.status ?? 'draft'}>{Object.entries(STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={errors.description ? 'field-invalid' : ''}>Опис<textarea name="description" defaultValue={product?.description} rows={4} />{fieldError('description')}</label><button className="primary-button" disabled={busy}>{busy ? 'Збереження...' : product ? 'Зберегти зміни' : 'Опублікувати товар'} <span>→</span></button></form></section>
+}
+
+const ProductForm = ProductEditor
+
+function App() {
+    const [user, setUser] = useState<User | null>(null)
+    const [view, setView] = useState<View>('home')
+    const [products, setProducts] = useState<Product[]>([])
+    const [mine, setMine] = useState<Product[]>([])
+    const [categories, setCategories] = useState<Category[]>([])
+    const [selected, setSelected] = useState<Product | null>(null)
+    const [editing, setEditing] = useState<Product>()
+    const [search, setSearch] = useState('')
+    const [page, setPage] = useState(1)
+    const [pages, setPages] = useState(1)
+    const [toast, setToast] = useState('')
+    const [loading, setLoading] = useState(false)
+    const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 3000) }
+    const loadProducts = async (nextPage = 1) => { setLoading(true); try { const params = new URLSearchParams({ page: String(nextPage), limit: '8' }); if (search) params.set('geoZone', search); const result = await request(`/api/products?${params}`); setProducts(result.products); setPage(result.pagination.page); setPages(result.pagination.pages) } catch (error) { notify((error as Error).message) } finally { setLoading(false) } }
+    const loadMine = async () => { try { setMine((await request('/api/products/mine?limit=50')).products) } catch (error) { notify((error as Error).message) } }
+    const go = (next: View) => { setView(next); setSelected(null); setEditing(undefined) }
+    const logout = async () => { await request('/api/auth/logout', { method: 'POST' }); setUser(null) }
+    const saved = () => { setView('mine'); setEditing(undefined); loadProducts(page); loadMine(); notify('Товар збережено') }
+    const removeProduct = async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; try { await request(`/api/products/${product.id}`, { method: 'DELETE' }); setSelected(null); await loadProducts(page); await loadMine(); notify('Товар видалено') } catch (error) { notify((error as Error).message) } }
+    useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined); request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, [])
+    useEffect(() => { if (user) { loadProducts(); loadMine() } }, [user])
+    if (!user) return <Auth onLogin={setUser} />
+    const nav = [['home', '⌂', 'Головна'], ['products', '⌕', 'Знайти товари'], ['mine', '▣', 'Мої товари'], ['create', '＋', 'Додати товар']] as const
+    return <div className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark">N</span> Навпаки</div><div className="seller-badge"><div className="avatar">{user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></div><nav>{nav.map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key)}><span>{icon}</span>{text}</button>)}<button onClick={() => notify('Розділ повідомлень готується')}><span>♧</span>Повідомлення</button></nav><button className="sidebar-exit" onClick={logout}>↪ Вийти</button></aside><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('home')}><span className="brand-mark">N</span> Навпаки</button><div className="topbar-actions"><button className="notification" onClick={() => notify('Нових повідомлень немає')}>♧</button><button className="top-avatar" onClick={() => go('profile')}>{user.username[0].toUpperCase()}</button></div></header>{view === 'home' && <Home user={user} products={products} open={setSelected} explore={() => go('products')} create={() => go('create')} />}{view === 'products' && <Catalog products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={setSelected} />}{view === 'mine' && <Mine products={mine} open={setSelected} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'profile' && <Profile user={user} logout={logout} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['products', '⌕', 'Пошук'], ['create', '＋', 'Додати'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}</button>)}</nav>{selected && <ProductDetail product={selected} close={() => setSelected(null)} owner={selected.owner.id === user.id} edit={() => { setEditing(selected); setSelected(null); setView('create') }} />}{toast && <div className="toast">{toast}</div>}</div>
+}
+
+function Home({ user, products, open, explore, create }: { user: User; products: Product[]; open: (product: Product) => void; explore: () => void; create: () => void }) { return <section className="content"><div className="welcome"><div><span className="eyebrow">Понеділок, гарного дня</span><h1>Привіт, {user.username} <span>✦</span></h1><p>Що шукаєте або продаєте сьогодні?</p></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="hero-strip"><div><span className="eyebrow">Локальний маркетплейс</span><h2>Ваш врожай<br /><em>має значення.</em></h2><button className="light-button" onClick={explore}>Переглянути товари <span>→</span></button></div><div className="hero-art">✦</div></div><div className="section-heading"><div><span className="eyebrow">Рекомендоване</span><h2>Товари поруч</h2></div><button className="text-button" onClick={explore}>Дивитись всі →</button></div><div className="product-grid">{products.slice(0, 4).map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} />)}</div>{!products.length && <Empty text="Поки немає активних товарів" />}</section> }
+function Catalog({ products, loading, search, setSearch, searchNow, page, pages, onPage, open }: { products: Product[]; loading: boolean; search: string; setSearch: (value: string) => void; searchNow: () => void; page: number; pages: number; onPage: (page: number) => void; open: (product: Product) => void }) { const [categories, setCategories] = useState<Category[]>([]); const [selectedCategory, setSelectedCategory] = useState(''); const [catalogProducts, setCatalogProducts] = useState(products); const [catalogPage, setCatalogPage] = useState(page); const [catalogPages, setCatalogPages] = useState(pages); const [catalogLoading, setCatalogLoading] = useState(false); const runSearch = async (nextPage = 1, category = selectedCategory) => { setCatalogLoading(true); try { const params = new URLSearchParams({ page: String(nextPage), limit: '8' }); if (search) params.set('geoZone', search); if (category) params.set('categoryId', category); const result = await request(`/api/products?${params}`); setCatalogProducts(result.products); setCatalogPage(result.pagination.page); setCatalogPages(result.pagination.pages) } finally { setCatalogLoading(false) } }; useEffect(() => { request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, []); useEffect(() => { if (!selectedCategory && !search) { setCatalogProducts(products); setCatalogPage(page); setCatalogPages(pages) } }, [products, page, pages, selectedCategory, search]); const chooseCategory = (value: string) => { setSelectedCategory(value); runSearch(1, value) }; const busy = loading || catalogLoading; return <section className="content"><div className="view-header"><div><span className="eyebrow">Каталог</span><h1>Знайти товари</h1></div></div><div className="search-bar"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch(1)} placeholder="Пошук за місцем" /><button onClick={() => runSearch(1)}>Пошук</button></div><div className="filter-row"><span className="result-label">Активні товари</span><select className="filter-chip category-filter" value={selectedCategory} onChange={(event) => chooseCategory(event.target.value)}><option value="">Всі категорії</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div>{busy ? <div className="loading">Завантаження каталогу...</div> : catalogProducts.length ? <><div className="product-grid">{catalogProducts.map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} />)}</div><Pagination page={catalogPage} pages={catalogPages} onPage={(nextPage) => { runSearch(nextPage); onPage(nextPage) }} /></> : <Empty text="Нічого не знайдено" />}</section> }
+function Mine({ products, open, create, edit, remove }: { products: Product[]; open: (product: Product) => void; create: () => void; edit: (product: Product) => void; remove?: (product: Product) => void }) { const removeFromMine = remove ?? (async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; await request(`/api/products/${product.id}`, { method: 'DELETE' }); window.location.reload() }); return <section className="content"><div className="view-header"><div><span className="eyebrow">Мій кабінет</span><h1>Мої товари</h1></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="mine-summary"><strong>{products.length}</strong><span>всього товарів</span><strong>{products.filter((item) => item.status === 'active').length}</strong><span>активних</span></div>{products.length ? <div className="product-grid">{products.map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} onEdit={() => edit(product)} onDelete={() => removeFromMine(product)} />)}</div> : <Empty text="У вас ще немає товарів" action="Створити перший товар" onAction={create} />}</section> }
+function Profile({ user, logout }: { user: User; logout: () => void }) { return <section className="content profile-view"><span className="eyebrow">Налаштування</span><h1>Профіль</h1><div className="profile-card"><div className="profile-avatar">{user.username[0].toUpperCase()}</div><h2>{user.username}</h2><p>{user.countryCode} · {user.phone}</p><div className="profile-line"><span>Статус акаунта</span><b>Підтверджений</b></div><button className="outline-button" onClick={logout}>Вийти з акаунта</button></div></section> }
 export default App
