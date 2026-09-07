@@ -1,44 +1,30 @@
-:root {
-  color: #17332f;
-  background: #f3f1e9;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-}
-
+:root { color: #17332f; background: #f3f1e9; font-family: Georgia, 'Times New Roman', serif; font-synthesis: none; text-rendering: optimizeLegibility; }
 * { box-sizing: border-box; }
-
 body { margin: 0; min-width: 320px; }
-
-.shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: clamp(2rem, 6vw, 6rem);
-  background: radial-gradient(circle at 85% 15%, #d4e5d4 0, transparent 34%), #f3f1e9;
-}
-
-.intro { max-width: 760px; margin-top: 12vh; }
-
-.eyebrow {
-  margin: 0 0 1.5rem;
-  color: #a45336;
-  font: 700 0.75rem/1.2 Arial, sans-serif;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-h1 { max-width: 680px; margin: 0; font-size: clamp(3.2rem, 8vw, 7rem); line-height: 0.94; font-weight: 500; }
-
+.shell { min-height: 100vh; display: flex; flex-direction: column; justify-content: space-between; padding: clamp(2rem, 6vw, 6rem); background: radial-gradient(circle at 85% 15%, #d4e5d4 0, transparent 34%), #f3f1e9; }
+.auth-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 440px); gap: clamp(3rem, 9vw, 9rem); align-items: center; margin: 8vh auto 10vh; width: min(1120px, 100%); }
+.intro { max-width: 680px; }
+.eyebrow, .panel-label { margin: 0 0 1.5rem; color: #a45336; font: 700 0.75rem/1.2 Arial, sans-serif; letter-spacing: 0.16em; text-transform: uppercase; }
+h1 { margin: 0; font-size: clamp(3.2rem, 8vw, 7rem); line-height: .94; font-weight: 500; }
 .description { max-width: 520px; margin: 2rem 0; font-size: 1.2rem; line-height: 1.55; }
-
-.status { display: inline-flex; align-items: center; gap: 0.65rem; font: 700 0.8rem/1.2 Arial, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; }
-.status-dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; background: #4c8b61; }
-.footer { display: flex; justify-content: space-between; gap: 1rem; padding-top: 2rem; border-top: 1px solid #bdc9bb; color: #53635b; font: 0.75rem/1.4 Arial, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; }
-
-@media (max-width: 600px) {
-  .shell { padding: 2rem 1.25rem; }
-  .intro { margin-top: 8vh; }
-  .footer { flex-direction: column; }
-}
+.auth-panel { padding: 2rem; background: rgba(255,255,255,.7); border: 1px solid #bdc9bb; box-shadow: 12px 12px 0 rgba(23,51,47,.08); }
+.mode-switch { display: flex; gap: 1.25rem; margin-bottom: 1.8rem; border-bottom: 1px solid #bdc9bb; }
+.mode-switch button { padding: 0 0 .8rem; color: #53635b; background: none; border: 0; border-bottom: 2px solid transparent; font: 700 .8rem Arial, sans-serif; cursor: pointer; }
+.mode-switch button.active { color: #17332f; border-color: #a45336; }
+form, .signed-in { display: grid; gap: 1rem; }
+label { display: grid; gap: .4rem; color: #53635b; font: 700 .72rem Arial, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
+input { width: 100%; padding: .8rem .75rem; color: #17332f; background: #fff; border: 1px solid #aebcb0; font: 1rem Georgia, serif; }
+input:focus { outline: 2px solid #a45336; outline-offset: 1px; }
+.two-columns { display: grid; grid-template-columns: .65fr 1.35fr; gap: .75rem; }
+.password-field { display: flex; background: #fff; border: 1px solid #aebcb0; }
+.password-field input { border: 0; }
+.password-toggle { padding: 0 .65rem; color: #a45336; background: none; border: 0; font: 700 .7rem Arial, sans-serif; cursor: pointer; }
+.button { padding: .9rem 1rem; color: #fff; background: #17332f; border: 0; font: 700 .75rem Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.button:disabled { opacity: .55; cursor: wait; }
+.button.secondary { margin-top: 1rem; background: #a45336; }
+.form-message { margin: 0; font: .8rem/1.4 Arial, sans-serif; }
+.error { color: #a43e36; }.success { color: #3e7652; }
+.signed-in h2 { margin: 0; font-size: 2rem; font-weight: 500; }.signed-in p:not(.panel-label) { margin: 0; color: #53635b; }
+.footer { display: flex; justify-content: space-between; gap: 1rem; padding-top: 2rem; border-top: 1px solid #bdc9bb; color: #53635b; font: .75rem/1.4 Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
+@media (max-width: 800px) { .auth-layout { grid-template-columns: 1fr; margin-top: 4vh; } h1 { font-size: clamp(3rem, 15vw, 5rem); } }
+@media (max-width: 600px) { .shell { padding: 2rem 1.25rem; } .auth-panel { padding: 1.25rem; } .footer { flex-direction: column; } }

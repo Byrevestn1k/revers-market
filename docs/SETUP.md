@@ -43,11 +43,20 @@ curl http://localhost:3000/health
 
 Очікувана відповідь містить `status: "ok"` і `database.status: "ok"`.
 
+## Auth API
+
+Реєстрація приймає `username`, `countryCode`, `phone`, `password` і `passwordConfirmation` у `POST /api/auth/register`. Пароль має містити щонайменше 12 символів, заголовну та малу літери й цифру.
+
+`POST /api/auth/login` приймає `username` і `password`. Обидва успішні запити встановлюють HttpOnly cookie-сесію. `GET /api/auth/me` захищений цією сесією, а `POST /api/auth/logout` її відкликає.
+
+Дублікати username/phone повертають однакову загальну помилку без уточнення, яке саме поле зайняте. Паролі не повертаються API та не зберігаються відкритим текстом.
+
 ## Перевірки
 
 ```bash
 npm run typecheck
 npm run build
+npm test
 ```
 
 ## Майбутні інтеграції

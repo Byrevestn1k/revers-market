@@ -8,9 +8,11 @@
         "build": "tsc",
         "db:migrate": "tsx src/db/migrate.ts",
         "start": "node dist/server.js",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
     },
     "dependencies": {
+        "bcryptjs": "^2.4.3",
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
         "express": "^4.21.2",
@@ -21,7 +23,10 @@
         "@types/express": "^5.0.0",
         "@types/node": "^22.10.5",
         "@types/pg": "^8.11.10",
+        "@types/supertest": "^6.0.2",
+        "supertest": "^7.0.0",
         "tsx": "^4.19.2",
-        "typescript": "^5.7.2"
+        "typescript": "^5.7.2",
+        "vitest": "^2.1.8"
     }
 }
