@@ -2,7 +2,7 @@ import { randomBytes, createHash } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { pool } from './db/client.js'
-import { validateRegistration, type RegistrationInput } from './validation.js'
+import { normalizePhone, validateRegistration, type RegistrationInput } from './validation.js'
 
 const SESSION_COOKIE = 'navpaky_session'
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7
@@ -11,7 +11,6 @@ export type AuthUser = { id: string; username: string; countryCode: string; phon
 
 
 const normalizeUsername = (username: string) => username.trim().toLowerCase()
-const normalizePhone = (phone: string) => phone.trim().replace(/^00/, '+')
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 const getCookie = (request: Request) => request.headers.cookie?.match(/(?:^|; )navpaky_session=([^;]+)/)?.[1]
 
@@ -43,7 +42,7 @@ const createSession = async (userId: string, response: Response) => {
 export const requireAuth: RequestHandler = async (request, response, next: NextFunction) => {
     const token = getCookie(request)
     if (!token) {
-        response.status(401).json({ error: 'AUTH_REQUIRED', message: 'Требуется вход в аккаунт' })
+        response.status(401).json({ error: 'AUTH_REQUIRED', message: 'Потрібно увійти в обліковий запис' })
         return
     }
 
@@ -56,7 +55,7 @@ export const requireAuth: RequestHandler = async (request, response, next: NextF
         )
         if (!result.rowCount) {
             clearSessionCookie(response)
-            response.status(401).json({ error: 'AUTH_REQUIRED', message: 'Требуется вход в аккаунт' })
+            response.status(401).json({ error: 'AUTH_REQUIRED', message: 'Потрібно увійти в обліковий запис' })
             return
         }
         request.authUser = publicUser(result.rows[0])
@@ -72,11 +71,11 @@ declare global {
 
 export const register = async (input: RegistrationInput, response: Response) => {
     const errors = validateRegistration(input)
-    if (errors.length) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Проверьте данные формы', fields: errors } }
+    if (errors.length) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані форми', fields: errors } }
 
     const username = input.username.trim()
     const countryCode = input.countryCode.trim().toUpperCase()
-    const phone = normalizePhone(input.phone)
+    const phone = normalizePhone(countryCode, input.phone)
     const passwordHash = await bcrypt.hash(input.password, 12)
 
     try {
@@ -90,7 +89,7 @@ export const register = async (input: RegistrationInput, response: Response) => 
         return { status: 201, body: { user: publicUser(result.rows[0]) } }
     } catch (error: unknown) {
         if ((error as { code?: string }).code === '23505') {
-            return { status: 409, body: { error: 'ACCOUNT_NOT_AVAILABLE', message: 'Не удалось создать аккаунт с указанными данными' } }
+            return { status: 409, body: { error: 'ACCOUNT_NOT_AVAILABLE', message: 'Не вдалося створити обліковий запис із вказаними даними' } }
         }
         throw error
     }
@@ -103,7 +102,7 @@ export const login = async (username: string, password: string, response: Respon
     )
     const user = result.rows[0]
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-        return { status: 401, body: { error: 'INVALID_CREDENTIALS', message: 'Неверные учётные данные' } }
+        return { status: 401, body: { error: 'INVALID_CREDENTIALS', message: 'Неправильні облікові дані' } }
     }
     await createSession(user.id, response)
     return { status: 200, body: { user: publicUser(user) } }

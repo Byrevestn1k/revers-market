@@ -1,0 +1,27 @@
+ALTER TABLE users
+    ADD COLUMN avatar_url text,
+    ADD COLUMN nickname text,
+    ADD COLUMN bio text,
+    ADD COLUMN recovery_email text,
+    ADD COLUMN location_display text,
+    ADD COLUMN exact_address text,
+    ADD COLUMN phone_visibility text NOT NULL DEFAULT 'private',
+    ADD COLUMN phone_disclosure_consent boolean NOT NULL DEFAULT false,
+    ADD COLUMN listings_count integer NOT NULL DEFAULT 0,
+    ADD COLUMN completed_deals_count integer NOT NULL DEFAULT 0,
+    ADD COLUMN response_rate numeric(5, 2),
+    ADD COLUMN rating_sum numeric(12, 2) NOT NULL DEFAULT 0,
+    ADD COLUMN rating_count integer NOT NULL DEFAULT 0,
+    ADD CONSTRAINT users_nickname_length CHECK (nickname IS NULL OR char_length(nickname) BETWEEN 2 AND 50),
+    ADD CONSTRAINT users_bio_length CHECK (bio IS NULL OR char_length(bio) <= 500),
+    ADD CONSTRAINT users_avatar_url_length CHECK (avatar_url IS NULL OR char_length(avatar_url) <= 2048),
+    ADD CONSTRAINT users_recovery_email_length CHECK (recovery_email IS NULL OR char_length(recovery_email) <= 254),
+    ADD CONSTRAINT users_location_display_length CHECK (location_display IS NULL OR char_length(location_display) <= 120),
+    ADD CONSTRAINT users_exact_address_length CHECK (exact_address IS NULL OR char_length(exact_address) <= 500),
+    ADD CONSTRAINT users_phone_visibility CHECK (phone_visibility IN ('private', 'authenticated', 'public')),
+    ADD CONSTRAINT users_phone_consent_for_disclosure CHECK (phone_visibility = 'private' OR phone_disclosure_consent),
+    ADD CONSTRAINT users_statistics_non_negative CHECK (listings_count >= 0 AND completed_deals_count >= 0 AND rating_sum >= 0 AND rating_count >= 0),
+    ADD CONSTRAINT users_response_rate_range CHECK (response_rate IS NULL OR (response_rate >= 0 AND response_rate <= 100)),
+    ADD CONSTRAINT users_rating_count_consistency CHECK ((rating_count = 0 AND rating_sum = 0) OR rating_count > 0);
+
+CREATE INDEX users_public_profile_idx ON users (username_normalized);

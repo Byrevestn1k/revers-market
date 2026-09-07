@@ -13,8 +13,10 @@ h1 { margin: 0; font-size: clamp(3.2rem, 8vw, 7rem); line-height: .94; font-weig
 .mode-switch button.active { color: #17332f; border-color: #a45336; }
 form, .signed-in { display: grid; gap: 1rem; }
 label { display: grid; gap: .4rem; color: #53635b; font: 700 .72rem Arial, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
-input { width: 100%; padding: .8rem .75rem; color: #17332f; background: #fff; border: 1px solid #aebcb0; font: 1rem Georgia, serif; }
-input:focus { outline: 2px solid #a45336; outline-offset: 1px; }
+input, select { width: 100%; padding: .8rem .75rem; color: #17332f; background: #fff; border: 1px solid #aebcb0; font: 1rem Georgia, serif; }
+input:focus, select:focus { outline: 2px solid #a45336; outline-offset: 1px; }
+label.invalid { color: #b42318; }
+input.invalid, select.invalid, .password-field.invalid { border-color: #b42318; }
 .two-columns { display: grid; grid-template-columns: .65fr 1.35fr; gap: .75rem; }
 .password-field { display: flex; background: #fff; border: 1px solid #aebcb0; }
 .password-field input { border: 0; }
@@ -22,7 +24,7 @@ input:focus { outline: 2px solid #a45336; outline-offset: 1px; }
 .button { padding: .9rem 1rem; color: #fff; background: #17332f; border: 0; font: 700 .75rem Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
 .button:disabled { opacity: .55; cursor: wait; }
 .button.secondary { margin-top: 1rem; background: #a45336; }
-.form-message { margin: 0; font: .8rem/1.4 Arial, sans-serif; }
+.form-message { margin: 0; font: .8rem/1.4 Arial, sans-serif; }.form-message p { margin: 0 0 .35rem; }.form-message ul { margin: 0; padding-left: 1.2rem; }
 .error { color: #a43e36; }.success { color: #3e7652; }
 .signed-in h2 { margin: 0; font-size: 2rem; font-weight: 500; }.signed-in p:not(.panel-label) { margin: 0; color: #53635b; }
 .footer { display: flex; justify-content: space-between; gap: 1rem; padding-top: 2rem; border-top: 1px solid #bdc9bb; color: #53635b; font: .75rem/1.4 Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
