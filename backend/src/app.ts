@@ -6,6 +6,7 @@ import { login, logout, optionalAuth, register, requireAuth } from './auth.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listOffers, updateBuyRequest } from './buy-requests.js'
+import { createMessage, getOrder, getOrderConversation, listMessages, listOrders, markConversationRead, updateOrderStatus } from './order-service.js'
 import { adaptiveRadius, MapService } from './map-service.js'
 
 const mapService = new MapService()
@@ -137,6 +138,34 @@ export const createApp = () => {
 
     app.post('/api/offers/:id/accept', requireAuth, async (request, response, next) => {
         try { const result = await acceptOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/orders', requireAuth, async (request, response, next) => {
+        try { const result = await listOrders(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/orders/:id', requireAuth, async (request, response, next) => {
+        try { const result = await getOrder(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.patch('/api/orders/:id/status', requireAuth, async (request, response, next) => {
+        try { const result = await updateOrderStatus(request.authUser!, String(request.params.id), request.body?.status); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/orders/:id/conversation', requireAuth, async (request, response, next) => {
+        try { const result = await getOrderConversation(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/conversations/:id/messages', requireAuth, async (request, response, next) => {
+        try { const result = await listMessages(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.post('/api/conversations/:id/messages', requireAuth, async (request, response, next) => {
+        try { const result = await createMessage(request.authUser!, String(request.params.id), request.body?.body); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.patch('/api/conversations/:id/read', requireAuth, async (request, response, next) => {
+        try { const result = await markConversationRead(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 
     app.use((_error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

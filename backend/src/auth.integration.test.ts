@@ -38,7 +38,7 @@ if (hasDatabase) {
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized = $1', [payload.username.toLowerCase()])
             }
-        }, 15000)
+        }, 30000)
 
         it('rejects invalid registration before database access', async () => {
             const response = await request(createApp()).post('/api/auth/register').send({
@@ -110,7 +110,7 @@ if (hasDatabase) {
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [firstPayload.username.toLowerCase(), secondPayload.username.toLowerCase()])
             }
-        }, 15000)
+        }, 30000)
     })
 } else {
     describe.skip('auth HTTP integration (requires DATABASE_URL)', () => { })

@@ -3,6 +3,7 @@ import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 import { validateBuyRequestInput, validateOfferInput } from './buy-request-validation.js'
 import { approximatePoint } from './map-service.js'
+import { createOrderConversation } from './order-service.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -134,9 +135,10 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         await client.query('UPDATE buy_requests SET fulfilled_quantity = $1, status = $2, updated_at = now() WHERE id = $3', [fulfilled, requestStatus, row.buy_request_id])
         const product = row.product_id ? await client.query<{ title: string }>('SELECT title FROM products WHERE id = $1', [row.product_id]) : { rows: [] as { title: string }[] }
         const subtotal = quantity * Number(row.unit_price)
-        const order = await client.query('INSERT INTO orders (buy_request_id, buyer_id, seller_id, currency, subtotal) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (buy_request_id, seller_id) DO UPDATE SET subtotal = orders.subtotal + EXCLUDED.subtotal, updated_at = now() RETURNING id', [row.buy_request_id, user.id, row.seller_id, row.currency, subtotal])
+        const order = await client.query<{ id: string }>('INSERT INTO orders (buy_request_id, buyer_id, seller_id, status, currency, subtotal, quantity, unit, unit_price, conditions_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id', [row.buy_request_id, user.id, row.seller_id, 'accepted', row.currency, subtotal, quantity, row.unit, row.unit_price, JSON.stringify({ offerId: row.id, productTitle: product.rows[0]?.title ?? '', terms: row.terms, delivery: row.delivery_terms })])
         await client.query('INSERT INTO order_items (order_id, offer_id, product_id, quantity, unit, unit_price, currency, product_title_snapshot, offer_terms_snapshot, delivery_terms_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [order.rows[0].id, row.id, row.product_id, quantity, row.unit, row.unit_price, row.currency, product.rows[0]?.title ?? '', row.terms, row.delivery_terms])
+        await createOrderConversation(client, order.rows[0].id, user.id, row.seller_id)
         await client.query('COMMIT')
-        return { status: 201, body: { order: { id: order.rows[0].id, buyRequestId: row.buy_request_id, sellerId: row.seller_id, quantity, subtotal, status: 'pending' } } }
+        return { status: 201, body: { order: { id: order.rows[0].id, buyRequestId: row.buy_request_id, sellerId: row.seller_id, quantity, subtotal, status: 'accepted' } } }
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
