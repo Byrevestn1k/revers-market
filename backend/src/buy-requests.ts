@@ -52,7 +52,7 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
 }
 
 export const getBuyRequest = async (id: string, user?: AuthUser) => {
-    const result = await pool.query(`${requestSelect} WHERE r.id = $1 AND r.status <> 'cancelled'`, [id])
+    const result = await pool.query(`${requestSelect} WHERE r.id = $1 AND (r.status <> 'cancelled' OR r.buyer_id = $2)`, [id, user?.id ?? null])
     if (!result.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const isOwner = user?.id === result.rows[0].buyer_id
     return { status: 200, body: { buyRequest: requestDto(result.rows[0], isOwner) } }

@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
+import { createNotification } from './community-service.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 export const orderStatuses = ['draft', 'active', 'offer_received', 'accepted', 'in_progress', 'completed', 'cancelled', 'rejected', 'expired'] as const
@@ -38,6 +39,8 @@ const findOrder = async (queryable: Queryable, orderId: string, userId: string) 
 export const createOrderConversation = async (queryable: Queryable, orderId: string, buyerId: string, sellerId: string) => {
     const conversation = await queryable.query<{ id: string }>('INSERT INTO conversations (order_id) VALUES ($1) RETURNING id', [orderId])
     await queryable.query('INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1, $2, $3), ($1, $4, $5)', [conversation.rows[0].id, buyerId, 'buyer', sellerId, 'seller'])
+    await createNotification(queryable, buyerId, 'order', 'Створено замовлення', 'Пропозицію прийнято, замовлення створено', orderId, conversation.rows[0].id)
+    await createNotification(queryable, sellerId, 'order', 'Вашу пропозицію прийнято', 'Створено замовлення і чат з покупцем', orderId, conversation.rows[0].id)
     return conversation.rows[0].id
 }
 
@@ -57,6 +60,10 @@ export const updateOrderStatus = async (user: AuthUser, orderId: string, status:
     if (!current) return { status: 404, body: { error: 'ORDER_NOT_FOUND' } }
     if (!canTransitionOrder(current.status, status)) return { status: 409, body: { error: 'INVALID_ORDER_TRANSITION', from: current.status, to: status } }
     await pool.query('UPDATE orders SET status = $1, updated_at = now() WHERE id = $2', [status, orderId])
+    const statusLabels: Record<string, string> = { accepted: 'прийнято', in_progress: 'у роботі', completed: 'завершено', cancelled: 'скасовано', rejected: 'відхилено', expired: 'закінчено' }
+    const counterpart = current.buyer_id === user.id ? current.seller_id : current.buyer_id
+    const conversation = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE order_id = $1', [orderId])
+    await createNotification(pool, counterpart, 'order', `Замовлення ${statusLabels[status] ?? status}`, `Контрагент змінив статус замовлення на «${statusLabels[status] ?? status}»`, orderId, conversation.rows[0]?.id ?? null)
     return getOrder(user, orderId)
 }
 
@@ -81,6 +88,8 @@ export const createMessage = async (user: AuthUser, conversationId: string, body
     if (typeof body !== 'string' || !body.trim() || body.length > 5000) return { status: 400, body: { error: 'INVALID_MESSAGE' } }
     if (!(await conversationForUser(user, conversationId))) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
     const result = await pool.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim()])
+    const participants = await pool.query<{ user_id: string }>('SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
+    for (const participant of participants.rows) await createNotification(pool, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), null, conversationId)
     await pool.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversationId])
     return { status: 201, body: { message: result.rows[0] } }
 }

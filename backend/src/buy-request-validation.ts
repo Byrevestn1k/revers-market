@@ -9,7 +9,7 @@ const validDate = (value: unknown) => typeof value === 'string' && !Number.isNaN
 
 export const validateBuyRequestInput = (input: Record<string, unknown>, partial = false): string[] => {
     const errors: string[] = []
-    const required = (field: string) => !partial || field in input
+    const required = (field: string) => !partial && !(field in input)
     if (required('categoryId') && (typeof input.categoryId !== 'string' || !uuidPattern.test(input.categoryId))) errors.push('categoryId')
     if (input.productId !== undefined && input.productId !== null && (typeof input.productId !== 'string' || !uuidPattern.test(input.productId))) errors.push('productId')
     if (required('title') && (typeof input.title !== 'string' || input.title.trim().length < 2 || input.title.trim().length > 160)) errors.push('title')
@@ -38,7 +38,7 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
 
 export const validateOfferInput = (input: Record<string, unknown>, partial = false): string[] => {
     const errors: string[] = []
-    const required = (field: string) => !partial || field in input
+    const required = (field: string) => !partial && !(field in input)
     if (required('quantity') && !validQuantity(input.quantity)) errors.push('quantity')
     if (input.productId !== undefined && input.productId !== null && (typeof input.productId !== 'string' || !uuidPattern.test(input.productId))) errors.push('productId')
     if (required('unit') && !REQUEST_UNITS.includes(input.unit as typeof REQUEST_UNITS[number])) errors.push('unit')

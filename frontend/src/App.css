@@ -1,0 +1,15 @@
+﻿.quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+.quick-actions button{background:#fff;border:1px solid #e2e8f0;border-radius:999px;padding:6px 14px;font-size:13px;color:#334155;cursor:pointer;transition:.15s}
+.quick-actions button:hover{border-color:#94a3b8}
+.quick-actions button.active{background:#0f172a;color:#fff;border-color:#0f172a}
+.mine-summary{display:flex;gap:24px;align-items:baseline;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 20px;margin:16px 0}
+.mine-summary strong{font-size:22px;color:#0f172a}
+.mine-summary span{font-size:13px;color:#64748b}
+.summary-row{display:flex;gap:8px;align-items:center}
+.my-request-list{display:flex;flex-direction:column;gap:12px}
+.my-request{display:flex;justify-content:space-between;align-items:center;gap:16px;border:1px solid #e2e8f0;border-radius:12px;padding:14px 18px;background:#fff}
+.my-request-meta{color:#64748b;font-size:13px;margin-top:2px}
+.my-request-actions{display:flex;gap:8px;align-items:center}
+.my-request-actions .offer-count{font-size:13px;color:#64748b;margin-right:8px}
+.detail-actions{display:flex;gap:12px;align-items:center;margin-top:16px}
+.detail-respond-hint{color:#64748b;font-size:13px;margin-top:12px}
