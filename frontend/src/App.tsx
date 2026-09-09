@@ -308,6 +308,7 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
     const [requests, setRequests] = useState<BuyRequest[]>([])
     const [offers, setOffers] = useState<Record<string, Offer[]>>({})
     const [expanded, setExpanded] = useState('')
+    const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
     const load = async () => { try { setRequests((await request('/api/buy-requests?mine=true')).buyRequests) } catch (error) { notify((error as Error).message) } }
     useEffect(() => { load() }, [])
     const toggle = async (id: string) => {
@@ -327,6 +328,9 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
     const cancel = async (item: BuyRequest) => {
         if (!window.confirm('Скасувати цей запит?')) return
         try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) }); notify('Запит скасовано'); load() } catch (error) { notify((error as Error).message) }
+    }
+    const openOfferChat = async (offer: Offer) => {
+        try { const result = await request(`/api/offers/${offer.id}/conversation`, { method: 'POST', body: '{}' }); setChat({ conversationId: result.conversation.id, title: offer.seller.username }) } catch (error) { notify((error as Error).message) }
     }
     return <section className="content"><div className="view-header"><div><span className="eyebrow">Мій попит</span><h1>Мої запити</h1><p className="view-subtitle">Переглядайте пропозиції продавців і приймайте їх повністю або частково.</p></div></div>
         <div className="request-list">{requests.map((item) => <article key={item.id} className="request-card"><header><div><span className="eyebrow">{item.category.name} · {item.geoArea}</span><h3>{item.title}</h3></div><span className="status status-active">{REQUEST_STATUS[item.status] ?? item.status}</span></header>

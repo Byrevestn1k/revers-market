@@ -26,15 +26,16 @@ export const markNotificationsRead = async (user: AuthUser, notificationId?: str
 }
 
 export const listConversations = async (user: AuthUser) => {
-    const result = await pool.query(`SELECT c.id, c.order_id AS "orderId", o.status, o.buyer_id AS "buyerId", o.seller_id AS "sellerId",
-        CASE WHEN o.buyer_id = $1 THEN su.username ELSE bu.username END AS "otherUsername",
+    const result = await pool.query(`SELECT c.id, c.order_id AS "orderId", c.offer_id AS "offerId", COALESCE(o.status, ofr.status) AS status,
+        CASE WHEN COALESCE(o.buyer_id, r.buyer_id) = $1 THEN su.username ELSE bu.username END AS "otherUsername",
         (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessage",
         (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageAt",
         cp.last_read_at AS "lastReadAt"
-        FROM conversations c JOIN orders o ON o.id = c.order_id
-        JOIN users bu ON bu.id = o.buyer_id JOIN users su ON su.id = o.seller_id
+        FROM conversations c LEFT JOIN orders o ON o.id = c.order_id
+        LEFT JOIN offers ofr ON ofr.id = c.offer_id LEFT JOIN buy_requests r ON r.id = ofr.buy_request_id
+        JOIN users bu ON bu.id = COALESCE(o.buyer_id, r.buyer_id) JOIN users su ON su.id = COALESCE(o.seller_id, ofr.seller_id)
         JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1
-        WHERE o.buyer_id = $1 OR o.seller_id = $1 ORDER BY COALESCE("lastMessageAt", c.created_at) DESC`, [user.id])
+        WHERE COALESCE(o.buyer_id, r.buyer_id) = $1 OR COALESCE(o.seller_id, ofr.seller_id) = $1 ORDER BY COALESCE("lastMessageAt", c.created_at) DESC`, [user.id])
     return { status: 200, body: { conversations: result.rows } }
 }
 

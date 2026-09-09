@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
-import { createNotification } from './community-service.js'
+import { createNotification, usersAreBlocked } from './community-service.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 export const orderStatuses = ['draft', 'active', 'offer_received', 'accepted', 'in_progress', 'completed', 'cancelled', 'rejected', 'expired'] as const
@@ -117,4 +117,34 @@ export const createMessage = async (user: AuthUser, conversationId: string, body
 export const markConversationRead = async (user: AuthUser, conversationId: string) => {
     const result = await pool.query('UPDATE conversation_participants SET last_read_at = now() WHERE conversation_id = $1 AND user_id = $2 RETURNING last_read_at', [conversationId, user.id])
     return result.rowCount ? { status: 200, body: { readAt: result.rows[0].last_read_at } } : { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
+}
+
+// The precise delivery address is intentionally absent from public request DTOs.
+// It becomes available only to participants after the offer has created an order.
+export const getOrderDeliveryAddress = async (user: AuthUser, orderId: string) => {
+    const result = await pool.query<{ delivery_address: string | null }>(`SELECT r.delivery_address
+        FROM orders o JOIN buy_requests r ON r.id = o.buy_request_id
+        WHERE o.id = $1 AND (o.buyer_id = $2 OR o.seller_id = $2) AND o.status IN ('accepted', 'in_progress', 'completed')`, [orderId, user.id])
+    if (!result.rowCount) return { status: 404, body: { error: 'DELIVERY_ADDRESS_NOT_AVAILABLE' } }
+    return { status: 200, body: { deliveryAddress: result.rows[0].delivery_address } }
+}
+
+export const getOrCreateOfferConversation = async (user: AuthUser, offerId: string) => {
+    const offer = await pool.query<{ buyer_id: string; seller_id: string; status: string }>(`SELECT r.buyer_id, o.seller_id, o.status
+        FROM offers o JOIN buy_requests r ON r.id = o.buy_request_id WHERE o.id = $1`, [offerId])
+    const row = offer.rows[0]
+    if (!row || (row.buyer_id !== user.id && row.seller_id !== user.id)) return { status: 404, body: { error: 'OFFER_NOT_FOUND' } }
+    if (await usersAreBlocked(pool, row.buyer_id, row.seller_id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
+    const existing = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE offer_id = $1', [offerId])
+    if (existing.rowCount) return { status: 200, body: { conversation: existing.rows[0] } }
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        const again = await client.query<{ id: string }>('SELECT id FROM conversations WHERE offer_id = $1 FOR UPDATE', [offerId])
+        if (again.rowCount) { await client.query('COMMIT'); return { status: 200, body: { conversation: again.rows[0] } } }
+        const conversation = await client.query<{ id: string }>('INSERT INTO conversations (offer_id) VALUES ($1) RETURNING id', [offerId])
+        await client.query(`INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1,$2,'buyer'),($1,$3,'seller')`, [conversation.rows[0].id, row.buyer_id, row.seller_id])
+        await client.query('COMMIT')
+        return { status: 201, body: { conversation: conversation.rows[0] } }
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }

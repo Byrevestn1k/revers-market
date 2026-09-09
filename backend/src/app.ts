@@ -6,7 +6,7 @@ import { login, logout, optionalAuth, register, requireAuth } from './auth.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listOffers, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
-import { createMessage, getOrder, getOrderConversation, listMessages, listOrders, markConversationRead, updateOrderStatus } from './order-service.js'
+import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, markConversationRead, updateOrderStatus } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, MapService } from './map-service.js'
 
@@ -145,6 +145,10 @@ export const createApp = () => {
         try { const result = await acceptOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 
+    app.post('/api/offers/:id/conversation', requireAuth, async (request, response, next) => {
+        try { const result = await getOrCreateOfferConversation(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
     app.patch('/api/offers/:id', requireAuth, async (request, response, next) => {
         try { const result = await updateOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
@@ -159,6 +163,10 @@ export const createApp = () => {
 
     app.get('/api/orders/:id', requireAuth, async (request, response, next) => {
         try { const result = await getOrder(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
+    })
+
+    app.get('/api/orders/:id/delivery-address', requireAuth, async (request, response, next) => {
+        try { const result = await getOrderDeliveryAddress(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 
     app.patch('/api/orders/:id/status', requireAuth, async (request, response, next) => {
