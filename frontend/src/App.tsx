@@ -294,14 +294,68 @@ function OfferForm({ buyRequest, products, notify, onDone }: { buyRequest: BuyRe
 function RequestsMarket({ mine, notify }: { mine: Product[]; notify: (message: string) => void }) {
     const [requests, setRequests] = useState<BuyRequest[]>([])
     const [openForm, setOpenForm] = useState('')
-    const load = async () => { try { setRequests((await request('/api/buy-requests')).buyRequests) } catch (error) { notify((error as Error).message) } }
+    const [myOffers, setMyOffers] = useState<Offer[]>([])
+    const [editingOffer, setEditingOffer] = useState('')
+    const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
+    const load = async () => {
+        try {
+            setRequests((await request('/api/buy-requests')).buyRequests)
+            setMyOffers((await request('/api/offers/mine')).offers)
+        } catch (error) { notify((error as Error).message) }
+    }
     useEffect(() => { load() }, [])
+    const withdraw = async (offer: Offer) => {
+        if (!window.confirm('Відкликати цю пропозицію?')) return
+        try { await request(`/api/offers/${offer.id}`, { method: 'DELETE' }); notify('Пропозицію відкликано'); load() } catch (error) { notify((error as Error).message) }
+    }
+    const saveOffer = async (offer: Offer) => {
+        const priceRaw = window.prompt('Нова ціна за одиницю', String(offer.price.amount))
+        if (priceRaw === null) return
+        const note = window.prompt('Коментар до пропозиції', offer.note ?? '')
+        if (note === null) return
+        const price = Number(priceRaw)
+        if (!Number.isFinite(price) || price < 0) { notify('Некоректна ціна'); return }
+        try { await request(`/api/offers/${offer.id}`, { method: 'PATCH', body: JSON.stringify({ price, note }) }); notify('Пропозицію оновлено'); setEditingOffer(''); load() } catch (error) { notify((error as Error).message) }
+    }
+    const openOfferChat = async (offer: Offer) => {
+        try { const result = await request(`/api/offers/${offer.id}/conversation`, { method: 'POST', body: '{}' }); setChat({ conversationId: result.conversation.id, title: offer.seller.username }) } catch (error) { notify((error as Error).message) }
+    }
     return <section className="content"><div className="view-header"><div><span className="eyebrow">Попит</span><h1>Запити покупців</h1><p className="view-subtitle">Відгукніться своєю пропозицією на запити поруч.</p></div><button className="outline-button" onClick={load}>↻ Оновити</button></div>
         <div className="request-list">{requests.map((item) => <article key={item.id} className="request-card"><header><div><span className="eyebrow">{item.category.name} · {item.geoArea}</span><h3>{item.title}</h3></div><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span></header>
             <p>{item.description || 'Опис не додано.'}</p>
             <div className="card-meta"><span>{item.quantity} {item.unit}</span><span>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</span><span>{item.delivery.required ? 'Доставка потрібна' : 'Без доставки'}</span></div>
             {openForm === item.id ? <OfferForm buyRequest={item} products={mine} notify={notify} onDone={() => { setOpenForm(''); load() }} /> : <button className="primary-button compact" onClick={() => setOpenForm(item.id)}>Запропонувати</button>}
-        </article>)}{!requests.length && <Empty text="Відкритих запитів поки немає" />}</div></section>
+        </article>)}{!requests.length && <Empty text="Відкритих запитів поки немає" />}</div>
+        <div className="view-header" style={{ marginTop: '2rem' }}><div><span className="eyebrow">Мої пропозиції</span><h2>Керування пропозиціями</h2></div></div>
+        <div className="request-list">{myOffers.map((offer) => <article key={offer.id} className="request-card"><header><div><span className="eyebrow">Пропозиція</span><h3>{offer.existingProduct?.title ?? 'Без прив’язки до товару'}</h3></div><span className="status status-paused">{OFFER_STATUS[offer.status] ?? offer.status}</span></header>
+            <div className="card-meta"><span>{offer.quantity} {offer.unit}</span><span>{formatPrice(offer.price.amount, offer.price.currency)} / {offer.unit}</span><span>Прийнято: {offer.acceptedQuantity}</span></div>
+            <div className="request-actions">
+                <button className="outline-button compact" onClick={() => openOfferChat(offer)}>♧ Чат</button>
+                {offer.status === 'submitted' && offer.acceptedQuantity === 0 && <button className="outline-button compact" onClick={() => setEditingOffer(editingOffer === offer.id ? '' : offer.id)}>Редагувати</button>}
+                {offer.status === 'submitted' && offer.acceptedQuantity === 0 && <button className="outline-button compact" onClick={() => withdraw(offer)}>Відкликати</button>}
+            </div>
+            {editingOffer === offer.id && <OfferEditForm offer={offer} notify={notify} onDone={() => { setEditingOffer(''); load() }} />}
+        </article>)}{!myOffers.length && <Empty text="Ви ще не надсилали пропозицій" />}</div>
+        {chat && <ChatPanel chat={chat} onClose={() => setChat(null)} notify={notify} />}
+    </section>
+}
+
+function OfferEditForm({ offer, notify, onDone }: { offer: Offer; notify: (message: string) => void; onDone: () => void }) {
+    const [busy, setBusy] = useState(false)
+    const [error, setError] = useState('')
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault(); setBusy(true); setError('')
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
+        try { await request(`/api/offers/${offer.id}`, { method: 'PATCH', body: JSON.stringify({ price: Number(data.price), note: data.note || '' }) }); notify('Пропозицію оновлено'); onDone() } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
+    }
+    return <form className="offer-form" onSubmit={submit}>
+        <div className="field-row">
+            <label>Ціна за {offer.unit}<input name="price" type="number" min="0" step="0.01" defaultValue={offer.price.amount} required /></label>
+            <label>Коментар<input name="note" defaultValue={offer.note} maxLength={500} /></label>
+        </div>
+        {error && <p className="form-error">{error}</p>}
+        <button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти пропозицію'}</button>
+    </form>
 }
 
 function MyRequests({ notify, create }: { notify: (message: string) => void; create: () => void }) {
@@ -329,6 +383,17 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
         if (!window.confirm('Скасувати цей запит?')) return
         try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) }); notify('Запит скасовано'); load() } catch (error) { notify((error as Error).message) }
     }
+    const saveRequest = async (item: BuyRequest) => {
+        const title = window.prompt('Нова назва запиту', item.title)
+        if (title === null || !title.trim()) return
+        const description = window.prompt('Новий опис запиту', item.description ?? '')
+        if (description === null) return
+        try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify({ title: title.trim(), description }) }); notify('Запит оновлено'); load() } catch (error) { notify((error as Error).message) }
+    }
+    const rejectOffer = async (offer: Offer) => {
+        if (!window.confirm(`Відхилити пропозицію від ${offer.seller.username}?`)) return
+        try { await request(`/api/offers/${offer.id}/reject`, { method: 'POST', body: '{}' }); notify('Пропозицію відхилено'); load() } catch (error) { notify((error as Error).message) }
+    }
     const openOfferChat = async (offer: Offer) => {
         try { const result = await request(`/api/offers/${offer.id}/conversation`, { method: 'POST', body: '{}' }); setChat({ conversationId: result.conversation.id, title: offer.seller.username }) } catch (error) { notify((error as Error).message) }
     }
@@ -336,11 +401,14 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
         <div className="request-list">{requests.map((item) => <article key={item.id} className="request-card"><header><div><span className="eyebrow">{item.category.name} · {item.geoArea}</span><h3>{item.title}</h3></div><span className="status status-active">{REQUEST_STATUS[item.status] ?? item.status}</span></header>
             <div className="card-meta"><span>{item.fulfilledQuantity}/{item.quantity} {item.unit}</span><span>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</span><span>{item.deadline ? `до ${new Date(item.deadline).toLocaleDateString('uk-UA')}` : 'без дедлайну'}</span></div>
             <div className="request-actions"><button className="outline-button" onClick={() => toggle(item.id)}>Пропозиції{offers[item.id] ? ` (${offers[item.id].length})` : ''}</button>
+                {(item.status === 'open' || item.status === 'partially_fulfilled') && <button className="outline-button" onClick={() => saveRequest(item)}>Редагувати</button>}
                 {(item.status === 'open' || item.status === 'partially_fulfilled') && <button className="outline-button" onClick={() => cancel(item)}>Скасувати</button>}</div>
             {expanded === item.id && <div className="offer-list">{(offers[item.id] ?? []).map((offer) => <div key={offer.id} className="offer-row">
                 <div><strong>{offer.seller.username}{offer.existingProduct ? ` · ${offer.existingProduct.title}` : ''}</strong><small>{offer.quantity} {offer.unit} · {formatPrice(offer.price.amount, offer.price.currency)} / {offer.unit} · {offer.delivery}</small>{offer.note && <small>{offer.note}</small>}</div>
                 <span className="status status-paused">{OFFER_STATUS[offer.status] ?? offer.status}</span>
                 {(offer.status === 'submitted' || offer.status === 'partially_accepted') && <button className="primary-button compact" onClick={() => accept(offer)}>Прийняти {offer.quantity - offer.acceptedQuantity} {offer.unit}</button>}
+                <button className="outline-button compact" onClick={() => openOfferChat(offer)}>♧ Чат</button>
+                {(offer.status === 'submitted' || offer.status === 'partially_accepted') && <button className="outline-button compact" onClick={() => rejectOffer(offer)}>Відхилити</button>}
             </div>)}{!offers[item.id]?.length && <Empty text="Пропозицій ще немає" />}</div>}
         </article>)}{!requests.length && <Empty text="У вас ще немає запитів" action="Створити запит" onAction={create} />}</div></section>
 }

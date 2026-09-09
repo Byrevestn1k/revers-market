@@ -100,6 +100,11 @@ export const listOffers = async (user: AuthUser, requestId: string) => {
     return { status: 200, body: { offers: result.rows.map(offerDto) } }
 }
 
+export const listMyOffers = async (user: AuthUser) => {
+    const result = await pool.query(`${offerSelect} WHERE o.seller_id = $1 ORDER BY o.updated_at DESC LIMIT 100`, [user.id])
+    return { status: 200, body: { offers: result.rows.map(offerDto) } }
+}
+
 export const createOffer = async (user: AuthUser, requestId: string, input: Record<string, unknown>) => {
     const errors = validateOfferInput(input)
     if (errors.length) return invalid(errors)
@@ -182,5 +187,16 @@ export const withdrawOffer = async (user: AuthUser, offerId: string) => {
     const result = await pool.query(`UPDATE offers SET status = 'withdrawn', updated_at = now() WHERE id = $1 AND seller_id = $2 AND status = 'submitted' AND accepted_quantity = 0 RETURNING buy_request_id`, [offerId, user.id])
     if (!result.rowCount) return { status: 409, body: { error: 'OFFER_CANNOT_BE_WITHDRAWN' } }
     await audit(pool, user.id, 'offer.withdrawn', 'offer', offerId)
+    return { status: 204, body: null }
+}
+
+export const rejectOffer = async (user: AuthUser, offerId: string) => {
+    const offer = await pool.query(`SELECT o.buy_request_id, r.buyer_id FROM offers o JOIN buy_requests r ON r.id = o.buy_request_id WHERE o.id = $1 FOR UPDATE OF o`, [offerId])
+    if (!offer.rowCount) return { status: 404, body: { error: 'OFFER_NOT_FOUND' } }
+    if (offer.rows[0].buyer_id !== user.id) return { status: 403, body: { error: 'FORBIDDEN' } }
+    const result = await pool.query(`UPDATE offers SET status = 'rejected', updated_at = now() WHERE id = $1 AND status IN ('submitted', 'partially_accepted') AND accepted_quantity = 0 RETURNING seller_id`, [offerId])
+    if (!result.rowCount) return { status: 409, body: { error: 'OFFER_CANNOT_BE_REJECTED' } }
+    await createNotification(pool, result.rows[0].seller_id, 'order', 'Пропозицію відхилено', 'Покупець відхилив вашу пропозицію')
+    await audit(pool, user.id, 'offer.rejected', 'offer', offerId)
     return { status: 204, body: null }
 }

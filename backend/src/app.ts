@@ -5,7 +5,7 @@ import { checkDatabase } from './db/client.js'
 import { login, logout, optionalAuth, register, requireAuth } from './auth.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
-import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listOffers, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
+import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
 import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, markConversationRead, updateOrderStatus } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, MapService } from './map-service.js'
@@ -155,6 +155,14 @@ export const createApp = () => {
 
     app.delete('/api/offers/:id', requireAuth, async (request, response, next) => {
         try { const result = await withdrawOffer(request.authUser!, String(request.params.id)); response.status(result.status).send() } catch (error) { next(error) }
+    })
+
+    app.post('/api/offers/:id/reject', requireAuth, async (request, response, next) => {
+        try { const result = await rejectOffer(request.authUser!, String(request.params.id)); response.status(result.status).send() } catch (error) { next(error) }
+    })
+
+    app.get('/api/offers/mine', requireAuth, async (request, response, next) => {
+        try { const result = await listMyOffers(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
     })
 
     app.get('/api/orders', requireAuth, async (request, response, next) => {
