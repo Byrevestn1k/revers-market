@@ -18,6 +18,13 @@ const transitions: Record<OrderStatus, readonly OrderStatus[]> = {
 }
 
 export const canTransitionOrder = (from: string, to: string) => orderStatuses.includes(from as OrderStatus) && transitions[from as OrderStatus].includes(to as OrderStatus)
+export const canUserTransitionOrder = (userId: string, buyerId: string, sellerId: string, from: string, to: string) => {
+    if (!canTransitionOrder(from, to)) return false
+    if (to === 'in_progress') return userId === sellerId
+    if (to === 'completed') return userId === buyerId
+    if (to === 'cancelled') return userId === buyerId || userId === sellerId
+    return false
+}
 
 const orderSelect = `SELECT o.*, r.title AS request_title, bu.username AS buyer_username, su.username AS seller_username
     FROM orders o JOIN buy_requests r ON r.id = o.buy_request_id
@@ -58,8 +65,21 @@ export const updateOrderStatus = async (user: AuthUser, orderId: string, status:
     if (typeof status !== 'string' || !orderStatuses.includes(status as OrderStatus)) return { status: 400, body: { error: 'INVALID_ORDER_STATUS' } }
     const current = await findOrder(pool, orderId, user.id)
     if (!current) return { status: 404, body: { error: 'ORDER_NOT_FOUND' } }
-    if (!canTransitionOrder(current.status, status)) return { status: 409, body: { error: 'INVALID_ORDER_TRANSITION', from: current.status, to: status } }
-    await pool.query('UPDATE orders SET status = $1, updated_at = now() WHERE id = $2', [status, orderId])
+    if (!canUserTransitionOrder(user.id, current.buyer_id, current.seller_id, current.status, status)) return { status: 409, body: { error: 'INVALID_ORDER_TRANSITION', from: current.status, to: status } }
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        if (status === 'completed') {
+            await client.query(`UPDATE products p SET quantity = p.quantity - oi.quantity, reserved_quantity = p.reserved_quantity - oi.quantity,
+                status = CASE WHEN p.quantity - oi.quantity = 0 THEN 'sold' ELSE p.status END, updated_at = now()
+                FROM order_items oi WHERE oi.order_id = $1 AND oi.product_id = p.id`, [orderId])
+        }
+        if (status === 'cancelled') {
+            await client.query('UPDATE products p SET reserved_quantity = p.reserved_quantity - oi.quantity, updated_at = now() FROM order_items oi WHERE oi.order_id = $1 AND oi.product_id = p.id', [orderId])
+        }
+        await client.query('UPDATE orders SET status = $1, updated_at = now() WHERE id = $2', [status, orderId])
+        await client.query('COMMIT')
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
     const statusLabels: Record<string, string> = { accepted: 'прийнято', in_progress: 'у роботі', completed: 'завершено', cancelled: 'скасовано', rejected: 'відхилено', expired: 'закінчено' }
     const counterpart = current.buyer_id === user.id ? current.seller_id : current.buyer_id
     const conversation = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE order_id = $1', [orderId])

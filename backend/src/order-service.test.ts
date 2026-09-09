@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canTransitionOrder, isOrderParticipant } from './order-service.js'
+import { canTransitionOrder, canUserTransitionOrder, isOrderParticipant } from './order-service.js'
 
 describe('order authorization', () => {
     it('allows only buyer or seller', () => {
@@ -20,4 +20,13 @@ describe('order status machine', () => {
         ['draft', 'completed'], ['completed', 'active'], ['cancelled', 'in_progress'],
         ['accepted', 'completed'], ['offer_received', 'in_progress'],
     ])('blocks %s -> %s', (from, to) => expect(canTransitionOrder(from, to)).toBe(false))
+})
+
+describe('order transition roles', () => {
+    it('allows seller to start but only buyer to complete', () => {
+        expect(canUserTransitionOrder('seller', 'buyer', 'seller', 'accepted', 'in_progress')).toBe(true)
+        expect(canUserTransitionOrder('buyer', 'buyer', 'seller', 'accepted', 'in_progress')).toBe(false)
+        expect(canUserTransitionOrder('buyer', 'buyer', 'seller', 'in_progress', 'completed')).toBe(true)
+        expect(canUserTransitionOrder('seller', 'buyer', 'seller', 'in_progress', 'completed')).toBe(false)
+    })
 })

@@ -110,3 +110,8 @@ export const updateReportModeration = async (user: AuthUser, reportId: string, s
     await audit(pool, user.id, 'report.moderated', 'report', reportId, { status })
     return { status: 200, body: { report: result.rows[0] } }
 }
+
+export const usersAreBlocked = async (queryable: Queryable, firstUserId: string, secondUserId: string) => Boolean((await queryable.query(
+    'SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1) LIMIT 1',
+    [firstUserId, secondUserId],
+)).rowCount)

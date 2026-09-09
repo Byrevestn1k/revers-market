@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 
 type User = { id: string; username: string; countryCode: string; phone: string }
 type Category = { id: string; code?: string; name: string; path?: string }
-type Product = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; status: string; owner: { id: string }; category: { id: string; name: string } }
+type Product = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; status: string; owner: { id: string }; category: { id: string; name: string } }
 type View = 'home' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
 type MapPoint = { latitude: number; longitude: number }
 type MapMarker = MapPoint & { id: string; kind: 'product' | 'buyRequest'; title: string; geoZone: string; category: { id: string; name: string }; approximate: true; distanceKm: number }
@@ -316,7 +316,11 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
         try { const result = await request(`/api/buy-requests/${id}/offers`); setOffers((current) => ({ ...current, [id]: result.offers })) } catch (error) { notify((error as Error).message) }
     }
     const accept = async (offer: Offer) => {
-        const quantity = offer.quantity - offer.acceptedQuantity
+        const remaining = offer.quantity - offer.acceptedQuantity
+        const raw = window.prompt(`Кількість до прийняття (до ${remaining} ${offer.unit})`, String(remaining))
+        if (raw === null) return
+        const quantity = Number(raw)
+        if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) { notify('Вкажіть коректну кількість'); return }
         if (!window.confirm(`Прийняти ${quantity} ${offer.unit} від ${offer.seller.username}?`)) return
         try { await request(`/api/offers/${offer.id}/accept`, { method: 'POST', body: JSON.stringify({ quantity }) }); notify('Пропозицію прийнято — створено замовлення'); setExpanded(''); load() } catch (caught) { notify((caught as Error).message) }
     }

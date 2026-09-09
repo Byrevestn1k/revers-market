@@ -8,7 +8,7 @@ type ProductRow = {
     id: string; owner_id: string; owner_username: string; category_id: string; category_code: string; category_name: string
     title: string; description: string; quantity: string | number; unit: string; price: string | number; currency: string
     delivery_mode: string; geo_zone: string; latitude: string | number | null; longitude: string | number | null
-    status: ProductStatus; expires_at: Date | null; created_at: Date; updated_at: Date
+    status: ProductStatus; reserved_quantity: string | number; expires_at: Date | null; created_at: Date; updated_at: Date
 }
 type PhotoRow = { id: string; storage_key: string; url: string; alt: string; sort_order: number }
 type ProductWithPhotos = ProductRow & { photos: PhotoRow[] }
@@ -26,6 +26,7 @@ export const toProductDto = (row: ProductWithPhotos) => ({
     description: row.description,
     photos: row.photos.map(toPhotoDto),
     quantity: Number(row.quantity),
+    availableQuantity: Number(row.quantity) - Number(row.reserved_quantity),
     unit: row.unit,
     price: { amount: Number(row.price), currency: row.currency },
     deliveryMode: row.delivery_mode,
@@ -39,7 +40,7 @@ export const toProductDto = (row: ProductWithPhotos) => ({
 
 const productSelect = `
     SELECT p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name,
-           p.title, p.description, p.quantity, p.unit, p.price, p.currency, p.delivery_mode, p.geo_zone,
+           p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.geo_zone,
            p.latitude, p.longitude, p.status, p.expires_at, p.created_at, p.updated_at
     FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id`
 
@@ -162,6 +163,8 @@ export const deleteProduct = async (user: AuthUser, id: string) => {
     const client = await pool.connect()
     try {
         await client.query('BEGIN')
+        const linkedOrders = await client.query('SELECT 1 FROM order_items WHERE product_id = $1 LIMIT 1', [id])
+        if (linkedOrders.rowCount) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_HAS_ORDER_HISTORY' } } }
         const photos = await client.query<PhotoRow>(
             'SELECT storage_key FROM product_photos WHERE product_id = $1 AND EXISTS (SELECT 1 FROM products WHERE id = $1 AND owner_id = $2)',
             [id, user.id],
