@@ -30,3 +30,11 @@ describe('order transition roles', () => {
         expect(canUserTransitionOrder('seller', 'buyer', 'seller', 'in_progress', 'completed')).toBe(false)
     })
 })
+
+describe('order cancellation roles', () => {
+    it('lets either participant cancel an active order but not an outsider', () => {
+        expect(canUserTransitionOrder('buyer', 'buyer', 'seller', 'accepted', 'cancelled')).toBe(true)
+        expect(canUserTransitionOrder('seller', 'buyer', 'seller', 'in_progress', 'cancelled')).toBe(true)
+        expect(canUserTransitionOrder('outsider', 'buyer', 'seller', 'accepted', 'cancelled')).toBe(false)
+    })
+})

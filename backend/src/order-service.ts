@@ -107,6 +107,8 @@ export const listMessages = async (user: AuthUser, conversationId: string) => {
 export const createMessage = async (user: AuthUser, conversationId: string, body: unknown) => {
     if (typeof body !== 'string' || !body.trim() || body.length > 5000) return { status: 400, body: { error: 'INVALID_MESSAGE' } }
     if (!(await conversationForUser(user, conversationId))) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
+    const counterpart = await pool.query<{ user_id: string }>('SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
+    for (const participant of counterpart.rows) if (await usersAreBlocked(pool, user.id, participant.user_id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
     const result = await pool.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim()])
     const participants = await pool.query<{ user_id: string }>('SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
     for (const participant of participants.rows) await createNotification(pool, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), null, conversationId)
