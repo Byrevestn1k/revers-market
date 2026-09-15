@@ -10,7 +10,7 @@ type ProfileRow = {
     country_code: string
     phone: string
     email: string | null
-    pending_email: string | null
+    pending_email?: string | null
     email_verified: boolean
     avatar_url: string | null
     nickname: string | null
@@ -81,8 +81,8 @@ export const toPublicProfile = (row: ProfileRow): PublicProfileDto => ({
 export const toPrivateProfile = (row: ProfileRow): PrivateProfileDto => ({
     ...toPublicProfile(row),
     phone: row.phone,
-    email: row.pending_email ?? row.email ?? null,
-    emailVerified: row.pending_email ? false : Boolean(row.email_verified),
+    email: row.email ?? null,
+    emailVerified: Boolean(row.email_verified),
     recoveryEmail: row.recovery_email,
     exactAddress: row.exact_address,
     privacy: { phoneVisibility: row.phone_visibility, phoneDisclosureConsent: row.phone_disclosure_consent },
@@ -93,7 +93,7 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const updateProfile = async (user: AuthUser, input: Record<string, unknown>) => {
     const fields: Record<string, string | null | undefined> = {}
-    for (const field of ['avatarUrl', 'nickname', 'bio', 'recoveryEmail', 'location', 'exactAddress']) {
+    for (const field of ['avatarUrl', 'nickname', 'bio', 'recoveryEmail', 'location', 'exactAddress', 'phone']) {
         if (field in input) fields[field] = normalizeOptional(input[field]) as string | null
     }
 
@@ -110,13 +110,13 @@ export const updateProfile = async (user: AuthUser, input: Record<string, unknow
     if (fields.nickname !== undefined && fields.nickname !== null && (fields.nickname.length < 2 || fields.nickname.length > 50)) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректне ім’я' } }
     if (fields.bio !== undefined && fields.bio !== null && fields.bio.length > 500) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Опис надто довгий' } }
     if (fields.recoveryEmail !== undefined && fields.recoveryEmail !== null && (fields.recoveryEmail.length > 254 || !emailPattern.test(fields.recoveryEmail))) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректна резервна електронна пошта' } }
-    if (fields.avatarUrl !== undefined && fields.avatarUrl !== null && fields.avatarUrl.length > 2048) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректна адреса зображення' } }
+    if (fields.avatarUrl !== undefined && fields.avatarUrl !== null && fields.avatarUrl.length > 2_000_000) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Зображення завелике' } }
     if (fields.location !== undefined && fields.location !== null && fields.location.length > 120) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Місцезнаходження надто довге' } }
     if (fields.exactAddress !== undefined && fields.exactAddress !== null && fields.exactAddress.length > 500) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Адреса надто довга' } }
 
     const columnNames: Record<string, string> = {
         avatarUrl: 'avatar_url', nickname: 'nickname', bio: 'bio', recoveryEmail: 'recovery_email',
-        location: 'location_display', exactAddress: 'exact_address',
+        location: 'location_display', exactAddress: 'exact_address', phone: 'phone',
     }
     const values = Object.entries(fields).filter(([, value]) => value !== undefined)
     const assignments = values.map(([field], index) => `${columnNames[field]} = $${index + 1}`)
@@ -146,10 +146,10 @@ export const updatePrivacy = async (user: AuthUser, input: Record<string, unknow
     const visibility = input.phoneVisibility
     const consent = input.phoneDisclosureConsent
     if (!['private', 'authenticated', 'public'].includes(String(visibility)) || typeof consent !== 'boolean') return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректні налаштування приватності' } }
-    if (visibility !== 'private' && !consent) return { status: 400, body: { error: 'CONSENT_REQUIRED', message: 'Потрібна явна згода на розкриття номера телефону' } }
+    const effectiveVisibility = consent ? visibility : 'private'
     const result = await pool.query<ProfileRow>(
         `UPDATE users SET phone_visibility = $1, phone_disclosure_consent = $2, updated_at = now() WHERE id = $3 RETURNING *`,
-        [visibility, consent, user.id],
+        [effectiveVisibility, consent, user.id],
     )
     return { status: 200, body: { profile: toPrivateProfile(result.rows[0]) } }
 }

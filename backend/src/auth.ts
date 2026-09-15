@@ -95,6 +95,12 @@ export const register = async (input: RegistrationInput, response: Response) => 
     if (await emailTaken(email)) {
         return { status: 409, body: { error: 'EMAIL_TAKEN', message: 'Ця електронна пошта вже зареєстрована', fields: ['Введіть коректну електронну пошту'] } }
     }
+    const duplicate = await pool.query('SELECT username_normalized, phone FROM users WHERE username_normalized = $1 OR phone = $2 LIMIT 1', [normalizeUsername(username), phone])
+    if (duplicate.rowCount) {
+        const row = duplicate.rows[0]
+        if (row.username_normalized === normalizeUsername(username)) return { status: 409, body: { error: 'USERNAME_TAKEN', message: 'Цей логін уже зареєстрований', fields: ['Цей логін уже зареєстрований'] } }
+        return { status: 409, body: { error: 'PHONE_TAKEN', message: 'Цей номер телефону вже зареєстрований', fields: ['Цей номер телефону вже зареєстрований'] } }
+    }
 
     try {
         const result = await pool.query(

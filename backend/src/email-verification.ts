@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto'
+import { randomInt } from 'node:crypto'
 import { pool } from './db/client.js'
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
@@ -64,4 +65,16 @@ export const emailTaken = async (email: string, exceptUserId?: string) => {
         [normalizeEmail(email), exceptUserId ?? null],
     )
     return Boolean(result.rowCount && result.rowCount > 0)
+}
+
+export const sendEmailCode = async (userId: string, email: string) => {
+    const code = String(randomInt(1000, 10000))
+    await pool.query(`UPDATE users SET email_verification_code = $1, email_verification_code_expires = now() + interval '10 minutes' WHERE id = $2`, [code, userId])
+    console.log(`[DEV email code] -> ${email}\nCode: ${code}`)
+    return { sent: true }
+}
+
+export const confirmEmailCode = async (userId: string, code: string) => {
+    const result = await pool.query(`UPDATE users SET email = COALESCE(pending_email, email), email_normalized = COALESCE(pending_email_normalized, email_normalized), pending_email = NULL, pending_email_normalized = NULL, email_verified = true, email_verification_code = NULL, email_verification_code_expires = NULL WHERE id = $1 AND email_verification_code = $2 AND email_verification_code_expires > now() RETURNING id`, [userId, code.trim()])
+    return { ok: Boolean(result.rowCount) }
 }

@@ -41,6 +41,12 @@ change; a worker would send it and retry transient failures, track provider
 bounces and expire jobs. Any raw token in a queued job needs protected storage
 and removal after delivery. An HTML template can accompany the existing text.
 Configure the sending domain and provider's SPF/DKIM/DMARC records before rollout.
+
+Phone verification uses the same development fallback: the four-digit code is
+printed to the backend log. In production set SMS_WEBHOOK_URL to a provider or
+internal gateway that accepts JSON `{ "to": "+380...", "code": "1234" }` and
+returns a successful HTTP status; optionally send SMS_WEBHOOK_TOKEN as a bearer
+token. Without this setting, production refuses to pretend that an SMS was sent.
 Changing email currently takes effect immediately; a separate pending-email
 flow with password reauthentication would preserve the old login address until
 the new one is confirmed. Neither that flow nor password recovery is implemented.

@@ -3,12 +3,16 @@ import express from 'express'
 import { fileURLToPath } from 'node:url'
 import { checkDatabase } from './db/client.js'
 import { confirmEmail, login, logout, optionalAuth, register, resendVerification, requireAuth } from './auth.js'
+import { confirmEmailCode, sendEmailCode } from './email-verification.js'
+import { requestPasswordReset, resetPassword } from './password-reset.js'
+import { changePassword } from './password-change.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
 import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, MapService } from './map-service.js'
+import { confirmPhoneVerification, sendPhoneVerification } from './phone-verification.js'
 
 const mapService = new MapService()
 
@@ -42,10 +46,15 @@ export const createApp = () => {
     app.post('/api/auth/register', withResult((request, response) => register(request.body ?? {}, response)))
 
     app.post('/api/auth/login', withResult((request, response) => login(String(request.body?.username ?? ''), String(request.body?.password ?? ''), response)))
+    app.post('/api/auth/password-reset/request', withResult((request) => requestPasswordReset(String(request.body?.identifier ?? ''))))
+    app.post('/api/auth/password-reset/confirm', withResult((request) => resetPassword(String(request.body?.identifier ?? ''), String(request.body?.code ?? ''), String(request.body?.password ?? ''))))
+    app.post('/api/profile/me/password', requireAuth, withResult((request) => changePassword(request.authUser!.id, String(request.body?.currentPassword ?? ''), String(request.body?.newPassword ?? ''), String(request.body?.confirmation ?? ''))))
 
     app.post('/api/auth/resend-verification', requireAuth, withResult((request) => resendVerification(request.authUser!)))
 
     app.post(['/api/auth/confirm-email', '/api/auth/verify-email'], withResult((request) => confirmEmail(String(request.body?.token ?? ''))))
+    app.post('/api/profile/me/email-verification', requireAuth, withResult(async (request) => ({ status: 200, body: await sendEmailCode(request.authUser!.id, String(request.body?.email ?? request.authUser!.email ?? '')) })))
+    app.post('/api/profile/me/email-verification/confirm', requireAuth, withResult(async (request) => ({ status: (await confirmEmailCode(request.authUser!.id, String(request.body?.code ?? ''))).ok ? 200 : 400, body: { ok: true } })))
 
     app.post('/api/auth/logout', withResult(async (request, response) => { await logout(request, response); return { status: 204 } }))
 
@@ -60,6 +69,8 @@ export const createApp = () => {
     app.patch('/api/profile/me', requireAuth, withResult((request) => updateProfile(request.authUser!, request.body ?? {})))
 
     app.patch('/api/profile/me/privacy', requireAuth, withResult((request) => updatePrivacy(request.authUser!, request.body ?? {})))
+    app.post('/api/profile/me/phone-verification', requireAuth, withResult(async (request) => ({ status: 200, body: await sendPhoneVerification(request.authUser!.id, String(request.body?.phone ?? request.authUser!.phone)) })))
+    app.post('/api/profile/me/phone-verification/confirm', requireAuth, withResult(async (request) => ({ status: (await confirmPhoneVerification(request.authUser!.id, String(request.body?.code ?? ''))).ok ? 200 : 400, body: { ok: true } })))
 
     app.get('/api/categories', withResult(() => listCategories()))
 
