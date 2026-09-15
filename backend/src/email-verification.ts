@@ -11,9 +11,9 @@ export const normalizeEmail = (email: string) => email.trim().toLowerCase()
 export const createEmailVerification = async (userId: string, email: string, allowEmailChange = true) => {
     const token = randomBytes(32).toString('base64url')
     const result = await pool.query(
-        `UPDATE users SET email = $1, email_normalized = $2, email_verified = false,
+        `UPDATE users SET pending_email = $1, pending_email_normalized = $2,
             email_verification_token = $3, email_verification_expires = $4, updated_at = now()
-         WHERE id = $5 AND ($6::boolean OR email_normalized = $2) AND (email_normalized IS DISTINCT FROM $2 OR (email_verified = false AND (email_verification_expires IS NULL OR email_verification_expires < now() + interval '23 hours 59 minutes'))) RETURNING id`,
+         WHERE id = $5 AND ($6::boolean OR (email_normalized = $2 OR pending_email_normalized = $2)) AND (pending_email_normalized IS DISTINCT FROM $2 OR (email_verification_expires IS NULL OR email_verification_expires < now() + interval '23 hours 59 minutes')) RETURNING id`,
         [email.trim(), normalizeEmail(email), hashToken(token), new Date(Date.now() + TOKEN_TTL_MS), userId, allowEmailChange],
     )
     if (!result.rowCount) throw new Error('Зачекайте хвилину перед повторним надсиланням або оновіть профіль.')
@@ -47,7 +47,9 @@ export const sendVerificationEmail = async (email: string, token: string) => {
 /** Підтвердження пошти за токеном із посилання. */
 export const verifyEmailToken = async (token: string) => {
     const result = await pool.query(
-        `UPDATE users SET email_verified = true, email_verification_token = NULL, email_verification_expires = NULL, updated_at = now()
+        `UPDATE users SET email = pending_email, email_normalized = pending_email_normalized,
+            pending_email = NULL, pending_email_normalized = NULL, email_verified = true,
+            email_verification_token = NULL, email_verification_expires = NULL, updated_at = now()
          WHERE email_verification_token = $1 AND email_verification_expires > now()
          RETURNING id`,
         [hashToken(token)],
@@ -58,7 +60,7 @@ export const verifyEmailToken = async (token: string) => {
 /** Перевірка, чи пошта не зайнята іншим користувачем. */
 export const emailTaken = async (email: string, exceptUserId?: string) => {
     const result = await pool.query(
-        'SELECT id FROM users WHERE email_normalized = $1 AND ($2::uuid IS NULL OR id <> $2::uuid)',
+        'SELECT id FROM users WHERE (email_normalized = $1 OR pending_email_normalized = $1) AND ($2::uuid IS NULL OR id <> $2::uuid)',
         [normalizeEmail(email), exceptUserId ?? null],
     )
     return Boolean(result.rowCount && result.rowCount > 0)

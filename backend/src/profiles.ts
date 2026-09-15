@@ -10,6 +10,7 @@ type ProfileRow = {
     country_code: string
     phone: string
     email: string | null
+    pending_email: string | null
     email_verified: boolean
     avatar_url: string | null
     nickname: string | null
@@ -52,7 +53,7 @@ export type PrivateProfileDto = PublicProfileDto & {
 
 const profileSelect = `
     SELECT id, username, country_code, phone, avatar_url, nickname, bio, recovery_email,
-           email, email_verified,
+           email, email_verified, pending_email,
            location_display, exact_address, phone_visibility, phone_disclosure_consent,
            listings_count, completed_deals_count, response_rate, rating_sum, rating_count, created_at
     FROM users`
@@ -80,8 +81,8 @@ export const toPublicProfile = (row: ProfileRow): PublicProfileDto => ({
 export const toPrivateProfile = (row: ProfileRow): PrivateProfileDto => ({
     ...toPublicProfile(row),
     phone: row.phone,
-    email: row.email ?? null,
-    emailVerified: Boolean(row.email_verified),
+    email: row.pending_email ?? row.email ?? null,
+    emailVerified: row.pending_email ? false : Boolean(row.email_verified),
     recoveryEmail: row.recovery_email,
     exactAddress: row.exact_address,
     privacy: { phoneVisibility: row.phone_visibility, phoneDisclosureConsent: row.phone_disclosure_consent },

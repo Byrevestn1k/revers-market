@@ -8,20 +8,21 @@ import { createEmailVerification, emailTaken, normalizeEmail, sendVerificationEm
 const SESSION_COOKIE = 'navpaky_session'
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7
 
-export type AuthUser = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
+export type AuthUser = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean; pendingEmail?: string | null }
 
 
 const normalizeUsername = (username: string) => username.trim().toLowerCase()
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 const getCookie = (request: Request) => request.headers.cookie?.match(/(?:^|; )navpaky_session=([^;]+)/)?.[1]
 
-const publicUser = (row: { id: string; username: string; country_code: string; phone: string; email?: string | null; email_verified?: boolean }): AuthUser => ({
+const publicUser = (row: { id: string; username: string; country_code: string; phone: string; email?: string | null; email_verified?: boolean; pending_email?: string | null }): AuthUser => ({
     id: row.id,
     username: row.username,
     countryCode: row.country_code,
     phone: row.phone,
     email: row.email ?? null,
     emailVerified: Boolean(row.email_verified),
+    pendingEmail: row.pending_email ?? null,
 })
 
 const setSessionCookie = (response: Response, token: string) => {
@@ -46,7 +47,7 @@ const resolveSessionUser = async (request: Request): Promise<AuthUser | null> =>
     const token = getCookie(request)
     if (!token) return null
     const result = await pool.query(
-        `SELECT u.id, u.username, u.country_code, u.phone, u.email, u.email_verified
+        `SELECT u.id, u.username, u.country_code, u.phone, u.email, u.email_verified, u.pending_email
          FROM user_sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`
         , [hashToken(token)],
@@ -137,11 +138,12 @@ export const login = async (usernameOrEmail: string, password: string, response:
 
 /** Повторна відправка листа підтвердження. */
 export const resendVerification = async (user: AuthUser) => {
-    if (!user.email) return { status: 400, body: { error: 'NO_EMAIL', message: 'Електронну пошту не вказано' } }
+    const targetEmail = user.pendingEmail ?? user.email
+    if (!targetEmail) return { status: 400, body: { error: 'NO_EMAIL', message: 'Електронну пошту не вказано' } }
     if (user.emailVerified) return { status: 400, body: { error: 'ALREADY_VERIFIED', message: 'Пошта вже підтверджена' } }
     try {
-        const token = await createEmailVerification(user.id, user.email, false)
-        const sent = await sendVerificationEmail(user.email, token)
+        const token = await createEmailVerification(user.id, targetEmail, false)
+        const sent = await sendVerificationEmail(targetEmail, token)
         return { status: 200, body: { ok: true, emailVerificationSent: sent } }
     } catch { return { status: 429, body: { error: 'VERIFICATION_UNAVAILABLE', message: 'Не вдалося надіслати лист. Спробуйте через хвилину.' } } }
 }
