@@ -2,8 +2,10 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import PasswordInput from './PasswordInput'
+import PhoneInput from './PhoneInput'
 
-type User = { id: string; username: string; countryCode: string; phone: string }
+type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
 type Category = { id: string; code?: string; name: string; path?: string }
 type Product = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; status: string; owner: { id: string }; category: { id: string; name: string } }
 type View = 'home' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
@@ -28,23 +30,27 @@ async function request(path: string, options?: RequestInit) {
 const formatPrice = (amount: number, currency: string) => `${new Intl.NumberFormat('uk-UA').format(amount)} ${currency}`
 
 function Auth({ onLogin }: { onLogin: (user: User) => void }) {
+    const [registered, setRegistered] = useState<{ user: User; sent: boolean } | null>(null)
     const [register, setRegister] = useState(false)
     const [error, setError] = useState('')
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
-    const [showPassword, setShowPassword] = useState(false)
-    const [showConfirmation, setShowConfirmation] = useState(false)
     const [busy, setBusy] = useState(false)
+    const [countryCode, setCountryCode] = useState('UA')
+    const [phone, setPhone] = useState('')
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); setBusy(true); setError(''); setFieldErrors({})
-        const data = Object.fromEntries(new FormData(event.currentTarget).entries())
-        try { const result = await request(`/api/auth/${register ? 'register' : 'login'}`, { method: 'POST', body: JSON.stringify(data) }); onLogin(result.user) }
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
+        if (register && !/^[A-Za-z0-9_.-]{3,32}$/.test(data.username.trim())) { setFieldErrors({ username: 'Логін: 3–32 символи, лише латиниця, цифри, _, ., -' }); setBusy(false); return }
+        if (register) { data.countryCode = countryCode; data.phone = phone }
+        try { const result = await request(`/api/auth/${register ? 'register' : 'login'}`, { method: 'POST', body: JSON.stringify(data) }); if (register) setRegistered({ user: result.user, sent: result.emailVerificationSent }); else onLogin(result.user) }
         catch (caught) {
             const apiError = caught as ApiError
             setError(apiError.message)
             const nextErrors: Record<string, string> = {}
             for (const field of apiError.fields ?? []) {
                 const message = String(field)
-                if (message.includes('користувача')) nextErrors.username = message
+                if (message.includes('користувача') || message.includes('Логін')) nextErrors.username = message
+                else if (message.includes('пошту')) nextErrors.email = message
                 else if (message.includes('код країни')) nextErrors.countryCode = message
                 else if (message.includes('номер телефону')) nextErrors.phone = message
                 else if (message.includes('Паролі')) nextErrors.passwordConfirmation = message
@@ -54,7 +60,8 @@ function Auth({ onLogin }: { onLogin: (user: User) => void }) {
         } finally { setBusy(false) }
     }
     const fieldError = (field: string) => fieldErrors[field] ? <span className="field-error">{fieldErrors[field]}</span> : null
-    return <main className="auth-page"><div className="auth-story"><div className="brand"><span className="brand-mark">N</span> Навпаки</div><span className="eyebrow">Маркетплейс поруч</span><h1>Продавайте те,<br /><em>що росте.</em></h1><p>Агропродукція від своїх. Чесно, локально, без зайвих кроків.</p></div><section className="auth-card"><span className="eyebrow">Ласкаво просимо</span><h2>{register ? 'Створіть акаунт' : 'З поверненням'}</h2><p>{register ? 'Почніть продавати врожай поруч.' : 'Увійдіть, щоб керувати товарами.'}</p><div className="auth-tabs"><button type="button" className={!register ? 'selected' : ''} onClick={() => { setRegister(false); setError(''); setFieldErrors({}) }}>Увійти</button><button type="button" className={register ? 'selected' : ''} onClick={() => { setRegister(true); setError(''); setFieldErrors({}) }}>Реєстрація</button></div><form onSubmit={submit} noValidate><label className={fieldErrors.username ? 'field-invalid' : ''}>Ім’я користувача<input name="username" autoComplete="username" required minLength={3} maxLength={32} />{fieldError('username')}</label>{register && <div className="auth-field-row"><label className={fieldErrors.countryCode ? 'field-invalid' : ''}>Код країни<input name="countryCode" placeholder="UA" maxLength={2} required />{fieldError('countryCode')}</label><label className={fieldErrors.phone ? 'field-invalid' : ''}>Телефон<input name="phone" type="tel" autoComplete="tel" placeholder="+380..." required />{fieldError('phone')}</label></div>}<label className={fieldErrors.password ? 'field-invalid' : ''}>Пароль<div className="password-field"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={register ? 'new-password' : 'current-password'} required /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Сховати' : 'Показати'}</button></div>{fieldError('password')}</label>{register && <label className={fieldErrors.passwordConfirmation ? 'field-invalid' : ''}>Підтвердження пароля<div className="password-field"><input name="passwordConfirmation" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" required /><button type="button" onClick={() => setShowConfirmation(!showConfirmation)}>{showConfirmation ? 'Сховати' : 'Показати'}</button></div>{fieldError('passwordConfirmation')}</label>}{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Зачекайте...' : register ? 'Створити акаунт' : 'Увійти в акаунт'} <span>→</span></button></form></section></main>
+    if (registered) return <main className="auth-page"><section className="auth-card verification-popup" role="dialog" aria-modal="true" aria-labelledby="verify-title"><h2 id="verify-title">Підтвердіть пошту</h2><p>Ваша електронна пошта: <strong>{registered.user.email}</strong></p><p>{registered.sent ? 'Ми надіслали лист із посиланням. Перевірте вхідні та папку «Спам».' : 'Лист ще не доставлено. Повторіть надсилання у профілі.'}</p><button autoFocus className="primary-button" onClick={() => onLogin(registered.user)}>Перейти до кабінету</button></section></main>
+    return <main className="auth-page"><div className="auth-story"><div className="brand"><span className="brand-mark">N</span> Навпаки</div><span className="eyebrow">Маркетплейс поруч</span><h1>Продавайте те,<br /><em>що росте.</em></h1><p>Агропродукція від своїх. Чесно, локально, без зайвих кроків.</p></div><section className="auth-card"><span className="eyebrow">Ласкаво просимо</span><h2>{register ? 'Створіть акаунт' : 'З поверненням'}</h2><p>{register ? 'Почніть продавати врожай поруч.' : 'Увійдіть, щоб керувати товарами.'}</p><div className="auth-tabs"><button type="button" className={!register ? 'selected' : ''} onClick={() => { setRegister(false); setError(''); setFieldErrors({}) }}>Увійти</button><button type="button" className={register ? 'selected' : ''} onClick={() => { setRegister(true); setError(''); setFieldErrors({}) }}>Реєстрація</button></div><form onSubmit={submit}><label className={fieldErrors.username ? 'field-invalid' : ''}>{register ? 'Логін' : 'Логін, електронна пошта'}<input name="username" autoComplete="username" required minLength={register ? 3 : 1} maxLength={register ? 32 : 254} />{register && <small>3–32 символи: латиниця, цифри, _, ., -</small>}{fieldError('username')}</label>{register && <label>Електронна пошта<input name="email" type="email" autoComplete="email" required maxLength={254} />{fieldError('email')}</label>}{register && <PhoneInput countryCode={countryCode} phone={phone} onCountryCode={(code) => { setCountryCode(code); setFieldErrors((current) => ({ ...current, countryCode: '' })) }} onPhone={(value) => { setPhone(value); setFieldErrors((current) => ({ ...current, phone: '' })) }} error={fieldErrors.phone ?? fieldErrors.countryCode} />}<label className={fieldErrors.password ? 'field-invalid' : ''}>Пароль<PasswordInput name="password" autoComplete={register ? 'new-password' : 'current-password'} required />{fieldError('password')}</label>{register && <label className={fieldErrors.passwordConfirmation ? 'field-invalid' : ''}>Підтвердження пароля<PasswordInput name="passwordConfirmation" autoComplete="new-password" required />{fieldError('passwordConfirmation')}</label>}{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Зачекайте...' : register ? 'Створити акаунт' : 'Увійти в акаунт'} <span>→</span></button></form></section></main>
 }
 
 function Card({ product, onOpen, onEdit, onDelete, onStatus }: { product: Product; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: typeof PRODUCT_STATUSES[number]) => void }) {
@@ -243,6 +250,7 @@ function App() {
     const removeProduct = async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; try { await request(`/api/products/${product.id}`, { method: 'DELETE' }); setSelected(null); await loadProducts(page); await loadMine(); notify('Товар видалено') } catch (error) { notify((error as Error).message) } }
     useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined); request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, [])
     useEffect(() => { if (user) { loadProducts(); loadMine() } }, [user])
+    if (window.location.pathname === '/verify-email') return <VerifyEmail />
     if (!user) return <Auth onLogin={setUser} />
     if (view === 'messages') return <MessagesView notify={notify} />
     if (view === 'notifications') return <NotificationsView notify={notify} />
@@ -254,14 +262,14 @@ function Home({ user, products, open, explore, create }: { user: User; products:
 function Catalog({ products, loading, search, setSearch, searchNow, page, pages, onPage, open }: { products: Product[]; loading: boolean; search: string; setSearch: (value: string) => void; searchNow: () => void; page: number; pages: number; onPage: (page: number) => void; open: (product: Product) => void }) { const [categories, setCategories] = useState<Category[]>([]); const [selectedCategory, setSelectedCategory] = useState(''); const [catalogProducts, setCatalogProducts] = useState(products); const [catalogPage, setCatalogPage] = useState(page); const [catalogPages, setCatalogPages] = useState(pages); const [catalogLoading, setCatalogLoading] = useState(false); const runSearch = async (nextPage = 1, category = selectedCategory) => { setCatalogLoading(true); try { const params = new URLSearchParams({ page: String(nextPage), limit: '8' }); if (search) params.set('geoZone', search); if (category) params.set('categoryId', category); const result = await request(`/api/products?${params}`); setCatalogProducts(result.products); setCatalogPage(result.pagination.page); setCatalogPages(result.pagination.pages) } finally { setCatalogLoading(false) } }; useEffect(() => { request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, []); useEffect(() => { if (!selectedCategory && !search) { setCatalogProducts(products); setCatalogPage(page); setCatalogPages(pages) } }, [products, page, pages, selectedCategory, search]); const chooseCategory = (value: string) => { setSelectedCategory(value); runSearch(1, value) }; const busy = loading || catalogLoading; return <section className="content"><div className="view-header"><div><span className="eyebrow">Каталог</span><h1>Знайти товари</h1></div></div><div className="search-bar"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch(1)} placeholder="Пошук за місцем" /><button onClick={() => runSearch(1)}>Пошук</button></div><div className="filter-row"><span className="result-label">Активні товари</span><select className="filter-chip category-filter" value={selectedCategory} onChange={(event) => chooseCategory(event.target.value)}><option value="">Всі категорії</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div>{busy ? <div className="loading">Завантаження каталогу...</div> : catalogProducts.length ? <><div className="product-grid">{catalogProducts.map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} />)}</div><Pagination page={catalogPage} pages={catalogPages} onPage={(nextPage) => { runSearch(nextPage); onPage(nextPage) }} /></> : <Empty text="Нічого не знайдено" />}</section> }
 function Mine({ products, open, create, edit, remove, setStatus }: { products: Product[]; open: (product: Product) => void; create: () => void; edit: (product: Product) => void; remove?: (product: Product) => void; setStatus?: (product: Product, status: string) => void }) { const removeFromMine = remove ?? (async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; await request(`/api/products/${product.id}`, { method: 'DELETE' }); window.location.reload() }); return <section className="content"><div className="view-header"><div><span className="eyebrow">Мій кабінет</span><h1>Мої товари</h1></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="mine-summary"><strong>{products.length}</strong><span>всього товарів</span><strong>{products.filter((item) => item.status === 'active').length}</strong><span>активних</span></div>{products.length ? <div className="product-grid">{products.map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} onEdit={() => edit(product)} onDelete={() => removeFromMine(product)} onStatus={setStatus ? (status) => setStatus(product, status) : undefined} />)}</div> : <Empty text="У вас ще немає товарів" action="Створити перший товар" onAction={create} />}</section> }
 type Offer = { id: string; seller: { id: string; username: string }; buyRequestId: string; existingProduct: { id: string; title: string } | null; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; status: string; createdAt: string }
-type Order = { id: string; buyRequestId: string; buyer: { id: string; username: string }; seller: { id: string; username: string }; quantity: number | null; unit: string; price: { unit: number | null; currency: string }; subtotal: number; status: string; conditionsSnapshot: { productTitle?: string } | null }
+type Order = { id: string; buyRequestId: string; buyer: { id: string; username: string }; seller: { id: string; username: string }; quantity: number | null; unit: string; price: { unit: number | null; currency: string }; subtotal: number; status: string; conditionsSnapshot: { productTitle?: string } | null; cancelReason?: string | null; dispute?: { status: string; reason: string; resolution: string | null } | null }
 type ChatMessage = { id: string; senderId: string; senderUsername: string; body: string; createdAt: string }
 type Conversation = { id: string; orderId: string; status: string; otherUsername: string; lastMessage: string | null; lastMessageAt: string | null; lastReadAt: string | null }
 type Notification = { id: string; type: string; title: string; body: string; orderId: string | null; conversationId: string | null; readAt: string | null; createdAt: string }
 type PublicProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string | null; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number }; createdAt: string }
-type PrivateProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string; recoveryEmail: string | null; exactAddress: string | null; privacy: { phoneVisibility: 'private' | 'authenticated' | 'public'; phoneDisclosureConsent: boolean }; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number } }
+type PrivateProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string; email: string | null; emailVerified: boolean; recoveryEmail: string | null; exactAddress: string | null; privacy: { phoneVisibility: 'private' | 'authenticated' | 'public'; phoneDisclosureConsent: boolean }; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number } }
 const OFFER_STATUS: Record<string, string> = { submitted: 'Очікує', accepted: 'Прийнято', partially_accepted: 'Частково прийнято', rejected: 'Відхилено', withdrawn: 'Відкликано', expired: 'Завершено' }
-const ORDER_STATUS: Record<string, string> = { accepted: 'Прийняте', in_progress: 'Виконується', completed: 'Завершене', cancelled: 'Скасоване', rejected: 'Відхилене', expired: 'Закінчене' }
+const ORDER_STATUS: Record<string, string> = { accepted: 'Прийняте', in_progress: 'Виконується', completed: 'Завершене', cancelled: 'Скасоване', rejected: 'Відхилене', expired: 'Закінчене', disputed: 'Спір' }
 const REQUEST_STATUS: Record<string, string> = { open: 'Відкритий', partially_fulfilled: 'Частково виконаний', fulfilled: 'Виконаний', cancelled: 'Скасований', expired: 'Завершений' }
 
 function OfferForm({ buyRequest, products, notify, onDone }: { buyRequest: BuyRequest; products: Product[]; notify: (message: string) => void; onDone: () => void }) {
@@ -457,7 +465,7 @@ function ReviewForm({ order, notify, onDone }: { order: Order; notify: (message:
     }
     return <form className="offer-form" onSubmit={submit}>
         <div className="field-row">
-            <label>Оцінка (1–12)<select name="rating" required>{Array.from({ length: 12 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label>Оцінка (1–5)<select name="rating" required>{Array.from({ length: 5 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         </div>
         <label>Коментар<input name="body" maxLength={2000} placeholder="Як пройшла угода?" /></label>
         {error && <p className="form-error">{error}</p>}
@@ -472,7 +480,23 @@ function OrdersView({ notify }: { notify: (message: string) => void }) {
     const load = async () => { try { setOrders((await request('/api/orders')).orders) } catch (error) { notify((error as Error).message) } }
     useEffect(() => { load() }, [])
     const setStatus = async (order: Order, status: string) => {
-        try { await request(`/api/orders/${order.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }); notify('Статус оновлено'); load() } catch (error) { notify((error as Error).message) }
+        let reason: string | null = null
+        if (status === 'cancelled') {
+            reason = window.prompt('Причина скасування (обов’язково):')
+            if (reason === null) return
+            if (reason.trim().length < 3) { notify('Причина занадто коротка'); return }
+        }
+        try { await request(`/api/orders/${order.id}/status`, { method: 'PATCH', body: JSON.stringify({ status, reason }) }); notify('Статус оновлено'); load() } catch (error) { notify((error as Error).message) }
+    }
+    const openDispute = async (order: Order) => {
+        const reason = window.prompt('Опишіть проблему для відкриття спору:')
+        if (reason === null) return
+        try { await request(`/api/orders/${order.id}/dispute`, { method: 'POST', body: JSON.stringify({ reason }) }); notify('Спір відкрито'); load() } catch (error) { notify((error as Error).message) }
+    }
+    const resolveDispute = async (order: Order, outcome: string) => {
+        const resolution = window.prompt(outcome === 'completed' ? 'Рішення по спору — замовлення виконано. Опишіть умови:' : 'Рішення по спору — замовлення скасовано. Опишіть умови:')
+        if (resolution === null) return
+        try { await request(`/api/orders/${order.id}/dispute/resolve`, { method: 'POST', body: JSON.stringify({ outcome, resolution }) }); notify('Спір вирішено'); load() } catch (error) { notify((error as Error).message) }
     }
     const openChat = async (order: Order) => {
         try { const result = await request(`/api/orders/${order.id}/conversation`); setChat({ conversationId: result.conversation.id, title: order.conditionsSnapshot?.productTitle || 'Замовлення' }) } catch (error) { notify((error as Error).message) }
@@ -480,10 +504,14 @@ function OrdersView({ notify }: { notify: (message: string) => void }) {
     return <section className="content"><div className="view-header"><div><span className="eyebrow">Угоди</span><h1>Замовлення</h1><p className="view-subtitle">Керуйте статусами і спілкуйтеся з другою стороною.</p></div><button className="outline-button" onClick={load}>↻ Оновити</button></div>
         <div className="order-list">{orders.map((order) => <article key={order.id} className="order-card"><header><div><span className="eyebrow">{order.buyer.username} ↔ {order.seller.username}</span><h3>{order.conditionsSnapshot?.productTitle || 'Замовлення'}</h3></div><span className="status status-active">{ORDER_STATUS[order.status] ?? order.status}</span></header>
             <div className="card-meta"><span>{order.quantity ?? '—'} {order.unit}</span><span>{formatPrice(order.price.unit ?? 0, order.price.currency)} / {order.unit}</span><span>{formatPrice(order.subtotal, order.price.currency)}</span></div>
+            {order.cancelReason && <p className="form-hint">Причина скасування: {order.cancelReason}</p>}
+            {order.dispute && <p className={order.dispute.status === 'open' ? 'form-error' : 'form-hint'}>Спір ({order.dispute.status}): {order.dispute.reason}{order.dispute.resolution ? ` — Рішення: ${order.dispute.resolution}` : ''}</p>}
             <div className="request-actions">
                 {order.status === 'accepted' && <button className="primary-button compact" onClick={() => setStatus(order, 'in_progress')}>▶ Розпочати</button>}
                 {order.status === 'in_progress' && <button className="primary-button compact" onClick={() => setStatus(order, 'completed')}>✔ Завершити</button>}
                 {(order.status === 'accepted' || order.status === 'in_progress') && <button className="outline-button" onClick={() => setStatus(order, 'cancelled')}>✕ Скасувати</button>}
+                {['accepted', 'in_progress', 'completed'].includes(order.status) && !order.dispute && <button className="outline-button" onClick={() => openDispute(order)}>⚠ Спір</button>}
+                {order.dispute?.status === 'open' && <><button className="primary-button compact" onClick={() => resolveDispute(order, 'completed')}>Вирішити: виконано</button><button className="outline-button compact" onClick={() => resolveDispute(order, 'cancelled')}>Вирішити: скасувати</button></>}
                 <button className="outline-button" onClick={() => openChat(order)}>♧ Чат</button>
                 {order.status === 'completed' && <button className="outline-button" onClick={() => setReviewing(reviewing === order.id ? '' : order.id)}>★ Відгук</button>}
             </div>
@@ -506,7 +534,7 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
     const save = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); setBusy(true); setMessage('')
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
-        try { const result = await request('/api/profile/me', { method: 'PATCH', body: JSON.stringify({ nickname: data.nickname, bio: data.bio, recoveryEmail: data.recoveryEmail, avatarUrl: data.avatarUrl, location: data.location, exactAddress: data.exactAddress }) }); setProfile(result.profile); notify('Профіль збережено') }
+        try { const result = await request('/api/profile/me', { method: 'PATCH', body: JSON.stringify({ ...(data.email !== (profile.email ?? '') ? { email: data.email } : {}), nickname: data.nickname, bio: data.bio, recoveryEmail: data.recoveryEmail, avatarUrl: data.avatarUrl, location: data.location, exactAddress: data.exactAddress }) }); setProfile(result.profile); notify('Профіль збережено') }
         catch (caught) { setMessage((caught as Error).message) } finally { setBusy(false) }
     }
     const savePrivacy = async () => {
@@ -517,6 +545,10 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
     return <section className="content profile-view"><span className="eyebrow">Налаштування</span><h1>Профіль</h1>
         <div className="profile-stats"><span><b>{profile.statistics.listingsCount}</b><small>товарів</small></span><span><b>{profile.statistics.completedDealsCount}</b><small>угод</small></span><span><b>{profile.ratingSummary.average ?? '—'}</b><small>рейтинг ({profile.ratingSummary.count})</small></span></div>
         <form className="product-form" onSubmit={save}>
+            <label>Логін<input value={profile.username} readOnly /></label>
+            <label>Електронна пошта<input name="email" type="email" defaultValue={profile.email ?? ''} maxLength={254} /></label>
+            <p>{profile.emailVerified ? 'Пошта підтверджена' : 'Пошта не підтверджена'}</p>
+            {profile.email && !profile.emailVerified && <button type="button" className="outline-button" disabled={busy} onClick={async () => { setBusy(true); try { const result = await request('/api/auth/resend-verification', { method: 'POST', body: '{}' }); notify(result.emailVerificationSent ? 'Лист надіслано' : 'Посилання доступне в консолі сервера розробки') } catch (error) { setMessage((error as Error).message) } finally { setBusy(false) } }}>Надіслати лист повторно</button>}
             <div className="field-row">
                 <label>Нікнейм<input name="nickname" defaultValue={profile.nickname ?? ''} maxLength={50} /></label>
                 <label>Місцезнаходження<input name="location" defaultValue={profile.location ?? ''} maxLength={120} placeholder="Рівне, область" /></label>
@@ -537,6 +569,15 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
             <div className="field-row"><button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти профіль'}</button><button type="button" className="outline-button" onClick={logout}>Вийти з акаунта</button></div>
         </form>
     </section>
+}
+
+function VerifyEmail() {
+    const [message, setMessage] = useState('Натисніть кнопку, щоб підтвердити електронну пошту.')
+    const [busy, setBusy] = useState(false)
+    const [done, setDone] = useState(false)
+    const token = useRef(new URLSearchParams(window.location.search).get('token') ?? '')
+    useEffect(() => { window.history.replaceState({}, '', '/verify-email') }, [])
+    return <main className="auth-page"><section className="auth-card"><h2>Підтвердження пошти</h2><p role="status">{message}</p>{!done && <button className="primary-button" disabled={busy || !token.current} onClick={async () => { setBusy(true); try { await request('/api/auth/confirm-email', { method: 'POST', body: JSON.stringify({ token: token.current }) }); setDone(true); setMessage('Електронну пошту підтверджено.') } catch (error) { setMessage((error as Error).message) } finally { setBusy(false) } }}>Підтвердіть пошту</button>}<a href="/">До кабінету / входу</a></section></main>
 }
 
 export default App

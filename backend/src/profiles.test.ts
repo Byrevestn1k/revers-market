@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { toPrivateProfile, toPublicProfile } from './profiles.js'
 
 const row = {
-    id: 'user-id', username: 'farmer', country_code: 'UA', phone: '+380501234567',
+    id: 'user-id', username: 'farmer', email: 'farmer@example.com', email_verified: true, country_code: 'UA', phone: '+380501234567',
     avatar_url: 'https://example.com/avatar.png', nickname: 'Фермер', bio: 'Овощи', recovery_email: 'recovery@example.com',
     location_display: 'Киевская область', exact_address: 'Точный адрес 1', phone_visibility: 'private' as const,
     phone_disclosure_consent: false, listings_count: 4, completed_deals_count: 2, response_rate: '87.50',

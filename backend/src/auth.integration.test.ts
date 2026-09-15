@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
+import { createHash, randomBytes } from 'node:crypto'
 
 const hasDatabase = Boolean(process.env.DATABASE_URL)
 
@@ -20,7 +21,7 @@ if (hasDatabase) {
 
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const payload = {
-                username: `privacy_${suffix}`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`,
+                username: `privacy_${suffix}`, email: `privacy_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`,
                 password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1',
             }
             const agent = request.agent(createApp())
@@ -38,7 +39,7 @@ if (hasDatabase) {
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized = $1', [payload.username.toLowerCase()])
             }
-        }, 30000)
+        }, 120000)
 
         it('rejects invalid registration before database access', async () => {
             const response = await request(createApp()).post('/api/auth/register').send({
@@ -51,14 +52,14 @@ if (hasDatabase) {
         it('registers, protects, logs in, rejects duplicates, and logs out', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const firstPayload = {
-                username: `test_${suffix}`,
+                username: `test_${suffix}`, email: `test_${suffix}@example.com`,
                 countryCode: 'UA',
                 phone: `+38050${suffix.slice(-7)}`,
                 password: 'StrongPassword1',
                 passwordConfirmation: 'StrongPassword1',
             }
             const secondPayload = {
-                username: `test_two_${suffix}`,
+                username: `test_two_${suffix}`, email: `test_two_${suffix}@example.com`,
                 countryCode: 'PL',
                 phone: `+4850${suffix.slice(-7)}`,
                 password: 'AnotherPassword2',
@@ -89,7 +90,7 @@ if (hasDatabase) {
 
                 const duplicate = await request(createApp()).post('/api/auth/register').send(firstPayload)
                 expect(duplicate.status).toBe(409)
-                expect(duplicate.body.message).toBe('Не вдалося створити обліковий запис із вказаними даними')
+                expect(duplicate.body.error).toBe('EMAIL_TAKEN')
                 expect(duplicate.body).not.toHaveProperty('username')
                 expect(duplicate.body).not.toHaveProperty('phone')
 
@@ -107,10 +108,28 @@ if (hasDatabase) {
                 const login = await firstAgent.post('/api/auth/login').send({ username: firstPayload.username, password: firstPayload.password })
                 expect(login.status).toBe(200)
                 expect((await firstAgent.get('/api/auth/me')).status).toBe(200)
+                const emailLogin = await firstAgent.post('/api/auth/login').send({ username: firstPayload.email.toUpperCase(), password: firstPayload.password })
+                expect(emailLogin.status).toBe(200)
+                expect((await firstAgent.post('/api/auth/resend-verification')).status).toBe(429)
+                const token = randomBytes(32).toString('base64url')
+                await pool.query('UPDATE users SET email_verification_token = $1 WHERE username_normalized = $2', [createHash('sha256').update(token).digest('hex'), firstPayload.username])
+                expect((await firstAgent.post('/api/auth/confirm-email').send({ token })).status).toBe(200)
+                expect((await firstAgent.post('/api/auth/confirm-email').send({ token })).status).toBe(400)
+                const unchanged = await firstAgent.patch('/api/profile/me').send({ email: firstPayload.email.toUpperCase() })
+                expect(unchanged.body.profile.emailVerified).toBe(true)
+                const newEmail = `changed_${suffix}@example.com`
+                const changed = await firstAgent.patch('/api/profile/me').send({ email: newEmail })
+                expect(changed.status).toBe(200)
+                expect(changed.body.profile.email).toBe(newEmail)
+                expect(changed.body.profile.emailVerified).toBe(false)
+                expect((await firstAgent.post('/api/auth/login').send({ username: newEmail, password: firstPayload.password })).status).toBe(200)
+                expect((await firstAgent.post('/api/auth/login').send({ username: firstPayload.email, password: firstPayload.password })).status).toBe(401)
+                const publicProfile = await firstAgent.get(`/api/profiles/${firstPayload.username}`)
+                expect(publicProfile.body.profile).not.toHaveProperty('email')
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [firstPayload.username.toLowerCase(), secondPayload.username.toLowerCase()])
             }
-        }, 30000)
+        }, 120000)
     })
 } else {
     describe.skip('auth HTTP integration (requires DATABASE_URL)', () => { })

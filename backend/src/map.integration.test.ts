@@ -10,8 +10,8 @@ if (hasDatabase) {
     describe('map points and privacy HTTP integration', () => {
         it('returns relevant points by radius and filters without exposing exact address', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
-            const buyerPayload = { username: `map_buyer_${suffix}`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
-            const sellerPayload = { username: `map_seller_${suffix}`, countryCode: 'UA', phone: `+38067${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
+            const buyerPayload = { username: `map_buyer_${suffix}`, email: `map_buyer_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
+            const sellerPayload = { username: `map_seller_${suffix}`, email: `map_seller_${suffix}@example.com`, countryCode: 'UA', phone: `+38067${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
             const buyer = request.agent(createApp())
             const seller = request.agent(createApp())
             try {

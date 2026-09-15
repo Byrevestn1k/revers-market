@@ -39,10 +39,28 @@ export const listConversations = async (user: AuthUser) => {
     return { status: 200, body: { conversations: result.rows } }
 }
 
+export type ReviewInput = { rating: number; body?: string }
+export type ReportInput = { targetType: string; targetId: string; reason: string; details?: string }
+
+export const validateRating = (rating: unknown): string | null => {
+    if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5) return 'Оцінка має бути цілим числом від 1 до 5'
+    return null
+}
+
+export const validateReviewBody = (body: unknown): string | null => {
+    if (body !== undefined && (typeof body !== 'string' || body.length > 2000)) return 'Відгук надто довгий'
+    return null
+}
+
+export const isModerator = (user: AuthUser) => (process.env.MODERATOR_USER_IDS ?? '').split(',').map((id) => id.trim()).filter(Boolean).includes(user.id)
+
 export const createReview = async (user: AuthUser, orderId: string, input: Record<string, unknown>) => {
-    const rating = input.rating
-    if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 12) return invalid('Оцінка має бути цілим числом від 1 до 12')
-    if (input.body !== undefined && (typeof input.body !== 'string' || input.body.length > 2000)) return invalid('Відгук надто довгий')
+    const ratingError = validateRating(input.rating)
+    if (ratingError) return invalid(ratingError)
+    const bodyError = validateReviewBody(input.body)
+    if (bodyError) return invalid(bodyError)
+    const rating = input.rating as number
+    const body = input.body === undefined || input.body === null ? '' : (input.body as string).trim()
     const order = await pool.query('SELECT buyer_id, seller_id, status FROM orders WHERE id = $1', [orderId])
     if (!order.rowCount) return { status: 404, body: { error: 'ORDER_NOT_FOUND' } }
     const row = order.rows[0]
@@ -50,7 +68,7 @@ export const createReview = async (user: AuthUser, orderId: string, input: Recor
     if (row.buyer_id !== user.id && row.seller_id !== user.id) return { status: 403, body: { error: 'FORBIDDEN' } }
     const revieweeId = row.buyer_id === user.id ? row.seller_id : row.buyer_id
     try {
-        const result = await pool.query('INSERT INTO reviews (order_id, reviewer_id, reviewee_id, rating, body) VALUES ($1,$2,$3,$4,$5) RETURNING id, order_id AS "orderId", reviewer_id AS "reviewerId", reviewee_id AS "revieweeId", rating, body, created_at AS "createdAt"', [orderId, user.id, revieweeId, rating, String(input.body ?? '').trim()])
+        const result = await pool.query('INSERT INTO reviews (order_id, reviewer_id, reviewee_id, rating, body) VALUES ($1,$2,$3,$4,$5) RETURNING id, order_id AS "orderId", reviewer_id AS "reviewerId", reviewee_id AS "revieweeId", rating, body, created_at AS "createdAt"', [orderId, user.id, revieweeId, rating, body])
         await audit(pool, user.id, 'review.created', 'review', result.rows[0].id, { orderId })
         await createNotification(pool, revieweeId, 'review', 'Новий відгук', 'Після завершеної угоди залишено новий відгук')
         return { status: 201, body: { review: result.rows[0] } }
@@ -67,9 +85,14 @@ export const listReviews = async (username: string) => {
 
 export const createReport = async (user: AuthUser, input: Record<string, unknown>) => {
     const allowed = ['user', 'product', 'buy_request', 'order', 'message']
-    if (typeof input.targetType !== 'string' || !allowed.includes(input.targetType) || typeof input.targetId !== 'string' || typeof input.reason !== 'string' || input.reason.trim().length < 2) return invalid('Вкажіть об’єкт і причину скарги')
-    if (input.details !== undefined && (typeof input.details !== 'string' || input.details.length > 5000)) return invalid('Деталі скарги надто довгі')
-    const result = await pool.query('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5) RETURNING id, target_type AS "targetType", target_id AS "targetId", reason, details, status, created_at AS "createdAt"', [user.id, input.targetType, input.targetId, input.reason.trim(), String(input.details ?? '').trim()])
+    const targetType = input.targetType
+    const targetId = input.targetId
+    const reason = input.reason
+    const details = input.details
+    if (typeof targetType !== 'string' || !allowed.includes(targetType) || typeof targetId !== 'string' || typeof reason !== 'string' || reason.trim().length < 2) return invalid('Вкажіть об’єкт і причину скарги')
+    if (details !== undefined && (typeof details !== 'string' || details.length > 5000)) return invalid('Деталі скарги надто довгі')
+    const trimmedDetails = details === undefined || details === null ? '' : details.trim()
+    const result = await pool.query('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5) RETURNING id, target_type AS "targetType", target_id AS "targetId", reason, details, status, created_at AS "createdAt"', [user.id, targetType, targetId, reason.trim(), trimmedDetails])
     await audit(pool, user.id, 'report.created', 'report', result.rows[0].id, { targetType: input.targetType, targetId: input.targetId })
     return { status: 201, body: { report: result.rows[0] } }
 }
@@ -93,8 +116,6 @@ export const unblockUser = async (user: AuthUser, blockedId: string) => {
     await audit(pool, user.id, 'user.unblocked', 'user', blockedId)
     return { status: 204, body: null }
 }
-
-const isModerator = (user: AuthUser) => (process.env.MODERATOR_USER_IDS ?? '').split(',').map((id) => id.trim()).filter(Boolean).includes(user.id)
 
 export const listModerationReports = async (user: AuthUser) => {
     if (!isModerator(user)) return { status: 403, body: { error: 'MODERATOR_REQUIRED' } }

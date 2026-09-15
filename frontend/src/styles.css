@@ -13,3 +13,30 @@
 .map-canvas{height:540px}.map-canvas .leaflet-container{height:100%;width:100%;font-family:'DM Sans',sans-serif}.map-canvas>.map-status{z-index:1000}
 .map-result-list{display:grid;gap:.35rem;max-height:285px;overflow:auto;margin:1rem 0}.map-result{display:flex;align-items:flex-start;gap:.55rem;width:100%;padding:.55rem .45rem;color:var(--ink);background:#f7faf7;border:1px solid transparent;border-radius:6px;text-align:left}.map-result:hover{background:var(--pale);border-color:#cde5d0}.map-result i{flex:0 0 9px;margin-top:.3rem}.map-result span{display:grid;gap:.15rem;min-width:0}.map-result strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem}.map-result small{color:var(--muted);font-size:.62rem}.map-summary .legend-product,.map-summary .legend-request{width:9px;height:9px}
 .request-form{max-width:720px}.request-location{display:grid;grid-template-columns:1fr auto;gap:.8rem;align-items:center;padding:1rem;background:#f7faf7;border:1px solid var(--line);border-radius:8px}.request-location>div:first-child{display:grid;gap:.25rem}.request-location strong{font-size:.82rem}.request-location small,.form-hint{color:var(--muted);font-size:.68rem;font-weight:400}.request-location .field-row{grid-column:1/-1;width:100%}
+/* Поле пароля з іконкою-оком */
+.password-field{position:relative;display:block}
+.password-field input{width:100%;padding-right:2.8rem}
+.password-toggle{position:absolute;top:50%;right:.6rem;transform:translateY(-50%);display:grid;place-items:center;width:2rem;height:2rem;padding:0;color:#5f6f68;background:none;border:0;border-radius:6px}
+.password-toggle:hover{color:var(--ink);background:#f0f5f0}
+/* Поле телефону з вибором країни */
+.phone-input-wrap{position:relative;display:grid;grid-template-columns:130px 1fr;gap:.7rem}
+.phone-input-wrap .phone-number{display:grid;gap:.4rem}
+.phone-country{position:relative;display:grid;gap:.4rem}
+.phone-country-button{display:flex;align-items:center;gap:.5rem;min-height:44px;padding:.4rem .6rem;background:#fbfdfb;border:1px solid #dce7df;border-radius:6px;font-weight:600;font-size:.85rem;line-height:1}
+.phone-flag{width:26px;height:18px;flex:0 0 26px;object-fit:cover;border-radius:3px;box-shadow:0 0 0 1px #00000014}
+.phone-country-code{display:inline-flex;line-height:1}
+.phone-caret{margin-left:auto;color:#74817c;font-size:.7rem}
+.phone-dropdown{position:absolute;top:calc(100% + 4px);left:0;z-index:60;width:max-content;min-width:260px;max-width:320px;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 28px #18342e22;overflow:hidden}
+.phone-search{width:100%;padding:.6rem .7rem;border:0;border-bottom:1px solid var(--line);outline:0;font-size:.8rem}
+.phone-options{display:grid;max-height:260px;overflow:auto}
+.phone-options button{display:flex;align-items:center;gap:.6rem;width:100%;padding:.55rem .75rem;background:none;border:0;text-align:left;font-size:.8rem}
+.phone-options button:hover{background:var(--pale)}
+.phone-options button.selected{background:var(--pale);font-weight:700}
+.phone-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phone-dial{color:#74817c;font-size:.72rem}
+.phone-empty{padding:.7rem;color:#74817c;font-size:.75rem;text-align:center}
+.phone-hint{grid-column:1/-1;color:var(--green);font-size:.68rem;font-weight:600}
+.phone-hint.invalid{color:#b44534}
+@media(max-width:600px){.phone-input-wrap{grid-template-columns:110px 1fr}}
+
+.verification-popup { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; box-shadow: 0 0 0 100vmax #132a2399; z-index: 1000; }

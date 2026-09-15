@@ -2,15 +2,27 @@ import cors from 'cors'
 import express from 'express'
 import { fileURLToPath } from 'node:url'
 import { checkDatabase } from './db/client.js'
-import { login, logout, optionalAuth, register, requireAuth } from './auth.js'
+import { confirmEmail, login, logout, optionalAuth, register, resendVerification, requireAuth } from './auth.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
-import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, markConversationRead, updateOrderStatus } from './order-service.js'
+import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, MapService } from './map-service.js'
 
 const mapService = new MapService()
+
+type HandlerResult = { status: number; body?: unknown }
+type RequestHandler = (request: express.Request, response: express.Response) => Promise<HandlerResult>
+
+const withResult = (handler: RequestHandler) =>
+    async (request: express.Request, response: express.Response, next: express.NextFunction) => {
+        try {
+            const result = await handler(request, response)
+            if (result.status === 204) response.status(204).send()
+            else response.status(result.status).json(result.body)
+        } catch (error) { next(error) }
+    }
 
 export const createApp = () => {
     const app = express()
@@ -21,223 +33,133 @@ export const createApp = () => {
     app.use(express.json({ limit: '8mb' }))
     app.use('/uploads', express.static(fileURLToPath(new URL('../uploads', import.meta.url))))
 
-    app.get('/health', async (_request, response, next) => {
-        try {
-            const database = await checkDatabase()
-            const status = database.status === 'ok' ? 'ok' : 'degraded'
-            response.status(status === 'ok' ? 200 : 503).json({ status, service: 'backend', database, timestamp: new Date().toISOString() })
-        } catch (error) { next(error) }
-    })
+    app.get('/health', withResult(async () => {
+        const database = await checkDatabase()
+        const status = database.status === 'ok' ? 'ok' : 'degraded'
+        return { status: status === 'ok' ? 200 : 503, body: { status, service: 'backend', database, timestamp: new Date().toISOString() } }
+    }))
 
-    app.post('/api/auth/register', async (request, response, next) => {
-        try {
-            const result = await register(request.body ?? {}, response)
-            response.status(result.status).json(result.body)
-        } catch (error) { next(error) }
-    })
+    app.post('/api/auth/register', withResult((request, response) => register(request.body ?? {}, response)))
 
-    app.post('/api/auth/login', async (request, response, next) => {
-        try {
-            const result = await login(String(request.body?.username ?? ''), String(request.body?.password ?? ''), response)
-            response.status(result.status).json(result.body)
-        } catch (error) { next(error) }
-    })
+    app.post('/api/auth/login', withResult((request, response) => login(String(request.body?.username ?? ''), String(request.body?.password ?? ''), response)))
 
-    app.post('/api/auth/logout', async (request, response, next) => {
-        try { await logout(request, response); response.status(204).send() } catch (error) { next(error) }
-    })
+    app.post('/api/auth/resend-verification', requireAuth, withResult((request) => resendVerification(request.authUser!)))
+
+    app.post(['/api/auth/confirm-email', '/api/auth/verify-email'], withResult((request) => confirmEmail(String(request.body?.token ?? ''))))
+
+    app.post('/api/auth/logout', withResult(async (request, response) => { await logout(request, response); return { status: 204 } }))
 
     app.get('/api/auth/me', requireAuth, (request, response) => response.json({ user: request.authUser }))
 
-    app.get('/api/profiles/:username', async (request, response, next) => {
-        try { const result = await getPublicProfile(request.params.username, request); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/profiles/:username', withResult((request) => getPublicProfile(String(request.params.username), request)))
 
-    app.get('/api/profiles/:username/reviews', async (request, response, next) => {
-        try { const result = await listReviews(request.params.username); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/profiles/:username/reviews', withResult((request) => listReviews(String(request.params.username))))
 
-    app.get('/api/profile/me', requireAuth, async (request, response, next) => {
-        try { const result = await getPrivateProfile(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/profile/me', requireAuth, withResult((request) => getPrivateProfile(request.authUser!)))
 
-    app.patch('/api/profile/me', requireAuth, async (request, response, next) => {
-        try { const result = await updateProfile(request.authUser!, request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/profile/me', requireAuth, withResult((request) => updateProfile(request.authUser!, request.body ?? {})))
 
-    app.patch('/api/profile/me/privacy', requireAuth, async (request, response, next) => {
-        try { const result = await updatePrivacy(request.authUser!, request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/profile/me/privacy', requireAuth, withResult((request) => updatePrivacy(request.authUser!, request.body ?? {})))
 
-    app.get('/api/categories', async (_request, response, next) => {
-        try { const result = await listCategories(); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/categories', withResult(() => listCategories()))
 
-    app.get('/api/map/markers', async (request, response, next) => {
-        try {
-            const latitude = Number(request.query.latitude)
-            const longitude = Number(request.query.longitude)
-            if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-                response.status(400).json({ error: 'INVALID_MAP_CENTER' })
-                return
-            }
-            const radiusKm = adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
-            const markers = await mapService.findMarkers({ latitude, longitude }, {
-                categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,
-                geoZone: typeof request.query.geoZone === 'string' ? request.query.geoZone : undefined,
-                radiusKm,
-                showProducts: request.query.showProducts !== 'false',
-                showBuyRequests: request.query.showBuyRequests !== 'false',
-            })
-            response.json({ markers, filters: { radiusKm, showProducts: request.query.showProducts !== 'false', showBuyRequests: request.query.showBuyRequests !== 'false' } })
-        } catch (error) { next(error) }
-    })
+    app.get('/api/map/markers', withResult(async (request) => {
+        const latitude = Number(request.query.latitude)
+        const longitude = Number(request.query.longitude)
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+            return { status: 400, body: { error: 'INVALID_MAP_CENTER' } }
+        }
+        const radiusKm = adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
+        const showProducts = request.query.showProducts !== 'false'
+        const showBuyRequests = request.query.showBuyRequests !== 'false'
+        const markers = await mapService.findMarkers({ latitude, longitude }, {
+            categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,
+            geoZone: typeof request.query.geoZone === 'string' ? request.query.geoZone : undefined,
+            radiusKm,
+            showProducts,
+            showBuyRequests,
+        })
+        return { status: 200, body: { markers, filters: { radiusKm, showProducts, showBuyRequests } } }
+    }))
 
-    app.get('/api/products', async (request, response, next) => {
-        try { const result = await listProducts(request.query, request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/products', withResult((request) => listProducts(request.query, request.authUser)))
 
-    app.get('/api/products/mine', requireAuth, async (request, response, next) => {
-        try { const result = await listProducts({ ...request.query, mine: 'true' }, request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/products/mine', requireAuth, withResult((request) => listProducts({ ...request.query, mine: 'true' }, request.authUser)))
 
-    app.get('/api/products/:id', async (request, response, next) => {
-        try { const result = await getProduct(request.params.id, request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/products/:id', withResult((request) => getProduct(String(request.params.id), request.authUser)))
 
-    app.post('/api/products', requireAuth, async (request, response, next) => {
-        try { const result = await createProduct(request.authUser!, request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/products', requireAuth, withResult((request) => createProduct(request.authUser!, request.body ?? {})))
 
-    app.patch('/api/products/:id', requireAuth, async (request, response, next) => {
-        try { const result = await updateProduct(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/products/:id', requireAuth, withResult((request) => updateProduct(request.authUser!, String(request.params.id), request.body ?? {})))
 
-    app.delete('/api/products/:id', requireAuth, async (request, response, next) => {
-        try { const result = await deleteProduct(request.authUser!, String(request.params.id)); if (result.status === 204) response.status(204).send(); else response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.delete('/api/products/:id', requireAuth, withResult((request) => deleteProduct(request.authUser!, String(request.params.id))))
 
-    app.get('/api/buy-requests', optionalAuth, async (request, response, next) => {
-        try { const result = await listBuyRequests(request.query, request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/buy-requests', optionalAuth, withResult((request) => listBuyRequests(request.query, request.authUser)))
 
-    app.get('/api/buy-requests/:id', optionalAuth, async (request, response, next) => {
-        try { const result = await getBuyRequest(String(request.params.id), request.authUser); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/buy-requests/:id', optionalAuth, withResult((request) => getBuyRequest(String(request.params.id), request.authUser)))
 
-    app.post('/api/buy-requests', requireAuth, async (request, response, next) => {
-        try { const result = await createBuyRequest(request.authUser!, request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/buy-requests', requireAuth, withResult((request) => createBuyRequest(request.authUser!, request.body ?? {})))
 
-    app.patch('/api/buy-requests/:id', requireAuth, async (request, response, next) => {
-        try { const result = await updateBuyRequest(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/buy-requests/:id', requireAuth, withResult((request) => updateBuyRequest(request.authUser!, String(request.params.id), request.body ?? {})))
 
-    app.get('/api/buy-requests/:id/offers', requireAuth, async (request, response, next) => {
-        try { const result = await listOffers(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/buy-requests/:id/offers', requireAuth, withResult((request) => listOffers(request.authUser!, String(request.params.id))))
 
-    app.post('/api/buy-requests/:id/offers', requireAuth, async (request, response, next) => {
-        try { const result = await createOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/buy-requests/:id/offers', requireAuth, withResult((request) => createOffer(request.authUser!, String(request.params.id), request.body ?? {})))
 
-    app.post('/api/offers/:id/accept', requireAuth, async (request, response, next) => {
-        try { const result = await acceptOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/offers/:id/accept', requireAuth, withResult((request) => acceptOffer(request.authUser!, String(request.params.id), request.body ?? {})))
 
-    app.post('/api/offers/:id/conversation', requireAuth, async (request, response, next) => {
-        try { const result = await getOrCreateOfferConversation(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/offers/:id/conversation', requireAuth, withResult((request) => getOrCreateOfferConversation(request.authUser!, String(request.params.id))))
 
-    app.patch('/api/offers/:id', requireAuth, async (request, response, next) => {
-        try { const result = await updateOffer(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/offers/:id', requireAuth, withResult((request) => updateOffer(request.authUser!, String(request.params.id), request.body ?? {})))
 
-    app.delete('/api/offers/:id', requireAuth, async (request, response, next) => {
-        try { const result = await withdrawOffer(request.authUser!, String(request.params.id)); response.status(result.status).send() } catch (error) { next(error) }
-    })
+    app.delete('/api/offers/:id', requireAuth, withResult((request) => withdrawOffer(request.authUser!, String(request.params.id))))
 
-    app.post('/api/offers/:id/reject', requireAuth, async (request, response, next) => {
-        try { const result = await rejectOffer(request.authUser!, String(request.params.id)); response.status(result.status).send() } catch (error) { next(error) }
-    })
+    app.post('/api/offers/:id/reject', requireAuth, withResult((request) => rejectOffer(request.authUser!, String(request.params.id))))
 
-    app.get('/api/offers/mine', requireAuth, async (request, response, next) => {
-        try { const result = await listMyOffers(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/offers/mine', requireAuth, withResult((request) => listMyOffers(request.authUser!)))
 
-    app.get('/api/orders', requireAuth, async (request, response, next) => {
-        try { const result = await listOrders(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/orders', requireAuth, withResult((request) => listOrders(request.authUser!)))
 
-    app.get('/api/orders/:id', requireAuth, async (request, response, next) => {
-        try { const result = await getOrder(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/orders/:id', requireAuth, withResult((request) => getOrder(request.authUser!, String(request.params.id))))
 
-    app.get('/api/orders/:id/delivery-address', requireAuth, async (request, response, next) => {
-        try { const result = await getOrderDeliveryAddress(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/orders/:id/delivery-address', requireAuth, withResult((request) => getOrderDeliveryAddress(request.authUser!, String(request.params.id))))
 
-    app.patch('/api/orders/:id/status', requireAuth, async (request, response, next) => {
-        try { const result = await updateOrderStatus(request.authUser!, String(request.params.id), request.body?.status); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/orders/:id/status', requireAuth, withResult((request) => updateOrderStatus(request.authUser!, String(request.params.id), request.body?.status, request.body?.reason)))
 
-    app.get('/api/orders/:id/conversation', requireAuth, async (request, response, next) => {
-        try { const result = await getOrderConversation(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/orders/:id/dispute', requireAuth, withResult((request) => openDispute(request.authUser!, String(request.params.id), request.body?.reason)))
 
-    app.get('/api/conversations/:id/messages', requireAuth, async (request, response, next) => {
-        try { const result = await listMessages(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/orders/:id/dispute/resolve', requireAuth, withResult((request) => resolveDispute(request.authUser!, String(request.params.id), request.body?.outcome, request.body?.resolution)))
 
-    app.post('/api/conversations/:id/messages', requireAuth, async (request, response, next) => {
-        try { const result = await createMessage(request.authUser!, String(request.params.id), request.body?.body); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/orders/:id/conversation', requireAuth, withResult((request) => getOrderConversation(request.authUser!, String(request.params.id))))
 
-    app.patch('/api/conversations/:id/read', requireAuth, async (request, response, next) => {
-        try { const result = await markConversationRead(request.authUser!, String(request.params.id)); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/conversations/:id/messages', requireAuth, withResult((request) => listMessages(request.authUser!, String(request.params.id))))
 
-    app.get('/api/conversations', requireAuth, async (request, response, next) => {
-        try { const result = await listConversations(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/conversations/:id/messages', requireAuth, withResult((request) => createMessage(request.authUser!, String(request.params.id), request.body?.body)))
 
-    app.get('/api/notifications', requireAuth, async (request, response, next) => {
-        try { const result = await listNotifications(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/conversations/:id/read', requireAuth, withResult((request) => markConversationRead(request.authUser!, String(request.params.id))))
 
-    app.patch('/api/notifications/read', requireAuth, async (request, response, next) => {
-        try { const result = await markNotificationsRead(request.authUser!, typeof request.body?.notificationId === 'string' ? request.body.notificationId : undefined); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/conversations', requireAuth, withResult((request) => listConversations(request.authUser!)))
 
-    app.post('/api/orders/:id/reviews', requireAuth, async (request, response, next) => {
-        try { const result = await createReview(request.authUser!, String(request.params.id), request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/notifications', requireAuth, withResult((request) => listNotifications(request.authUser!)))
 
-    app.post('/api/reports', requireAuth, async (request, response, next) => {
-        try { const result = await createReport(request.authUser!, request.body ?? {}); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.patch('/api/notifications/read', requireAuth, withResult((request) => markNotificationsRead(request.authUser!, typeof request.body?.notificationId === 'string' ? request.body.notificationId : undefined)))
 
-    app.get('/api/reports/mine', requireAuth, async (request, response, next) => {
-        try { const result = await listReports(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/orders/:id/reviews', requireAuth, withResult((request) => createReview(request.authUser!, String(request.params.id), request.body ?? {})))
 
-    app.get('/api/moderation/reports', requireAuth, async (request, response, next) => {
-        try { const result = await listModerationReports(request.authUser!); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.post('/api/reports', requireAuth, withResult((request) => createReport(request.authUser!, request.body ?? {})))
 
-    app.patch('/api/moderation/reports/:id', requireAuth, async (request, response, next) => {
-        try { const result = await updateReportModeration(request.authUser!, String(request.params.id), request.body?.status, request.body?.note); response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/reports/mine', requireAuth, withResult((request) => listReports(request.authUser!)))
 
-    app.post('/api/users/:id/block', requireAuth, async (request, response, next) => {
-        try { const result = await blockUser(request.authUser!, String(request.params.id)); if (result.status === 204) response.status(204).send(); else response.status(result.status).json(result.body) } catch (error) { next(error) }
-    })
+    app.get('/api/moderation/reports', requireAuth, withResult((request) => listModerationReports(request.authUser!)))
 
-    app.delete('/api/users/:id/block', requireAuth, async (request, response, next) => {
-        try { const result = await unblockUser(request.authUser!, String(request.params.id)); response.status(result.status).send() } catch (error) { next(error) }
-    })
+    app.patch('/api/moderation/reports/:id', requireAuth, withResult((request) => updateReportModeration(request.authUser!, String(request.params.id), request.body?.status, request.body?.note)))
 
-    app.use((_error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    app.post('/api/users/:id/block', requireAuth, withResult((request) => blockUser(request.authUser!, String(request.params.id))))
+
+    app.delete('/api/users/:id/block', requireAuth, withResult((request) => unblockUser(request.authUser!, String(request.params.id))))
+
+    app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+        console.error('[app] unhandled error:', error)
         response.status(500).json({ error: 'INTERNAL_ERROR', message: 'Внутрішня помилка сервера' })
     })
 

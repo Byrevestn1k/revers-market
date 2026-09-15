@@ -10,9 +10,9 @@ if (hasDatabase) {
     describe('buy requests and offers HTTP integration', () => {
         it('keeps product terms unchanged and supports multiple partial acceptances', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
-            const buyerPayload = { username: `buyer_${suffix}`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
-            const sellerOnePayload = { username: `seller_one_${suffix}`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
-            const sellerTwoPayload = { username: `seller_two_${suffix}`, countryCode: 'DE', phone: `+4950${suffix.slice(-7)}`, password: 'ThirdPassword3', passwordConfirmation: 'ThirdPassword3' }
+            const buyerPayload = { username: `buyer_${suffix}`, email: `buyer_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
+            const sellerOnePayload = { username: `seller_one_${suffix}`, email: `seller_one_${suffix}@example.com`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
+            const sellerTwoPayload = { username: `seller_two_${suffix}`, email: `seller_two_${suffix}@example.com`, countryCode: 'DE', phone: `+4950${suffix.slice(-7)}`, password: 'ThirdPassword3', passwordConfirmation: 'ThirdPassword3' }
             const buyer = request.agent(createApp())
             const sellerOne = request.agent(createApp())
             const sellerTwo = request.agent(createApp())

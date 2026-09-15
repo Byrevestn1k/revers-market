@@ -10,8 +10,8 @@ if (hasDatabase) {
     describe('products HTTP integration', () => {
         it('supports CRUD, pagination, photos, and owner-only edits', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
-            const firstPayload = { username: `seller_${suffix}`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
-            const secondPayload = { username: `other_${suffix}`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
+            const firstPayload = { username: `seller_${suffix}`, email: `seller_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
+            const secondPayload = { username: `other_${suffix}`, email: `other_${suffix}@example.com`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
             const seller = request.agent(createApp())
             const other = request.agent(createApp())
             let productId = ''

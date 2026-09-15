@@ -5,18 +5,80 @@ import { validateBuyRequestInput, validateOfferInput } from './buy-request-valid
 import { approximatePoint } from './map-service.js'
 import { createOrderConversation } from './order-service.js'
 import { audit, createNotification, usersAreBlocked } from './community-service.js'
+import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 const number = (value: string | number | null) => value === null ? null : Number(value)
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані запиту', fields } })
 
+const asNumberOrNull = (value: unknown): number | null => {
+    if (value === undefined || value === null) return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+const asDateOrNull = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
 const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_name, u.username AS buyer_username
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id`
 const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title
     FROM offers o JOIN users u ON u.id = o.seller_id LEFT JOIN products p ON p.id = o.product_id`
 
-const requestDto = (row: any, includeAddress = false) => ({
+interface BuyRequestRow {
+    id: string
+    buyer_id: string
+    buyer_username: string
+    category_id: string
+    category_code: string
+    category_name: string
+    product_id: string | null
+    title: string
+    description: string
+    requested_quantity: string | number
+    fulfilled_quantity: string | number
+    unit: string
+    min_unit_price: string | number | null
+    max_unit_price: string | number | null
+    currency: string
+    delivery_required: boolean
+    preferred_delivery: string | null
+    delivery_address: string | null
+    geo_area: string
+    latitude: string | number | null
+    longitude: string | number | null
+    deadline: Date | null
+    status: string
+    created_at: Date
+    updated_at: Date
+}
+
+interface OfferRow {
+    id: string
+    buy_request_id: string
+    seller_id: string
+    seller_username: string
+    product_id: string | null
+    product_title: string | null
+    offered_quantity: string | number
+    accepted_quantity: string | number
+    unit: string
+    unit_price: string | number
+    currency: string
+    delivery: unknown
+    note: string
+    additional_photo_url: string | null
+    terms: unknown
+    delivery_terms: unknown
+    status: string
+    valid_until: Date | null
+    created_at: Date
+}
+
+const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     id: row.id, buyer: { id: row.buyer_id, username: row.buyer_username },
     category: { id: row.category_id, code: row.category_code, name: row.category_name },
     productId: row.product_id, title: row.title, description: row.description,
@@ -26,7 +88,7 @@ const requestDto = (row: any, includeAddress = false) => ({
     geoArea: row.geo_area, coordinates: row.latitude === null || row.longitude === null ? null : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }), deadline: row.deadline?.toISOString() ?? null, status: row.status,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
 })
-const offerDto = (row: any) => ({
+const offerDto = (row: OfferRow) => ({
     id: row.id, seller: { id: row.seller_id, username: row.seller_username }, buyRequestId: row.buy_request_id,
     existingProduct: row.product_id ? { id: row.product_id, title: row.product_title } : null,
     quantity: Number(row.offered_quantity), acceptedQuantity: Number(row.accepted_quantity), unit: row.unit,
@@ -37,16 +99,47 @@ const offerDto = (row: any) => ({
 
 const categoryExists = async (queryable: Queryable, id: string) => Boolean((await queryable.query('SELECT 1 FROM categories WHERE id = $1 AND is_active', [id])).rowCount)
 
+type AcceptanceCheck = { ok: true } | { ok: false; status: number; body: Record<string, string> }
+
+const validateAcceptance = (
+    offer: { status: string; valid_until: Date | string | null; offered_quantity: string | number; accepted_quantity: string | number },
+    request: { status: string; requested_quantity: string | number; fulfilled_quantity: string | number },
+    quantity: number,
+): AcceptanceCheck => {
+    const acceptableOfferStatuses = ['submitted', 'partially_accepted']
+    if (!acceptableOfferStatuses.includes(offer.status)) return { ok: false, status: 409, body: { error: 'OFFER_OR_REQUEST_NOT_ACCEPTABLE' } }
+    if (offer.valid_until && new Date(offer.valid_until) <= new Date()) return { ok: false, status: 409, body: { error: 'OFFER_OR_REQUEST_NOT_ACCEPTABLE' } }
+    const acceptableRequestStatuses = ['open', 'partially_fulfilled']
+    if (!acceptableRequestStatuses.includes(request.status)) return { ok: false, status: 409, body: { error: 'OFFER_OR_REQUEST_NOT_ACCEPTABLE' } }
+    const remainingOffer = Number(offer.offered_quantity) - Number(offer.accepted_quantity)
+    const remainingRequest = Number(request.requested_quantity) - Number(request.fulfilled_quantity)
+    if (quantity > remainingOffer || quantity > remainingRequest) return { ok: false, status: 409, body: { error: 'QUANTITY_EXCEEDS_REMAINING' } }
+    return { ok: true }
+}
+
 export const createBuyRequest = async (user: AuthUser, input: Record<string, unknown>) => {
     const errors = validateBuyRequestInput(input)
     if (errors.length) return invalid(errors)
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
-    const exactPrice = input.exactPrice ?? null
+    const exactPrice = asNumberOrNull(input.exactPrice)
+    const minPrice = asNumberOrNull(input.minPrice)
+    const maxPrice = asNumberOrNull(input.maxPrice)
+    const latitude = asNumberOrNull(input.latitude)
+    const longitude = asNumberOrNull(input.longitude)
+    if (input.exactPrice !== undefined && input.exactPrice !== null && exactPrice === null) return invalid(['exactPrice'])
+    if (input.minPrice !== undefined && input.minPrice !== null && minPrice === null) return invalid(['minPrice'])
+    if (input.maxPrice !== undefined && input.maxPrice !== null && maxPrice === null) return invalid(['maxPrice'])
+    if (input.latitude !== undefined && input.latitude !== null && latitude === null) return invalid(['latitude'])
+    if (input.longitude !== undefined && input.longitude !== null && longitude === null) return invalid(['longitude'])
+    const deadline = input.deadline === undefined || input.deadline === null ? null : asDateOrNull(input.deadline)
+    if (input.deadline != null && deadline === null) return invalid(['deadline'])
+    if (latitude !== null && (latitude < -90 || latitude > 90)) return invalid(['latitude'])
+    if (longitude !== null && (longitude < -180 || longitude > 180)) return invalid(['longitude'])
     const deliveryRequired = input.delivery === 'yes' || input.delivery === 'preferred' || input.deliveryRequired === true
     const preferredDelivery = input.preferredDelivery ?? (input.delivery === 'preferred' ? 'preferred' : null)
     const created = await pool.query<{ id: string }>(
         'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id',
-        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? input.minPrice ?? null, exactPrice ?? input.maxPrice ?? null, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, input.latitude ?? null, input.longitude ?? null, input.deadline ?? null],
+        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline],
     )
     const response = await getBuyRequest(created.rows[0].id, user)
     return { ...response, status: 201 }
@@ -74,18 +167,16 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     if (input.exactPrice !== undefined) { normalizedInput.minPrice = input.exactPrice; normalizedInput.maxPrice = input.exactPrice }
     if (input.delivery !== undefined) { normalizedInput.deliveryRequired = input.delivery !== 'no'; if (input.delivery === 'preferred') normalizedInput.preferredDelivery = input.preferredDelivery ?? 'preferred' }
     const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', address: 'delivery_address', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', status: 'status' }
-    const entries = Object.entries(normalizedInput).filter(([key]) => key in allowed)
-    if (!entries.length) return invalid(['buyRequest'])
+    const { assignments, values } = buildUpdate(allowed, normalizedInput)
+    if (!assignments.length) return invalid(['buyRequest'])
     const current = await pool.query('SELECT status, fulfilled_quantity FROM buy_requests WHERE id = $1 AND buyer_id = $2', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const immutableAfterOffers = ['categoryId', 'productId', 'quantity', 'unit', 'currency']
     const hasOffers = Boolean((await pool.query('SELECT 1 FROM offers WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
-    if (hasOffers && entries.some(([key]) => immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }
+    if (hasOffers && Object.keys(normalizedInput).some((key) => key in allowed && immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }
     if (input.status !== undefined && !['cancelled', 'expired'].includes(String(input.status))) return { status: 409, body: { error: 'REQUEST_STATUS_MANAGED_BY_OFFERS' } }
-    const values = entries.map(([, value]) => value)
-    const assignments = entries.map(([key], index) => `${allowed[key]} = $${index + 1}`)
-    values.push(id, user.id)
-    const result = await pool.query(`UPDATE buy_requests SET ${assignments.join(', ')}, updated_at = now() WHERE id = $${values.length - 1} AND buyer_id = $${values.length} AND status IN ('open', 'partially_fulfilled') RETURNING id`, values)
+    const { idParam, ownerParam } = withOwnerConditions(values, id, user.id)
+    const result = await pool.query(`UPDATE buy_requests SET ${assignments.join(', ')}, updated_at = now() WHERE id = ${idParam} AND buyer_id = ${ownerParam} AND status IN ('open', 'partially_fulfilled') RETURNING id`, values)
     if (!result.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     return getBuyRequest(id, user)
 }
@@ -140,11 +231,9 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const request = await client.query('SELECT * FROM buy_requests WHERE id = $1 FOR UPDATE', [offer.rows[0].buy_request_id])
         if (!request.rowCount || request.rows[0].buyer_id !== user.id) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'FORBIDDEN' } } }
         const row = offer.rows[0]
-        if (!['submitted', 'partially_accepted'].includes(row.status) || (row.valid_until && new Date(row.valid_until) <= new Date()) || !['open', 'partially_fulfilled'].includes(request.rows[0].status)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'OFFER_OR_REQUEST_NOT_ACCEPTABLE' } } }
+        const acceptance = validateAcceptance(row, request.rows[0], quantity)
+        if (!acceptance.ok) { await client.query('ROLLBACK'); return acceptance }
         if (await usersAreBlocked(client, user.id, row.seller_id)) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'USER_BLOCKED' } } }
-        const remainingOffer = Number(row.offered_quantity) - Number(row.accepted_quantity)
-        const remainingRequest = Number(request.rows[0].requested_quantity) - Number(request.rows[0].fulfilled_quantity)
-        if (quantity > remainingOffer || quantity > remainingRequest) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'QUANTITY_EXCEEDS_REMAINING' } } }
         const accepted = Number(row.accepted_quantity) + quantity
         const fulfilled = Number(request.rows[0].fulfilled_quantity) + quantity
         const offerStatus = accepted === Number(row.offered_quantity) ? 'accepted' : 'partially_accepted'
@@ -170,14 +259,13 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
     const errors = validateOfferInput(input, true)
     if (errors.length) return invalid(errors)
     const allowed: Record<string, string> = { productId: 'product_id', quantity: 'offered_quantity', unit: 'unit', price: 'unit_price', currency: 'currency', delivery: 'delivery', note: 'note', additionalPhotoUrl: 'additional_photo_url', validUntil: 'valid_until' }
-    const entries = Object.entries(input).filter(([key]) => key in allowed)
-    if (!entries.length) return invalid(['offer'])
+    const { assignments, values } = buildUpdate(allowed, input)
+    if (!assignments.length) return invalid(['offer'])
     const existing = await pool.query('SELECT buy_request_id, accepted_quantity, status FROM offers WHERE id = $1 AND seller_id = $2', [offerId, user.id])
     if (!existing.rowCount) return { status: 404, body: { error: 'OFFER_NOT_FOUND' } }
     if (existing.rows[0].status !== 'submitted' || Number(existing.rows[0].accepted_quantity) > 0) return { status: 409, body: { error: 'OFFER_TERMS_LOCKED' } }
-    const values = entries.map(([, value]) => value)
-    values.push(offerId, user.id)
-    await pool.query(`UPDATE offers SET ${entries.map(([key], index) => `${allowed[key]} = $${index + 1}`).join(', ')}, updated_at = now() WHERE id = $${values.length - 1} AND seller_id = $${values.length}`, values)
+    const { idParam, ownerParam } = withOwnerConditions(values, offerId, user.id)
+    await pool.query(`UPDATE offers SET ${assignments.join(', ')}, updated_at = now() WHERE id = ${idParam} AND seller_id = ${ownerParam}`, values)
     const result = await pool.query(`${offerSelect} WHERE o.id = $1`, [offerId])
     await audit(pool, user.id, 'offer.updated', 'offer', offerId)
     return { status: 200, body: { offer: offerDto(result.rows[0]) } }

@@ -1,12 +1,16 @@
 import type { Request } from 'express'
 import { pool } from './db/client.js'
 import type { AuthUser } from './auth.js'
+import { createEmailVerification, emailTaken, normalizeEmail, sendVerificationEmail } from './email-verification.js'
+import { isValidEmail } from './validation.js'
 
 type ProfileRow = {
     id: string
     username: string
     country_code: string
     phone: string
+    email: string | null
+    email_verified: boolean
     avatar_url: string | null
     nickname: string | null
     bio: string | null
@@ -39,6 +43,8 @@ export type PublicProfileDto = {
 
 export type PrivateProfileDto = PublicProfileDto & {
     phone: string
+    email: string | null
+    emailVerified: boolean
     recoveryEmail: string | null
     exactAddress: string | null
     privacy: { phoneVisibility: ProfileRow['phone_visibility']; phoneDisclosureConsent: boolean }
@@ -46,6 +52,7 @@ export type PrivateProfileDto = PublicProfileDto & {
 
 const profileSelect = `
     SELECT id, username, country_code, phone, avatar_url, nickname, bio, recovery_email,
+           email, email_verified,
            location_display, exact_address, phone_visibility, phone_disclosure_consent,
            listings_count, completed_deals_count, response_rate, rating_sum, rating_count, created_at
     FROM users`
@@ -73,6 +80,8 @@ export const toPublicProfile = (row: ProfileRow): PublicProfileDto => ({
 export const toPrivateProfile = (row: ProfileRow): PrivateProfileDto => ({
     ...toPublicProfile(row),
     phone: row.phone,
+    email: row.email ?? null,
+    emailVerified: Boolean(row.email_verified),
     recoveryEmail: row.recovery_email,
     exactAddress: row.exact_address,
     privacy: { phoneVisibility: row.phone_visibility, phoneDisclosureConsent: row.phone_disclosure_consent },
@@ -85,6 +94,17 @@ export const updateProfile = async (user: AuthUser, input: Record<string, unknow
     const fields: Record<string, string | null | undefined> = {}
     for (const field of ['avatarUrl', 'nickname', 'bio', 'recoveryEmail', 'location', 'exactAddress']) {
         if (field in input) fields[field] = normalizeOptional(input[field]) as string | null
+    }
+
+    // Зміна електронної пошти: валідація + унікальність; після збереження — новий лист підтвердження
+    let pendingEmail: string | null = null
+    if ('email' in input) {
+        const rawEmail = normalizeOptional(input.email) as unknown
+        const nextEmail = typeof rawEmail === 'string' ? rawEmail : null
+        if (nextEmail === null) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Електронна пошта не може бути порожньою' } }
+        if (!isValidEmail(nextEmail)) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректна електронна пошта' } }
+        if (await emailTaken(nextEmail, user.id)) return { status: 409, body: { error: 'EMAIL_TAKEN', message: 'Ця електронна пошта вже зареєстрована' } }
+        pendingEmail = normalizeEmail(nextEmail) === normalizeEmail(user.email ?? '') ? null : nextEmail
     }
     if (fields.nickname !== undefined && fields.nickname !== null && (fields.nickname.length < 2 || fields.nickname.length > 50)) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректне ім’я' } }
     if (fields.bio !== undefined && fields.bio !== null && fields.bio.length > 500) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Опис надто довгий' } }
@@ -105,7 +125,20 @@ export const updateProfile = async (user: AuthUser, input: Record<string, unknow
         `UPDATE users SET ${assignments.length ? `${assignments.join(', ')}, ` : ''}updated_at = now()
          WHERE id = $${parameters.length} RETURNING *`, parameters,
     )
-    return { status: 200, body: { profile: toPrivateProfile(result.rows[0]) } }
+    let emailVerificationSent = false
+    if (pendingEmail) {
+        let token: string
+        try { token = await createEmailVerification(user.id, pendingEmail) }
+        catch (error) {
+            if ((error as { code?: string }).code === '23505') return { status: 409, body: { error: 'EMAIL_TAKEN', message: 'Ця електронна пошта вже зареєстрована' } }
+            throw error
+        }
+        try { emailVerificationSent = await sendVerificationEmail(pendingEmail, token) }
+        catch { console.error('Verification email delivery failed') }
+        const updated = await pool.query<ProfileRow>(`${profileSelect} WHERE id = $1`, [user.id])
+        return { status: 200, body: { profile: toPrivateProfile(updated.rows[0]), emailVerificationSent } }
+    }
+    return { status: 200, body: { profile: toPrivateProfile(result.rows[0]), emailVerificationSent } }
 }
 
 export const updatePrivacy = async (user: AuthUser, input: Record<string, unknown>) => {
