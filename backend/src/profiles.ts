@@ -9,6 +9,7 @@ type ProfileRow = {
     username: string
     country_code: string
     phone: string
+    phone_verified?: boolean
     email: string | null
     pending_email?: string | null
     email_verified: boolean
@@ -44,6 +45,7 @@ export type PublicProfileDto = {
 
 export type PrivateProfileDto = PublicProfileDto & {
     phone: string
+    phoneVerified: boolean
     email: string | null
     emailVerified: boolean
     recoveryEmail: string | null
@@ -52,7 +54,7 @@ export type PrivateProfileDto = PublicProfileDto & {
 }
 
 const profileSelect = `
-    SELECT id, username, country_code, phone, avatar_url, nickname, bio, recovery_email,
+    SELECT id, username, country_code, phone, phone_verified, avatar_url, nickname, bio, recovery_email,
            email, email_verified, pending_email,
            location_display, exact_address, phone_visibility, phone_disclosure_consent,
            listings_count, completed_deals_count, response_rate, rating_sum, rating_count, created_at
@@ -81,6 +83,7 @@ export const toPublicProfile = (row: ProfileRow): PublicProfileDto => ({
 export const toPrivateProfile = (row: ProfileRow): PrivateProfileDto => ({
     ...toPublicProfile(row),
     phone: row.phone,
+    phoneVerified: Boolean(row.phone_verified),
     email: row.email ?? null,
     emailVerified: Boolean(row.email_verified),
     recoveryEmail: row.recovery_email,
@@ -93,7 +96,7 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const updateProfile = async (user: AuthUser, input: Record<string, unknown>) => {
     const fields: Record<string, string | null | undefined> = {}
-    for (const field of ['avatarUrl', 'nickname', 'bio', 'recoveryEmail', 'location', 'exactAddress', 'phone']) {
+    for (const field of ['avatarUrl', 'nickname', 'bio', 'recoveryEmail', 'location', 'exactAddress']) {
         if (field in input) fields[field] = normalizeOptional(input[field]) as string | null
     }
 
@@ -116,7 +119,7 @@ export const updateProfile = async (user: AuthUser, input: Record<string, unknow
 
     const columnNames: Record<string, string> = {
         avatarUrl: 'avatar_url', nickname: 'nickname', bio: 'bio', recoveryEmail: 'recovery_email',
-        location: 'location_display', exactAddress: 'exact_address', phone: 'phone',
+        location: 'location_display', exactAddress: 'exact_address',
     }
     const values = Object.entries(fields).filter(([, value]) => value !== undefined)
     const assignments = values.map(([field], index) => `${columnNames[field]} = $${index + 1}`)

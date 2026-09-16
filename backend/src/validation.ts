@@ -40,6 +40,19 @@ export const normalizePhone = (countryCode: string, phone: string) => {
 const emailPattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 export const isValidEmail = (email: string) => email.length <= 254 && emailPattern.test(email)
 
+export const passwordError = (password: string) => password.length < 12 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)
+    ? 'Пароль: щонайменше 12 символів, велика й мала літери, цифра'
+    : null
+
+export const isValidPhone = (countryCode: string, phone: string) => {
+    const code = countryCode.trim().toUpperCase()
+    const dialCode = countryDialCodes[code]
+    const length = countryPhoneLengths[code]
+    const cleaned = cleanPhone(phone)
+    const local = cleaned.startsWith(dialCode ?? '') ? cleaned.slice((dialCode ?? '').length) : cleaned
+    return Boolean(dialCode && length && /^\d+$/.test(local) && local.length >= length.min && local.length <= length.max && (!cleaned.startsWith('+') || cleaned.startsWith(dialCode)))
+}
+
 export const validateRegistration = (input: Partial<RegistrationInput>): string[] => {
     const errors: string[] = []
     const username = input.username?.trim() ?? ''
@@ -60,9 +73,8 @@ export const validateRegistration = (input: Partial<RegistrationInput>): string[
         && localPhone.length <= phoneLength.max
         && (!phone.startsWith('+') || phone.startsWith(dialCode ?? '')))
     if (!phoneIsValid) errors.push('Введіть коректний номер телефону без коду країни')
-    if (password.length < 12 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
-        errors.push('Пароль: щонайменше 12 символів, велика й мала літери, цифра')
-    }
+    const passwordValidationError = passwordError(password)
+    if (passwordValidationError) errors.push(passwordValidationError)
     if (password !== (input.passwordConfirmation ?? '')) errors.push('Паролі не збігаються')
     return errors
 }

@@ -50,3 +50,19 @@
 @media(max-width:600px){.phone-input-wrap{grid-template-columns:110px 1fr}}
 
 .verification-popup { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; box-shadow: 0 0 0 100vmax #132a2399; z-index: 1000; }
+
+/* Статус контактів у профілі. */
+.profile-view label.phone-field,
+.profile-view label.email-field { display: block; }
+.profile-view .phone-status,
+.profile-view .email-status { display: inline; margin-left: .3rem; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.profile-view .phone-verified .phone-status,
+.profile-view .email-verified .email-status { color: #159957; }
+.profile-view .phone-unverified .phone-status,
+.profile-view .email-unverified .email-status { color: #c44738; }
+.profile-view .phone-field .phone-display,
+.profile-view .email-field .phone-display { display: flex; margin-top: .45rem; }
+.profile-view .phone-verified input,
+.profile-view .email-verified input { border-color: #159957; background: #f3fff7; }
+.profile-view .phone-unverified input,
+.profile-view .email-unverified input { border-color: #c44738; background: #fff7f5; }

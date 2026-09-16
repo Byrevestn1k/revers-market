@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { checkDatabase } from './db/client.js'
 import { confirmEmail, login, logout, optionalAuth, register, resendVerification, requireAuth } from './auth.js'
 import { confirmEmailCode, sendEmailCode } from './email-verification.js'
-import { requestPasswordReset, resetPassword } from './password-reset.js'
+import { requestPasswordReset, resetPassword, verifyPasswordResetCode } from './password-reset.js'
 import { changePassword } from './password-change.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
@@ -12,7 +12,7 @@ import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyReque
 import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, MapService } from './map-service.js'
-import { confirmPhoneVerification, sendPhoneVerification } from './phone-verification.js'
+import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
 
 const mapService = new MapService()
 
@@ -46,8 +46,9 @@ export const createApp = () => {
     app.post('/api/auth/register', withResult((request, response) => register(request.body ?? {}, response)))
 
     app.post('/api/auth/login', withResult((request, response) => login(String(request.body?.username ?? ''), String(request.body?.password ?? ''), response)))
-    app.post('/api/auth/password-reset/request', withResult((request) => requestPasswordReset(String(request.body?.identifier ?? ''))))
-    app.post('/api/auth/password-reset/confirm', withResult((request) => resetPassword(String(request.body?.identifier ?? ''), String(request.body?.code ?? ''), String(request.body?.password ?? ''))))
+    app.post('/api/auth/password-reset/request', withResult((request) => requestPasswordReset(String(request.body?.method ?? ''), String(request.body?.contact ?? ''), String(request.body?.countryCode ?? ''))))
+    app.post('/api/auth/password-reset/verify', withResult((request) => verifyPasswordResetCode(String(request.body?.method ?? ''), String(request.body?.contact ?? ''), String(request.body?.code ?? ''), String(request.body?.countryCode ?? ''))))
+    app.post('/api/auth/password-reset/confirm', withResult((request) => resetPassword(String(request.body?.resetGrant ?? ''), String(request.body?.password ?? ''), String(request.body?.confirmation ?? ''))))
     app.post('/api/profile/me/password', requireAuth, withResult((request) => changePassword(request.authUser!.id, String(request.body?.currentPassword ?? ''), String(request.body?.newPassword ?? ''), String(request.body?.confirmation ?? ''))))
 
     app.post('/api/auth/resend-verification', requireAuth, withResult((request) => resendVerification(request.authUser!)))
@@ -69,7 +70,7 @@ export const createApp = () => {
     app.patch('/api/profile/me', requireAuth, withResult((request) => updateProfile(request.authUser!, request.body ?? {})))
 
     app.patch('/api/profile/me/privacy', requireAuth, withResult((request) => updatePrivacy(request.authUser!, request.body ?? {})))
-    app.post('/api/profile/me/phone-verification', requireAuth, withResult(async (request) => ({ status: 200, body: await sendPhoneVerification(request.authUser!.id, String(request.body?.phone ?? request.authUser!.phone)) })))
+    app.post('/api/profile/me/phone-verification', requireAuth, withResult((request) => requestPhoneChange(request.authUser!.id, String(request.body?.countryCode ?? ''), String(request.body?.phone ?? ''))))
     app.post('/api/profile/me/phone-verification/confirm', requireAuth, withResult(async (request) => ({ status: (await confirmPhoneVerification(request.authUser!.id, String(request.body?.code ?? ''))).ok ? 200 : 400, body: { ok: true } })))
 
     app.get('/api/categories', withResult(() => listCategories()))
