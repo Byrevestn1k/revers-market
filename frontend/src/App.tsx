@@ -96,6 +96,7 @@ function MapView({ categories, openProduct, notify }: { categories: Category[]; 
     const [selectedRequest, setSelectedRequest] = useState<BuyRequest | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    const [homeLocation, setHomeLocation] = useState<(MapPoint & { city: string }) | null>(null)
 
     const loadMarkers = async () => {
         setLoading(true); setError('')
@@ -108,6 +109,21 @@ function MapView({ categories, openProduct, notify }: { categories: Category[]; 
     }
 
     useEffect(() => { loadMarkers() }, [center.latitude, center.longitude, radius, zoom, showProducts, showBuyRequests, categoryId, geoZone])
+
+    useEffect(() => {
+        const apiKey = import.meta.env.VITE_HERE_API_KEY
+        if (!apiKey) return
+        request('/api/profile/me').then(async ({ profile }) => {
+            if (!profile.exactAddress) return
+            const params = new URLSearchParams({ q: profile.exactAddress, in: 'countryCode:UKR', lang: 'uk-UA', limit: '1', apiKey })
+            const response = await fetch(`https://geocode.search.hereapi.com/v1/geocode?${params}`)
+            const data = await response.json() as { items?: { position?: { lat: number; lng: number }; address?: { city?: string } }[] }
+            const result = data.items?.[0]
+            if (!result?.position) return
+            const point = { latitude: result.position.lat, longitude: result.position.lng, city: result.address?.city || '' }
+            setHomeLocation(point); setCenter(point); setZoom(14); setGeoZone(point.city)
+        }).catch(() => undefined)
+    }, [])
 
     useEffect(() => {
         if (!mapElement.current || mapInstance.current) return
@@ -143,7 +159,12 @@ function MapView({ categories, openProduct, notify }: { categories: Category[]; 
             leafletMarker.on('click', () => openMarker(marker))
             leafletMarker.addTo(markerLayer.current!)
         })
-    }, [markers])
+        if (homeLocation) {
+            const homeMarker = L.marker([homeLocation.latitude, homeLocation.longitude], { icon: L.divIcon({ className: 'home-map-marker', html: '⌂', iconSize: [34, 34], iconAnchor: [17, 17] }) })
+            homeMarker.bindTooltip('Моє місце')
+            homeMarker.addTo(markerLayer.current)
+        }
+    }, [markers, homeLocation])
 
     const useMyLocation = () => navigator.geolocation.getCurrentPosition(
         (position) => setCenter({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
