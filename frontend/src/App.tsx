@@ -6,6 +6,7 @@ import PasswordInput from './PasswordInput'
 import PhoneInput from './PhoneInput'
 import PasswordReset from './PasswordReset'
 import ResendCodeButton from './ResendCodeButton'
+import AddressInput from './AddressInput'
 
 type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
 type Category = { id: string; code?: string; name: string; path?: string }
@@ -545,8 +546,6 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
     const [editingPassword, setEditingPassword] = useState(false)
     const [passwordMessage, setPasswordMessage] = useState('')
     const [phoneCountry, setPhoneCountry] = useState(profile?.countryCode ?? 'UA')
-    const [citySuggestions, setCitySuggestions] = useState<string[]>([])
-    const searchCities = async (value: string) => { if (value.trim().length < 2) { setCitySuggestions([]); return }; try { const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ua&accept-language=uk&limit=8&q=${encodeURIComponent(value)}`, { headers: { 'Accept-Language': 'uk' } }); const places = await response.json(); setCitySuggestions(Array.from(new Set(places.map((place: { display_name: string }) => place.display_name.split(',').slice(0, 2).join(', ')))) as string[]) } catch { setCitySuggestions([]) } }
     const loadAvatar = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const image = new Image(); image.onload = () => { const size = 512; const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size; const scale = Math.max(size / image.width, size / image.height); canvas.getContext('2d')?.drawImage(image, (size - image.width * scale) / 2, (size - image.height * scale) / 2, image.width * scale, image.height * scale); resolve(canvas.toDataURL('image/jpeg', .82)) }; image.onerror = reject; image.src = String(reader.result) }; reader.onerror = reject; reader.readAsDataURL(file) })
     const saveAvatar = async () => { if (!profile) return; setBusy(true); try { const result = await request('/api/profile/me', { method: 'PATCH', body: JSON.stringify({ avatarUrl: profile.avatarUrl }) }); setProfile(result.profile); setEditingAvatar(false); notify('Аватар збережено') } catch (error) { setMessage((error as Error).message) } finally { setBusy(false) } }
     useEffect(() => {
@@ -556,7 +555,7 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
     const save = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); setBusy(true); setMessage('')
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
-        try { const result = await request('/api/profile/me', { method: 'PATCH', body: JSON.stringify({ ...(data.email !== (profile.email ?? '') ? { email: data.email } : {}), nickname: data.nickname, bio: data.bio, avatarUrl: profile.avatarUrl, location: data.location, exactAddress: data.exactAddress, phone: data.phone }) }); const privacy = await request('/api/profile/me/privacy', { method: 'PATCH', body: JSON.stringify({ phoneVisibility: visibility, phoneDisclosureConsent: consent }) }); setProfile(privacy.profile ?? result.profile); if (privacy.profile) setVisibility(privacy.profile.privacy.phoneVisibility); notify('Профіль збережено') }
+        try { const result = await request('/api/profile/me', { method: 'PATCH', body: JSON.stringify({ ...(data.email !== (profile.email ?? '') ? { email: data.email } : {}), nickname: data.nickname, bio: data.bio, avatarUrl: profile.avatarUrl, location: profile.location, exactAddress: data.exactAddress, phone: data.phone }) }); const privacy = await request('/api/profile/me/privacy', { method: 'PATCH', body: JSON.stringify({ phoneVisibility: visibility, phoneDisclosureConsent: consent }) }); setProfile(privacy.profile ?? result.profile); if (privacy.profile) setVisibility(privacy.profile.privacy.phoneVisibility); notify('Профіль збережено') }
         catch (caught) { setMessage((caught as Error).message) } finally { setBusy(false) }
     }
     const savePrivacy = async () => {
@@ -574,13 +573,12 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
             <div className="password-change"><label>Пароль<div className="phone-display"><input type="password" value="••••••••••••" readOnly aria-label="Поточний пароль прихований" /><button type="button" className="avatar-edit inline-edit" onClick={() => { setEditingPassword(!editingPassword); setPasswordMessage('') }}>✎</button></div></label>{editingPassword && <div className="password-editor"><div className="password-current-row"><PasswordInput name="currentPassword" placeholder="Поточний пароль" autoComplete="current-password" /><a href="/?reset-password">Забув пароль</a></div><PasswordInput name="newPassword" placeholder="Новий пароль" autoComplete="new-password" minLength={12} /><PasswordInput name="passwordConfirmation" placeholder="Підтвердження нового паролю" autoComplete="new-password" minLength={12} /><button type="button" className="outline-button compact" onClick={async (event) => { const box = event.currentTarget.parentElement; const currentPassword = (box?.querySelector('[name=currentPassword]') as HTMLInputElement)?.value; const newPassword = (box?.querySelector('[name=newPassword]') as HTMLInputElement)?.value; const confirmation = (box?.querySelector('[name=passwordConfirmation]') as HTMLInputElement)?.value; try { await request('/api/profile/me/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword, confirmation }) }); setEditingPassword(false); setPasswordMessage('Пароль змінено') } catch (error) { setPasswordMessage((error as Error).message) } }}>Змінити пароль</button>{passwordMessage && <span className="field-error">{passwordMessage}</span>}</div>}</div>
             <div className="field-row">
                 <label>Нікнейм<input name="nickname" defaultValue={profile.nickname ?? ''} maxLength={50} /></label>
-                <label>Місто<input name="location" defaultValue={profile.location ?? ''} maxLength={120} placeholder="Почніть вводити місто" onChange={(event) => searchCities(event.target.value)} />{citySuggestions.length > 0 && <div className="city-suggestions">{citySuggestions.map((city) => <button type="button" key={city} onClick={(event) => { const input = (event.currentTarget.parentElement?.previousElementSibling as HTMLInputElement); input.value = city; setCitySuggestions([]) }}>{city}</button>)}</div>}</label>
             </div>
             <label>Про себе<textarea name="bio" defaultValue={profile.bio ?? ''} rows={3} maxLength={500} placeholder="Розкажіть про свою ферму або господарство" /></label>
             <div className="field-row">
                 <label>Резервна електронна пошта<input name="recoveryEmail" type="email" defaultValue={profile.recoveryEmail ?? ''} /></label>
             </div>
-            <label>Точна адреса <small className="form-hint">видима лише вам</small><input name="exactAddress" defaultValue={profile.exactAddress ?? ''} maxLength={500} /></label>
+            <label><span className="exact-address-caption">Точна адреса <small className="form-hint">(видима лише вам)</small></span><AddressInput initialValue={profile.exactAddress ?? ''} /></label>
             <div className="profile-privacy">
                 <strong>Видимість телефону</strong>
                 <select value={visibility} onChange={(event) => setVisibility(event.target.value)}><option value="private">Не видимий нікому</option><option value="authenticated">Лише авторизованим користувачам</option><option value="public">Видимий усім</option></select>
