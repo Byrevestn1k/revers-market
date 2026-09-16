@@ -21,7 +21,7 @@
 .profile-hero{display:grid;justify-items:center;gap:.35rem;margin:1rem auto 1.5rem;text-align:center}.profile-avatar-wrap{position:relative}.profile-avatar{display:grid;place-items:center;width:132px;height:132px;overflow:hidden;border-radius:50%;background:var(--pale);color:var(--green);font-size:2.6rem;font-weight:800}.profile-avatar img{width:100%;height:100%;object-fit:cover}.avatar-edit{position:absolute;right:-.25rem;bottom:.2rem;width:32px;height:32px;border:0;border-radius:50%;background:var(--green);color:#fff;cursor:pointer}.profile-hero>strong{font-size:1.2rem}.profile-hero>small{color:var(--muted)}.profile-rating{display:flex;align-items:center;gap:.45rem}.profile-rating span{letter-spacing:.08rem;font-size:1.15rem}.star-filled{color:#e79232}.star-empty{color:#c7cfca}.profile-hero-stats{display:flex;gap:1.2rem;color:var(--muted);font-size:.7rem}.profile-hero-stats span{display:grid;gap:.15rem}.profile-hero-stats b{color:var(--ink);font-size:.95rem}.avatar-editor{display:grid;gap:.5rem;width:min(420px,100%);margin-top:.5rem}.avatar-editor-actions{display:flex;justify-content:center;gap:.5rem}.profile-removed-field,.profile-privacy .outline-button,.profile-view>.profile-stats{display:none}
 .city-suggestions{display:grid;gap:.2rem;max-height:180px;overflow:auto;padding:.3rem;background:#fff;border:1px solid var(--line);border-radius:6px}.city-suggestions button{padding:.45rem;text-align:left;background:#fff;border:0;color:var(--ink);cursor:pointer}.city-suggestions button:hover{background:var(--pale)}
 .profile-privacy .consent-row{display:flex;align-items:center;gap:.5rem;line-height:1.3}.profile-privacy .consent-row input{width:16px;height:16px;flex:0 0 16px;margin:0}
-.phone-display{display:flex;align-items:center;gap:.4rem}.phone-display>input{flex:1}.inline-edit{position:static;flex:0 0 32px}.phone-editor{display:grid;gap:.5rem;margin-top:.4rem}.verification-popup-inline{display:flex;gap:.5rem;margin-top:.5rem}.verification-popup-inline input{max-width:150px}
+.phone-display{display:flex;align-items:center;gap:.4rem}.phone-display>input{flex:1}.inline-edit{position:static;flex:0 0 32px}.phone-editor{display:grid;gap:.5rem;margin-top:.4rem}.verification-popup-inline{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem}.verification-popup-inline input{max-width:150px}.verification-popup-inline .field-error{flex-basis:100%;margin:0;text-align:center}
 .profile-view>.product-form>label:nth-child(1),.profile-view>.product-form>label:nth-child(2),.profile-view>.product-form>label:nth-child(3){grid-column:span 1}.email-field.email-unverified input{border-color:#c85143;background:#fff7f5}.email-field.email-verified input{border-color:#4d9b62;background:#f3fbf4}.email-field>button{margin:.4rem .4rem 0 0}
 .email-status{font-size:inherit;font-weight:inherit}.email-verified .email-status{color:#36854c}.email-unverified .email-status{color:#c85143}
 .password-change{display:flex;align-items:center;gap:.5rem;margin:1rem 0;padding:1rem 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.password-editor{display:grid;gap:.5rem;width:min(420px,100%);margin-left:.5rem}.password-editor input{width:100%}
@@ -62,10 +62,10 @@
 .profile-view .email-unverified .email-status { color: #c44738; }
 .profile-view .phone-field .phone-display,
 .profile-view .email-field .phone-display { display: flex; margin-top: .45rem; }
-.profile-view .phone-verified input,
-.profile-view .email-verified input { border-color: #159957; background: #f3fff7; }
-.profile-view .phone-unverified input,
-.profile-view .email-unverified input { border-color: #c44738; background: #fff7f5; }
+.profile-view .phone-verified > .phone-display input,
+.profile-view .email-verified > .phone-display input { border-color: #159957; background: #f3fff7; }
+.profile-view .phone-unverified > .phone-display input,
+.profile-view .email-unverified > .phone-display input { border-color: #c44738; background: #fff7f5; }
 .password-current-row { display: flex; align-items: center; gap: .75rem; }
 .password-current-row input { flex: 1; }
 .password-current-row a { color: var(--green); font-size: .72rem; font-weight: 700; white-space: nowrap; }

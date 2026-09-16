@@ -6,7 +6,7 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 
 export const sendPhoneVerification = async (userId: string, phone: string) => {
     const code = String(randomInt(100000, 1000000))
-    await pool.query(`UPDATE users SET phone_verification_code = $1, phone_verification_expires = now() + interval '10 minutes', phone_verification_attempts = 0, phone_verified = false WHERE id = $2`, [hash(code), userId])
+    await pool.query(`UPDATE users SET phone_verification_code = $1, phone_verification_expires = now() + interval '10 minutes', phone_verification_attempts = 0 WHERE id = $2`, [hash(code), userId])
     const webhook = process.env.SMS_WEBHOOK_URL
     if (webhook) {
         const response = await fetch(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(process.env.SMS_WEBHOOK_TOKEN ? { Authorization: `Bearer ${process.env.SMS_WEBHOOK_TOKEN}` } : {}) }, body: JSON.stringify({ to: phone, code }) })

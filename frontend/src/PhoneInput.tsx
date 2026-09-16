@@ -34,7 +34,11 @@ export default function PhoneInput({ countryCode, phone, onCountryCode, onPhone,
         )
     }, [countries, query])
 
-    const digits = digitsOf(phone)
+    const enteredDigits = digitsOf(phone)
+    // У профілі номер збережений повністю (+380...), а в цьому полі потрібна лише локальна частина.
+    const digits = selected && phone.trim().startsWith(`+${selected.dial}`)
+        ? enteredDigits.slice(selected.dial.length)
+        : enteredDigits
     const lengthOk = Boolean(selected && digits.length >= selected.min && digits.length <= selected.max)
 
     const changePhone = (raw: string) => onPhone(formatPhone(digitsOf(raw).slice(0, selected?.max ?? 15)))
@@ -85,7 +89,7 @@ export default function PhoneInput({ countryCode, phone, onCountryCode, onPhone,
             <label className="phone-number">
                 Номер телефону
                 <input
-                    value={phone}
+                    value={formatPhone(digits)}
                     onChange={(event) => changePhone(event.target.value)}
                     onKeyDown={onKeyDown}
                     inputMode="tel"

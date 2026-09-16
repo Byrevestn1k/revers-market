@@ -71,7 +71,10 @@ export const createApp = () => {
 
     app.patch('/api/profile/me/privacy', requireAuth, withResult((request) => updatePrivacy(request.authUser!, request.body ?? {})))
     app.post('/api/profile/me/phone-verification', requireAuth, withResult((request) => requestPhoneChange(request.authUser!.id, String(request.body?.countryCode ?? ''), String(request.body?.phone ?? ''))))
-    app.post('/api/profile/me/phone-verification/confirm', requireAuth, withResult(async (request) => ({ status: (await confirmPhoneVerification(request.authUser!.id, String(request.body?.code ?? ''))).ok ? 200 : 400, body: { ok: true } })))
+    app.post('/api/profile/me/phone-verification/confirm', requireAuth, withResult(async (request) => {
+        const result = await confirmPhoneVerification(request.authUser!.id, String(request.body?.code ?? ''))
+        return result.ok ? { status: 200, body: { ok: true } } : { status: 400, body: { error: 'INVALID_PHONE_CODE', message: 'Неправильний або застарілий код підтвердження' } }
+    }))
 
     app.get('/api/categories', withResult(() => listCategories()))
 
