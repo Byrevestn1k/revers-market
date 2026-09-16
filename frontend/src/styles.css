@@ -66,3 +66,14 @@
 .profile-view .email-verified input { border-color: #159957; background: #f3fff7; }
 .profile-view .phone-unverified input,
 .profile-view .email-unverified input { border-color: #c44738; background: #fff7f5; }
+.password-current-row { display: flex; align-items: center; gap: .75rem; }
+.password-current-row input { flex: 1; }
+.password-current-row a { color: var(--green); font-size: .72rem; font-weight: 700; white-space: nowrap; }
+
+.password-reset-page { grid-template-columns: minmax(0, 560px); justify-content: center; padding: 2rem; }
+.password-reset-page .auth-card { width: 100%; }
+.password-reset-page .auth-card > label,
+.password-reset-page .phone-input-wrap { margin-bottom: 1.25rem; }
+.password-reset-page .primary-button { margin-top: .5rem; }
+.password-reset-page .text-button { margin-top: 1.25rem; }
+@media (max-width: 760px) { .password-reset-page { padding: 1.5rem; } }
