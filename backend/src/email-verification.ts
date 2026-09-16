@@ -68,7 +68,7 @@ export const emailTaken = async (email: string, exceptUserId?: string) => {
 }
 
 export const sendEmailCode = async (userId: string, email: string) => {
-    const code = String(randomInt(1000, 10000))
+    const code = String(randomInt(100000, 1000000))
     await pool.query(`UPDATE users SET email_verification_code = $1, email_verification_code_expires = now() + interval '10 minutes' WHERE id = $2`, [code, userId])
     console.log(`[DEV email code] -> ${email}\nCode: ${code}`)
     return { sent: true }

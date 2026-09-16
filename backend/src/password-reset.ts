@@ -21,7 +21,7 @@ export const requestPasswordReset = async (method: string, contact: string, coun
         return genericResponse
     }
     const code = String(randomInt(100000, 1000000))
-    const saved = await pool.query(`UPDATE users SET password_reset_code = $1, password_reset_expires = now() + interval '10 minutes', password_reset_attempts = 0, password_reset_grant_hash = NULL, password_reset_grant_expires = NULL WHERE id = $2 AND (password_reset_expires IS NULL OR password_reset_expires < now() - interval '1 minute')`, [hash(code), account.rows[0].id])
+    const saved = await pool.query(`UPDATE users SET password_reset_code = $1, password_reset_expires = now() + interval '10 minutes', password_reset_attempts = 0, password_reset_grant_hash = NULL, password_reset_grant_expires = NULL WHERE id = $2 AND (password_reset_expires IS NULL OR password_reset_expires <= now() + interval '9 minutes')`, [hash(code), account.rows[0].id])
     if (saved.rowCount) await deliverCode(method as 'email' | 'phone', account.rows[0].contact, code)
     else if (process.env.NODE_ENV !== 'production') console.log(`[DEV password reset] request throttled for ${account.rows[0].contact}; wait 1 minute before requesting another code`)
     return genericResponse
