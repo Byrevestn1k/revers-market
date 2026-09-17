@@ -12,7 +12,7 @@ if (hasDatabase) {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const buyerPayload = { username: `buyer_${suffix}`, email: `buyer_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
             const sellerOnePayload = { username: `seller_one_${suffix}`, email: `seller_one_${suffix}@example.com`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
-            const sellerTwoPayload = { username: `seller_two_${suffix}`, email: `seller_two_${suffix}@example.com`, countryCode: 'DE', phone: `+4950${suffix.slice(-7)}`, password: 'ThirdPassword3', passwordConfirmation: 'ThirdPassword3' }
+            const sellerTwoPayload = { username: `seller_two_${suffix}`, email: `seller_two_${suffix}@example.com`, countryCode: 'DE', phone: `+49150${suffix.slice(-7)}`, password: 'ThirdPassword3', passwordConfirmation: 'ThirdPassword3' }
             const buyer = request.agent(createApp())
             const sellerOne = request.agent(createApp())
             const sellerTwo = request.agent(createApp())
@@ -44,6 +44,11 @@ if (hasDatabase) {
                 expect(unchangedProduct).toMatchObject({ id: baseProduct.id, title: 'Базова пшениця', quantity: 1000, unit: 'kg', price: { amount: 250, currency: 'UAH' } })
                 expect(unchangedProduct).toEqual(expect.objectContaining({ description: baseProduct.description, deliveryMode: baseProduct.deliveryMode, geoZone: baseProduct.geoZone }))
             } finally {
+                await pool.query(
+                    `DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))
+                     OR seller_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))`,
+                    [[buyerPayload.username.toLowerCase(), sellerOnePayload.username.toLowerCase(), sellerTwoPayload.username.toLowerCase()]],
+                )
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2, $3)', [buyerPayload.username.toLowerCase(), sellerOnePayload.username.toLowerCase(), sellerTwoPayload.username.toLowerCase()])
             }
         }, 30000)
