@@ -28,6 +28,20 @@ if (hasDatabase) {
                 productId = created.body.product.id
                 expect(created.body.product.photos).toHaveLength(1)
 
+                // Guests can search both titles and descriptions without signing in.
+                await seller.patch(`/api/products/${productId}`).send({ title: `Public title ${suffix}`, description: `Public description ${suffix}` })
+                const guest = request(createApp())
+                for (const q of [`title ${suffix}`, `description ${suffix}`]) {
+                    const found = await guest.get('/api/products').query({ q })
+                    expect(found.status).toBe(200)
+                    expect(found.body.products.map((item: { id: string }) => item.id)).toContain(productId)
+                }
+                const absent = await guest.get('/api/products').query({ q: `missing-${suffix}` })
+                expect(absent.status).toBe(200)
+                expect(absent.body.products).toEqual([])
+                const otherCity = await guest.get('/api/products').query({ q: `title ${suffix}`, geoZone: `missing-city-${suffix}` })
+                expect(otherCity.body.products).toEqual([])
+
                 expect((await other.patch(`/api/products/${productId}`).send({ title: 'Чужий товар' })).status).toBe(404)
                 expect((await other.patch(`/api/products/${productId}`).send({ photos: [{ url: 'https://attacker.example/photo.jpg' }] })).status).toBe(404)
                 expect((await other.delete(`/api/products/${productId}`)).status).toBe(404)

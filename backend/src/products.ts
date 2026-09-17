@@ -116,6 +116,7 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     const parameters: unknown[] = user && query.mine === 'true' ? [user.id] : []
     if (typeof query.categoryId === 'string') { parameters.push(query.categoryId); conditions.push(`p.category_id = $${parameters.length}`) }
     if (typeof query.geoZone === 'string' && query.geoZone.trim()) { parameters.push(query.geoZone.trim()); conditions.push(`p.geo_zone ILIKE $${parameters.length}`) }
+    if (typeof query.q === 'string' && query.q.trim()) { parameters.push(`%${query.q.trim()}%`); conditions.push(`(p.title ILIKE $${parameters.length} OR p.description ILIKE $${parameters.length})`) }
     const where = conditions.join(' AND ')
     const count = await pool.query<{ count: string }>(`SELECT count(*) FROM products p WHERE ${where}`, parameters)
     parameters.push(limit, (page - 1) * limit)

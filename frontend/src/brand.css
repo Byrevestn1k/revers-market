@@ -1,0 +1,46 @@
+:root {
+    --ink: #001b2d;
+    --muted: #62727b;
+    --line: #dfe8e5;
+    --green: #007c2b;
+    --pale: #eaf6ed;
+    --gold: #ff5722;
+    --brand-orange: #ff5722;
+    background: #f6f9f8;
+}
+
+.brand-logo { display: block; width: 100%; height: auto; }
+.sidebar .brand { padding: 0 0 1.5rem; }
+.auth-story .brand { width: min(440px, 100%); margin-bottom: 3rem; }
+.brand-mini { display: block; width: 42px; height: 42px; object-fit: contain; border-radius: 12px; }
+.mobile-brand { border: 0; padding: 0; background: transparent; color: var(--ink); }
+.mobile-brand span { font-size: 1.1rem; }
+
+.primary-button { background: var(--green); }
+.primary-button:hover:not(:disabled) { background: #006522; }
+.primary-button:disabled { opacity: .65; cursor: wait; }
+.outline-button { color: var(--ink); border-color: #cbdad4; }
+.outline-button:hover:not(:disabled) { background: var(--pale); border-color: var(--green); }
+.sidebar nav button:hover, .seller-badge:hover { background: #f0f7f2; }
+.sidebar nav button.active { box-shadow: inset 3px 0 var(--green); }
+.hero-strip { background: linear-gradient(115deg, #001b2d, #004b36); }
+.hero-strip .eyebrow { color: #b4e8be; }
+.hero-strip em { color: #ff956d; }
+.hero-art { color: #ff956d; border-color: #ff956d66; }
+.auth-story em { color: #d83b10; }
+.auth-page { background: radial-gradient(ellipse at top left, #eaf6ed, transparent 65%), #f6f9f8; }
+.auth-card { border-top: 3px solid var(--green); }
+.toast { background: var(--ink); }
+.map-marker-buyRequest span { color: #d83b10; }
+.legend-request { background: var(--brand-orange); }
+.map-center { box-shadow: 0 0 0 5px #007c2b33; }
+.home-map-marker { background: var(--green); }
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+    .auth-story .brand { width: min(320px, 100%); margin-bottom: 2rem; }
+}
