@@ -85,10 +85,16 @@ export const createApp = () => {
             return { status: 400, body: { error: 'INVALID_MAP_CENTER' } }
         }
         const radiusKm = adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
+        const hasViewport = ['south', 'north', 'west', 'east'].some((key) => request.query[key] !== undefined)
+        const viewport = hasViewport ? { south: Number(request.query.south), north: Number(request.query.north), west: Number(request.query.west), east: Number(request.query.east) } : undefined
+        if (viewport && (!Object.values(viewport).every(Number.isFinite) || viewport.south < -90 || viewport.north > 90 || viewport.south >= viewport.north || viewport.west < -180 || viewport.west > 180 || viewport.east < -180 || viewport.east > 180)) return { status: 400, body: { error: 'INVALID_MAP_VIEWPORT' } }
         const showProducts = request.query.showProducts !== 'false'
         const showBuyRequests = request.query.showBuyRequests !== 'false'
         const markers = await mapService.findMarkers({ latitude, longitude }, {
             categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,
+            q: typeof request.query.q === 'string' ? request.query.q : undefined,
+            searchIn: request.query.searchIn === 'title' || request.query.searchIn === 'owner' ? request.query.searchIn : 'all',
+            viewport,
             geoZone: typeof request.query.geoZone === 'string' ? request.query.geoZone : undefined,
             radiusKm,
             showProducts,

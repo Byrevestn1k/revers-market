@@ -1,13 +1,16 @@
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
+import { categoryFilterSql } from './category-filter.js'
+import { textSearchConditions } from './text-search.js'
+import { approximatePoint } from './map-service.js'
 import { ExternalUrlPhotoStorage, type PhotoStorage, type StoredPhoto } from './photo-storage.js'
 import { validateProductInput, type ProductInput, type ProductStatus } from './product-validation.js'
 
 type ProductRow = {
-    id: string; owner_id: string; owner_username: string; category_id: string; category_code: string; category_name: string
+    id: string; owner_id: string; owner_username: string; category_id: string; category_code: string; category_name: string; category_image_index: number | null
     title: string; description: string; quantity: string | number; unit: string; price: string | number; currency: string
-    delivery_mode: string; geo_zone: string; latitude: string | number | null; longitude: string | number | null
+    delivery_mode: string; geo_zone: string; pickup_address: string | null; latitude: string | number | null; longitude: string | number | null
     status: ProductStatus; reserved_quantity: string | number; expires_at: Date | null; created_at: Date; updated_at: Date
 }
 type PhotoRow = { id: string; storage_key: string; url: string; alt: string; sort_order: number }
@@ -18,10 +21,10 @@ export const photoStorage: PhotoStorage = new ExternalUrlPhotoStorage()
 
 const numberOrNull = (value: string | number | null) => value === null ? null : Number(value)
 const toPhotoDto = (photo: PhotoRow) => ({ id: photo.id, url: photo.url, alt: photo.alt, order: photo.sort_order })
-export const toProductDto = (row: ProductWithPhotos) => ({
+export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => ({
     id: row.id,
     owner: { id: row.owner_id, username: row.owner_username },
-    category: { id: row.category_id, code: row.category_code, name: row.category_name },
+    category: { id: row.category_id, code: row.category_code, name: row.category_name, imageIndex: row.category_image_index },
     title: row.title,
     description: row.description,
     photos: row.photos.map(toPhotoDto),
@@ -31,7 +34,8 @@ export const toProductDto = (row: ProductWithPhotos) => ({
     price: { amount: Number(row.price), currency: row.currency },
     deliveryMode: row.delivery_mode,
     geoZone: row.geo_zone,
-    coordinates: row.latitude === null || row.longitude === null ? null : { latitude: Number(row.latitude), longitude: Number(row.longitude) },
+    address: includeAddress ? row.pickup_address : null,
+    coordinates: row.latitude === null || row.longitude === null ? null : includeAddress ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
     status: row.status,
     expiresAt: row.expires_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
@@ -39,9 +43,9 @@ export const toProductDto = (row: ProductWithPhotos) => ({
 })
 
 const productSelect = `
-    SELECT p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name,
+    SELECT p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index,
            p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.geo_zone,
-           p.latitude, p.longitude, p.status, p.expires_at, p.created_at, p.updated_at
+           p.latitude, p.longitude, p.pickup_address, p.status, p.expires_at, p.created_at, p.updated_at
     FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id`
 
 const getProductRow = async (queryable: Queryable, id: string, ownerId?: string): Promise<ProductWithPhotos | null> => {
@@ -75,7 +79,7 @@ const writePhotos = async (queryable: Queryable, productId: string, photos: Prod
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані товару', fields } })
 
 export const listCategories = async () => {
-    const result = await pool.query('SELECT id, parent_id AS "parentId", code, name, path FROM categories WHERE is_active ORDER BY path, name')
+    const result = await pool.query('SELECT id, parent_id AS "parentId", code, name, path, image_index AS "imageIndex", sort_order AS "sortOrder" FROM categories WHERE is_active ORDER BY sort_order, name, id')
     return { status: 200, body: { categories: result.rows } }
 }
 
@@ -89,14 +93,14 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
     try {
         await client.query('BEGIN')
         const result = await client.query<ProductRow>(
-            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
-            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null],
+            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at, pickup_address)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null],
         )
         storedPhotos = await writePhotos(client, result.rows[0].id, product.photos)
         const created = await getProductRow(client, result.rows[0].id, user.id)
         await client.query('COMMIT')
-        return { status: 201, body: { product: toProductDto(created!) } }
+        return { status: 201, body: { product: toProductDto(created!, true) } }
     } catch (error) {
         await client.query('ROLLBACK')
         for (const photo of storedPhotos) await photoStorage.remove(photo.storageKey)
@@ -106,7 +110,7 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
 
 export const getProduct = async (id: string, user?: AuthUser) => {
     const product = await getProductRow(pool, id, user?.id)
-    return product ? { status: 200, body: { product: toProductDto(product) } } : { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } }
+    return product ? { status: 200, body: { product: toProductDto(product, product.owner_id === user?.id) } } : { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } }
 }
 
 export const listProducts = async (query: Record<string, unknown>, user?: AuthUser) => {
@@ -114,22 +118,22 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     const limit = Math.min(50, Math.max(1, Number.parseInt(String(query.limit ?? '20'), 10) || 20))
     const conditions = user && query.mine === 'true' ? ['p.owner_id = $1'] : ['p.status = \'active\'']
     const parameters: unknown[] = user && query.mine === 'true' ? [user.id] : []
-    if (typeof query.categoryId === 'string') { parameters.push(query.categoryId); conditions.push(`p.category_id = $${parameters.length}`) }
+    if (typeof query.categoryId === 'string' && query.categoryId) { parameters.push(query.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
     if (typeof query.geoZone === 'string' && query.geoZone.trim()) { parameters.push(query.geoZone.trim()); conditions.push(`p.geo_zone ILIKE $${parameters.length}`) }
-    if (typeof query.q === 'string' && query.q.trim()) { parameters.push(`%${query.q.trim()}%`); conditions.push(`(p.title ILIKE $${parameters.length} OR p.description ILIKE $${parameters.length})`) }
+    conditions.push(...textSearchConditions(query.searchIn === 'title' ? ['p.title'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, parameters))
     const where = conditions.join(' AND ')
-    const count = await pool.query<{ count: string }>(`SELECT count(*) FROM products p WHERE ${where}`, parameters)
+    const count = await pool.query<{ count: string }>(`SELECT count(*) FROM products p JOIN users u ON u.id = p.owner_id WHERE ${where}`, parameters)
     parameters.push(limit, (page - 1) * limit)
     const rows = await pool.query<ProductRow>(`${productSelect} WHERE ${where} ORDER BY p.created_at DESC, p.id DESC LIMIT $${parameters.length - 1} OFFSET $${parameters.length}`, parameters)
     const products = await Promise.all(rows.rows.map(async (row) => ({ ...row, photos: (await pool.query<PhotoRow>('SELECT id, storage_key, url, alt, sort_order FROM product_photos WHERE product_id = $1 ORDER BY sort_order, id', [row.id])).rows })))
     const total = Number(count.rows[0].count)
-    return { status: 200, body: { products: products.map(toProductDto), pagination: { page, limit, total, pages: Math.ceil(total / limit) } } }
+    return { status: 200, body: { products: products.map((product) => toProductDto(product, product.owner_id === user?.id)), pagination: { page, limit, total, pages: Math.ceil(total / limit) } } }
 }
 
 export const updateProduct = async (user: AuthUser, id: string, input: Record<string, unknown>) => {
     const errors = validateProductInput(input, true)
     if (errors.length) return invalid(errors)
-    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', geoZone: 'geo_zone', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', geoZone: 'geo_zone', address: 'pickup_address', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
     const entries = Object.entries(input).filter(([key]) => key in allowed)
     if (!entries.length && !('photos' in input)) return invalid(['product'])
     const client = await pool.connect()
@@ -156,7 +160,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
         }
         const updated = await getProductRow(client, id, user.id)
         await client.query('COMMIT')
-        return updated ? { status: 200, body: { product: toProductDto(updated) } } : { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } }
+        return updated ? { status: 200, body: { product: toProductDto(updated, true) } } : { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } }
     } catch (error) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await photoStorage.remove(photo.storageKey); throw error } finally { client.release() }
 }
 

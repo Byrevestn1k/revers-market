@@ -17,6 +17,8 @@ if (hasDatabase) {
             try {
                 expect((await buyer.post('/api/auth/register').send(buyerPayload)).status).toBe(201)
                 expect((await seller.post('/api/auth/register').send(sellerPayload)).status).toBe(201)
+                expect((await seller.patch('/api/profile/me').send({ nickname: 'Продавець для мапи', avatarUrl: 'https://example.com/map-avatar.jpg' })).status).toBe(200)
+                expect((await buyer.patch('/api/profile/me').send({ nickname: 'Покупець для мапи' })).status).toBe(200)
                 const categories = (await seller.get('/api/categories')).body.categories
                 const grains = categories.find((item: { code: string }) => item.code === 'grains')
                 const vegetables = categories.find((item: { code: string }) => item.code === 'vegetables')
@@ -34,10 +36,28 @@ if (hasDatabase) {
                 expect(nearby.body.markers.map((marker: { title: string }) => marker.title)).not.toContain('Тестові овочі далеко')
                 expect(nearby.body.markers.every((marker: { approximate: boolean }) => marker.approximate)).toBe(true)
 
+                // Zoom around the public point: the private address is outside these bounds.
+                for (const zoom of [17, 18, 19]) {
+                    const close = await seller.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 10, zoom, south: 50.4498, north: 50.4502, west: 30.5198, east: 30.5202, categoryId: grains.id })
+                    expect(close.status).toBe(200)
+                    expect(close.body.markers.map((marker: { id: string }) => marker.id)).toEqual(expect.arrayContaining([nearProduct.body.product.id, requestId]))
+                    expect(close.body.markers.every((marker: { latitude: number; longitude: number }) => marker.latitude === 50.45 && marker.longitude === 30.52)).toBe(true)
+                }
+
                 const filtered = await seller.get(`/api/map/markers?latitude=50.45&longitude=30.52&radiusKm=10&zoom=10&categoryId=${grains.id}&showBuyRequests=false`)
                 expect(filtered.status).toBe(200)
                 expect(filtered.body.markers).toHaveLength(1)
                 expect(filtered.body.markers[0]).toMatchObject({ title: 'Тестова пшениця поруч', kind: 'product' })
+                expect(filtered.body.markers[0].owner).toMatchObject({ username: sellerPayload.username, nickname: 'Продавець для мапи', avatarUrl: 'https://example.com/map-avatar.jpg' })
+                expect(filtered.body.markers[0].owner).not.toHaveProperty('email')
+                expect(filtered.body.markers[0].owner).not.toHaveProperty('phone')
+                expect(filtered.body.markers[0].owner).not.toHaveProperty('exactAddress')
+                const byBuyerName = await buyer.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 10, showProducts: false, q: 'Покупець для мапи' })
+                expect(byBuyerName.status).toBe(200)
+                expect(byBuyerName.body.markers).toHaveLength(1)
+                expect(byBuyerName.body.markers[0].owner).toMatchObject({ username: buyerPayload.username, nickname: 'Покупець для мапи' })
+                expect(byBuyerName.body.markers[0].category.imageIndex).toBeTypeOf('number')
+                expect(JSON.stringify(byBuyerName.body)).not.toContain('Точна тестова адреса 42')
 
                 const publicRequest = await seller.get(`/api/buy-requests/${requestId}`)
                 expect(publicRequest.status).toBe(200)

@@ -1,0 +1,29 @@
+.listing-card .listing-card-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; text-align: left; }
+.listing-card .listing-card-open:focus-visible { outline: 3px solid #17825a; outline-offset: -3px; }
+.listing-card .listing-card-open:hover h3 { color: #17825a; }
+.listing-picture { display: block; width: 100%; height: 100%; overflow: hidden; background: #eef5ed; }
+.listing-picture > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.listing-picture > .category-image { display: block; width: 100%; height: 100%; border-radius: 0; }
+.listing-picture.detail-image { height: 300px; }
+.listing-card .product-card-body h3 { margin: 8px 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
+.listing-category, .listing-owner { display: block; font-size: 11px; color: #65796e; }
+.listing-owner { margin-top: 10px; }
+.listing-card .card-meta { flex-wrap: wrap; gap: 7px; }
+.listing-card-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 14px; }
+.listing-card-actions label { display: grid; flex-basis: 100%; gap: 5px; font-size: 12px; }
+.listing-card-actions select { padding: 8px; border: 1px solid #d5e3d8; border-radius: 6px; background: white; }
+.product-form .listing-section { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 18px; border: 1px solid #dce7df; border-radius: 12px; }
+.listing-section legend { padding: 0 6px; color: #24423a; font-size: 15px; font-weight: 800; }
+.listing-field { display: grid; gap: 7px; font-size: 13px; }
+.listing-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.listing-location-note { margin: 0; color: #65796e; font-size: 12px; line-height: 1.5; }
+.listing-location-coordinates { display: grid; gap: 12px; }
+.listing-location-coordinates summary { cursor: pointer; color: #416c56; font-size: 12px; margin: 10px 0; }
+.listing-form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.address-editor .address-display { display: flex; align-items: center; gap: 8px; }
+.address-editor .address-display input { flex: 1; min-width: 0; }
+.address-editor .address-popup { max-height: calc(100dvh - 40px); overflow-y: auto; }
+.address-editor .address-results { position: static; margin-top: 4px; }
+.address-editor .address-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.address-editor .address-popup p { font-size: 12px; line-height: 1.5; color: #65796e; }
+@media (max-width: 600px) { .product-form .listing-section { padding: 12px; } .address-editor .address-display { align-items: stretch; flex-direction: column; } }

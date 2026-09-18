@@ -6,6 +6,7 @@ import { approximatePoint } from './map-service.js'
 import { createOrderConversation } from './order-service.js'
 import { audit, createNotification, usersAreBlocked } from './community-service.js'
 import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
+import { categoryFilterSql } from './category-filter.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -155,7 +156,7 @@ export const getBuyRequest = async (id: string, user?: AuthUser) => {
 export const listBuyRequests = async (query: Record<string, unknown>, user?: AuthUser) => {
     const params: unknown[] = []
     const conditions = [user && query.mine === 'true' ? `r.buyer_id = $${params.push(user.id)}` : `r.status IN ('open', 'partially_fulfilled')`]
-    if (typeof query.categoryId === 'string' && uuid(query.categoryId)) conditions.push(`r.category_id = $${params.push(query.categoryId)}`)
+    if (typeof query.categoryId === 'string' && uuid(query.categoryId)) conditions.push(categoryFilterSql('r.category_id', params.push(query.categoryId)))
     const result = await pool.query(`${requestSelect} WHERE ${conditions.join(' AND ')} ORDER BY r.created_at DESC LIMIT 50`, params)
     return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)) } }
 }
@@ -171,6 +172,7 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     if (!assignments.length) return invalid(['buyRequest'])
     const current = await pool.query('SELECT status, fulfilled_quantity FROM buy_requests WHERE id = $1 AND buyer_id = $2', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
+    if (input.categoryId !== undefined && !(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
     const immutableAfterOffers = ['categoryId', 'productId', 'quantity', 'unit', 'currency']
     const hasOffers = Boolean((await pool.query('SELECT 1 FROM offers WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
     if (hasOffers && Object.keys(normalizedInput).some((key) => key in allowed && immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }

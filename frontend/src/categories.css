@@ -1,0 +1,18 @@
+.category-image { display: inline-block; flex: 0 0 auto; width: 76px; height: 76px; border-radius: 18px; background-image: url('/categories/category-atlas.png'); background-size: 500% 400%; background-repeat: no-repeat; background-color: #faf7f0; }
+.category-picker { display: grid; gap: .5rem; min-width: 0; width: 100%; }
+.category-picker input, .category-picker select { box-sizing: border-box; width: 100%; min-width: 0; padding: .65rem .75rem; font: inherit; color: #24423a; background: #fff; border: 1px solid #d6e4dc; border-radius: 8px; }
+.category-picker-levels { display: grid; gap: .5rem; }
+.category-picker-selected { display: flex; align-items: center; gap: .65rem; font-size: .78rem; line-height: 1.5; color: #486357; }
+.category-picker-selected .category-image { width: 42px; height: 42px; border-radius: 10px; }
+.category-picker-selected button { margin-left: auto; border: 0; padding: .3rem .5rem; background: transparent; color: #486357; }
+.category-picker small { font-size: .75rem; color: #486357; }
+.category-picker input:focus-visible, .category-picker select:focus-visible { outline: 2px solid #29846b; outline-offset: 2px; }
+.filter-row .category-picker { max-width: 420px; }
+.category-picker-selected { white-space: normal; overflow-wrap: anywhere; }
+.filter-row { align-items: flex-start; }
+.map-toolbar .category-picker { min-width: 180px; }
+@media (max-width: 760px) {
+    .filter-row { flex-wrap: wrap; overflow: visible; white-space: normal; }
+    .filter-row .category-picker { max-width: none; }
+    .map-toolbar .category-picker { min-width: 0; }
+}

@@ -1,0 +1,47 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const ts = require('typescript')
+const React = require('react')
+const { renderToStaticMarkup } = require('react-dom/server')
+for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module, filename) => {
+    const source = fs.readFileSync(filename, 'utf8').replaceAll('import.meta.env', '({ VITE_API_URL: "", VITE_HERE_API_KEY: "" })')
+    module._compile(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true, target: ts.ScriptTarget.ES2022 } }).outputText, filename)
+}
+require.extensions['.css'] = () => {}
+const { default: ProductCard } = require('../src/ProductCard.tsx')
+const { default: AddressInput } = require('../src/AddressInput.tsx')
+const { default: PublicHome } = require('../src/PublicHome.tsx')
+const { ListingBasics, QuantityFields } = require('../src/ListingFields.tsx')
+const { addressFields, validCoordinates } = require('../src/address-model.ts')
+const category = { id: 'root', name: 'Електроніка', parentId: null, imageIndex: 7 }
+const noop = () => {}
+const render = (component, props) => renderToStaticMarkup(React.createElement(component, props))
+const product = { id: 'product', title: 'Ноутбук <безпечна назва>', category, geoZone: 'Рівне', price: { amount: 1234, currency: 'UAH' }, unit: 'piece', quantity: 3, deliveryMode: 'pickup', photos: [] }
+const card = render(ProductCard, { product, onOpen: noop })
+assert.ok(card.includes('category-image'))
+assert.ok(card.includes('Ноутбук &lt;безпечна назва&gt;'))
+assert.ok(card.includes('шт.')); assert.ok(card.includes('Самовивіз'))
+assert.ok(card.includes('aria-label="Відкрити:'))
+assert.ok(!card.includes('Редагувати'))
+const owner = render(ProductCard, { product, onOpen: noop, onEdit: noop, onDelete: noop, onStatus: noop })
+assert.ok(owner.includes('Редагувати')); assert.ok(owner.includes('Видалити')); assert.ok(owner.includes('<select'))
+const basics = render(ListingBasics, { categories: [category], categoryId: category.id, onCategoryChange: noop, title: 'Ноутбук', onTitleChange: noop })
+assert.ok(basics.includes('name="categoryId" value="root"')); assert.match(basics, /maxlength="160"/i); assert.match(basics, /maxlength="5000"/i)
+const quantities = render(QuantityFields, {})
+for (const unit of ['piece', 'kg', 'ton', 'litre', 'box']) assert.ok(quantities.includes(`value="${unit}"`))
+const value = { address: 'Рівне, Соборна, 10', city: 'Рівне', coordinates: { latitude: 50.62, longitude: 26.25 } }
+assert.deepEqual(addressFields(value), { address: value.address, latitude: 50.62, longitude: 26.25 })
+assert.ok(validCoordinates(value.coordinates)); assert.ok(!validCoordinates({ latitude: NaN, longitude: 26.25 })); assert.ok(!validCoordinates({ latitude: 50.62, longitude: 190 }))
+assert.deepEqual(addressFields({ ...value, coordinates: null }), { address: value.address })
+const address = render(AddressInput, { value, name: 'address', requireStreet: false })
+assert.ok(address.includes('name="address" value="Рівне, Соборна, 10"'))
+const cleared = render(AddressInput, { initialValue: value.address, value: { address: '', city: '', coordinates: null } })
+assert.ok(!cleared.includes(value.address), 'Controlled clearing must not resurrect an old address')
+let mapProps
+const home = render(PublicHome, { categories: [category], request: async () => ({}), user: null, onAccount: noop, onCreate: noop, openProduct: noop, renderMap: (props) => { mapProps = props; return React.createElement('div', { 'data-testid': 'single-map-search' }) } })
+assert.equal((home.match(/single-map-search/g) || []).length, 1)
+assert.ok(!home.includes('class="market-query"'), 'No independent header search')
+assert.equal(typeof mapProps.onResultsChange, 'function')
+assert.equal(typeof mapProps.onCategoryChange, 'function')
+assert.ok(mapProps.locationControls, 'City controls must be mounted next to the map')
+console.log('Unified UI checks passed: shared cards and owner actions, escaped titles, form categories/units, private address payload, cleared addresses and a single home map search.')

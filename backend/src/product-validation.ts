@@ -16,6 +16,7 @@ export type ProductInput = {
     currency: string
     deliveryMode: DeliveryMode
     geoZone: string
+    address?: string | null
     latitude?: number | null
     longitude?: number | null
     status?: ProductStatus
@@ -41,8 +42,9 @@ export const validateProductInput = (input: Record<string, unknown>, partial = f
     if (required('currency') && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) errors.push('currency')
     if (required('deliveryMode') && !DELIVERY_MODES.includes(input.deliveryMode as DeliveryMode)) errors.push('deliveryMode')
     if (required('geoZone') && (typeof input.geoZone !== 'string' || input.geoZone.trim().length < 1 || input.geoZone.length > 160)) errors.push('geoZone')
-    if (input.latitude !== undefined && (input.latitude !== null && (typeof input.latitude !== 'number' || input.latitude < -90 || input.latitude > 90))) errors.push('latitude')
-    if (input.longitude !== undefined && (input.longitude !== null && (typeof input.longitude !== 'number' || input.longitude < -180 || input.longitude > 180))) errors.push('longitude')
+    if (input.address !== undefined && input.address !== null && (typeof input.address !== 'string' || input.address.length > 500)) errors.push('address')
+    if (input.latitude !== undefined && (input.latitude !== null && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90))) errors.push('latitude')
+    if (input.longitude !== undefined && (input.longitude !== null && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180))) errors.push('longitude')
     if (input.status !== undefined && !PRODUCT_STATUSES.includes(input.status as ProductStatus)) errors.push('status')
     if (input.expiresAt !== undefined && input.expiresAt !== null && (typeof input.expiresAt !== 'string' || Number.isNaN(Date.parse(input.expiresAt)))) errors.push('expiresAt')
     if (input.photos !== undefined) {
