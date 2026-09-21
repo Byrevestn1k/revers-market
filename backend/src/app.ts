@@ -11,7 +11,8 @@ import { createProduct, deleteProduct, getProduct, listCategories, listProducts,
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
 import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
-import { adaptiveRadius, MapService } from './map-service.js'
+import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
+import { cityBoundary } from './city-boundaries.js'
 import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
 
 const mapService = new MapService()
@@ -84,13 +85,24 @@ export const createApp = () => {
         if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
             return { status: 400, body: { error: 'INVALID_MAP_CENTER' } }
         }
-        const radiusKm = adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
+        const cityName = typeof request.query.cityName === 'string' ? request.query.cityName.trim() : undefined
+        const nationwide = request.query.nationwide === 'true'
+        const cityOutsideKm = request.query.cityOutsideKm === undefined ? undefined : clampRadius(request.query.cityOutsideKm as string | undefined)
+        const boundary = cityName && cityOutsideKm !== undefined ? await cityBoundary(cityName, { latitude, longitude }) : null
+        const radiusKm = cityName ? boundary ? Math.min(200, boundary.maxDistanceKm + cityOutsideKm!) : Math.min(100, clampRadius(request.query.radiusKm as string | undefined)) : adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
+        if (request.query.cityName !== undefined && (!cityName || cityName.length > 120)) return { status: 400, body: { error: 'INVALID_SEARCH_CITY' } }
+        if (nationwide && cityName) return { status: 400, body: { error: 'CONFLICTING_SEARCH_SCOPE' } }
         const hasViewport = ['south', 'north', 'west', 'east'].some((key) => request.query[key] !== undefined)
         const viewport = hasViewport ? { south: Number(request.query.south), north: Number(request.query.north), west: Number(request.query.west), east: Number(request.query.east) } : undefined
         if (viewport && (!Object.values(viewport).every(Number.isFinite) || viewport.south < -90 || viewport.north > 90 || viewport.south >= viewport.north || viewport.west < -180 || viewport.west > 180 || viewport.east < -180 || viewport.east > 180)) return { status: 400, body: { error: 'INVALID_MAP_VIEWPORT' } }
         const showProducts = request.query.showProducts !== 'false'
         const showBuyRequests = request.query.showBuyRequests !== 'false'
         const markers = await mapService.findMarkers({ latitude, longitude }, {
+            nationwide,
+            includeOwnerListings: request.query.includeOwnerListings === 'true' && request.query.searchIn === 'owner',
+            cityName,
+            cityBoundary: boundary ?? undefined,
+            cityOutsideKm,
             categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,
             q: typeof request.query.q === 'string' ? request.query.q : undefined,
             searchIn: request.query.searchIn === 'title' || request.query.searchIn === 'owner' ? request.query.searchIn : 'all',

@@ -2,7 +2,7 @@
 .map-search-controls { grid-column: 1 / -1; padding: 14px; border: 1px solid #dce7df; border-radius: 12px; background: #fff; }
 .map-search-row, .map-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .map-search-row { align-items: flex-end; }
-.map-search-main { flex: 1; min-width: 180px; display: grid; gap: 5px; }
+.map-search-main { flex: 0 1 43%; min-width: 250px; display: grid; gap: 5px; }
 .map-search-main > span, .map-advanced label { color: #5d7269; font-size: 12px; font-weight: 700; }
 .map-search-main input, .map-advanced input:not([type=range]), .map-advanced select { width: 100%; min-height: 42px; padding: 10px; border: 1px solid #ccdcd1; border-radius: 8px; background: #f8fbf8; color: #18342e; }
 .map-search-main input:focus { outline: 2px solid #17825a; outline-offset: 1px; }
@@ -11,6 +11,11 @@
 .map-city-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 10px; }
 .map-city-controls label { display: grid; gap: 5px; font-size: 12px; color: #5d7269; }
 .map-city-controls small { color: #65796e; align-self: center; }
+.map-search-radius { display: grid; gap: 5px; min-width: 165px; flex: 0 1 210px; font-size: 12px; color: #5d7269; }
+.map-search-radius > span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.map-search-radius input[type=number] { width: 54px; min-height: 27px; padding: 3px 5px; border: 1px solid #ccdcd1; border-radius: 6px; color: #18342e; font: inherit; }
+.map-nearby-button { align-self: flex-end; min-height: 42px; white-space: nowrap; }
+.map-search-radius input { display: block; width: 100%; margin-top: 6px; accent-color: #17825a; }
 .map-filter-row { margin-top: 12px; }
 .map-filter-details { position: relative; font-size: 12px; }
 .map-filter-details summary { cursor: pointer; padding: 10px 12px; border: 1px solid #dce7df; border-radius: 8px; color: #24423a; max-width: 260px; }
@@ -32,8 +37,14 @@
 .map-summary-heading { display: grid; gap: 10px; }
 .map-summary-heading .text-button { padding: 0; text-align: left; font-size: 12px; }
 .map-view .map-result-count { color: #17825a; font-weight: 700; }
+.map-seller-profile { display: grid; gap: 7px; margin: 12px 0; padding: 10px; border: 1px solid #c9e3d2; border-radius: 10px; background: #f5fbf6; }
+.map-seller-profile > div { display: flex; align-items: center; gap: 9px; }
+.map-seller-profile strong, .map-seller-profile small { display: block; }
+.map-seller-profile p { margin: 0; font-size: 12px; line-height: 1.4; }
+.map-seller-profile a { color: #17825a; font-size: 12px; font-weight: 700; }
 .map-stage-label, .map-displacement-note { position: absolute; z-index: 500; right: 10px; padding: 6px 9px; border-radius: 6px; background: #fffffff2; color: #24423a; font-size: 11px; pointer-events: none; box-shadow: 0 1px 4px #24423a20; }
 .map-stage-label { top: 12px; }
+.map-expand-button { position: absolute; z-index: 600; right: 10px; top: 42px; padding: 7px 9px; border: 1px solid #d6e4dc; border-radius: 7px; background: #fffffff2; color: #24423a; font-size: 11px; box-shadow: 0 1px 4px #24423a20; }
 .map-selection-button { position: absolute; z-index: 500; right: 10px; top: 48px; padding: 8px 10px; background: #17825a; color: white; border: 2px solid white; border-radius: 8px; font-size: 12px; }
 .map-back-to-map { display: none; }
 .map-displacement-note { bottom: 25px; max-width: calc(100% - 20px); }
@@ -95,3 +106,8 @@
     .map-view .map-discovery-layout.map-layout-expanded { inset: 0; height: 100dvh; padding: 8px; grid-template-rows: auto minmax(320px, 58dvh) auto; border-radius: 0; }
     .map-filter-content { position: fixed; top: 20dvh; left: 20px; width: calc(100vw - 40px); max-height: 60dvh; }
 }
+.map-search-address { flex: 1; min-width: 220px; display: grid; gap: 5px; font-size: 12px; color: #5d7269; }
+.map-search-address .address-display input { width: 100%; min-height: 42px; padding: 9px; border: 1px solid #ccdcd1; border-radius: 8px; }
+.map-location-group .address-dialog-backdrop { z-index: 1300; }
+.map-city-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; margin-top: 8px; background: #eaf5ed; border-radius: 8px; }
+.map-city-suggestion button { padding: 7px 10px; border: 1px solid #17825a; border-radius: 6px; background: white; color: #185c40; }

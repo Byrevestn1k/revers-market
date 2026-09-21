@@ -2,10 +2,11 @@ import type { PoolClient } from 'pg'
 import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
+import { withinCityOrDistance, type CityBoundary } from './city-boundaries.js'
 
 export type MapPoint = { latitude: number; longitude: number }
 export type MapViewport = { south: number; north: number; west: number; east: number }
-export type MapFilterState = { categoryId?: string; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
+export type MapFilterState = { nationwide?: boolean; includeOwnerListings?: boolean; cityName?: string; cityBoundary?: CityBoundary; cityOutsideKm?: number; categoryId?: string; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
 export type MapMarker = MapPoint & {
     id: string
     kind: 'product' | 'buyRequest'
@@ -61,12 +62,22 @@ export const syncMapFilters = (filters: Partial<MapFilterState>, mapCenter?: Map
     ...(filters.q?.trim() ? { q: filters.q.trim() } : {}),
     ...(filters.searchIn ? { searchIn: filters.searchIn } : {}),
     ...(filters.viewport ? { viewport: filters.viewport } : {}),
+    ...(filters.cityName?.trim() ? { cityName: filters.cityName.trim() } : {}),
+    ...(filters.cityBoundary ? { cityBoundary: filters.cityBoundary } : {}),
+    ...(filters.cityOutsideKm !== undefined ? { cityOutsideKm: filters.cityOutsideKm } : {}),
+    ...(filters.nationwide ? { nationwide: true } : {}),
+    ...(filters.includeOwnerListings ? { includeOwnerListings: true } : {}),
 })
 
 const distanceSql = (table: string) =>
     `6371 * acos(LEAST(1, GREATEST(-1, cos(radians($1)) * cos(radians(${table}.latitude)) * cos(radians(${table}.longitude) - radians($2)) + sin(radians($1)) * sin(radians(${table}.latitude)))))`
 
 type Queryable = Pick<PoolClient, 'query'>
+
+export function cityCondition(column: string, cityName: string, parameters: unknown[]) {
+    const index = parameters.push(cityName.trim().replace(/^м[.\s]+/iu, '').toLocaleLowerCase('uk-UA'))
+    return `lower(regexp_replace(trim(${column}), '^м[.[:space:]]+', '', 'i')) = $${index}`
+}
 
 export function viewportConditions(table: string, viewport: MapViewport | undefined, parameters: unknown[], precision?: string) {
     if (!viewport) return []
@@ -88,12 +99,13 @@ export class MapService {
         const markers: MapMarker[] = []
         if (filters.showProducts) markers.push(...await this.products(center, filters))
         if (filters.showBuyRequests) markers.push(...await this.buyRequests(center, filters))
-        return markers.sort((left, right) => left.distanceKm - right.distanceKm)
+        return markers.filter(marker => !filters.cityBoundary || withinCityOrDistance(marker, filters.cityBoundary, filters.cityOutsideKm ?? 0)).sort((left, right) => left.distanceKm - right.distanceKm)
     }
 
     private async products(center: MapPoint, filters: MapFilterState): Promise<MapMarker[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
-        const conditions = [`p.status = 'active'`, `${distanceSql('public_point')} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        const conditions = [`p.status = 'active'`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql('public_point')} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        if (filters.cityName && !filters.cityBoundary) conditions.push(cityCondition('public_point.geo_zone', filters.cityName, parameters))
         conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_zone ILIKE $${parameters.length}`) }
@@ -118,7 +130,8 @@ export class MapService {
 
     private async buyRequests(center: MapPoint, filters: MapFilterState): Promise<MapMarker[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
-        const conditions = [`r.status IN ('open', 'partially_fulfilled')`, `${distanceSql('r')} <= $3`, 'r.latitude IS NOT NULL', 'r.longitude IS NOT NULL']
+        const conditions = [`r.status IN ('open', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql('r')} <= $3`, 'r.latitude IS NOT NULL', 'r.longitude IS NOT NULL']
+        if (filters.cityName && !filters.cityBoundary) conditions.push(cityCondition('r.geo_area', filters.cityName, parameters))
         conditions.push(...viewportConditions('r', filters.viewport, parameters, '2'))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('r.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`r.geo_area ILIKE $${parameters.length}`) }

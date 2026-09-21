@@ -9,6 +9,8 @@ import ResendCodeButton from './ResendCodeButton'
 import ProfileLocationFields from './ProfileLocationFields'
 import type { ProfileMapLocation } from './ProfileLocationFields'
 import PublicHome from './PublicHome'
+import SearchLocationControls, { useSearchLocation } from './SearchLocationControls'
+import { nearestZoom } from './search-location-model'
 import Card, { ListingPicture } from './ProductCard'
 import { ListingBasics, QuantityFields, CurrencyField, FieldError } from './ListingFields'
 import ListingLocationFields from './ListingLocationFields'
@@ -96,14 +98,18 @@ function ProductDetail({ product, close, owner, edit }: { product: Product; clos
     return <div className="modal-backdrop" onClick={close}><section className="detail-modal" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={close}>×</button><ListingPicture product={product} className="detail-image" /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h2>{product.title}</h2>{product.publicAddress && <p className="listing-location-note">Публічна адреса продавця: {product.publicAddress}</p>}<strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {unitLabel(product.unit)}</small></strong><p className="detail-description">{product.description || 'Опис товару ще не додано.'}</p><div className="detail-facts"><span>⌖ <b>{product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {unitLabel(product.unit)}</b><small>Кількість</small></span><span>♧ <b>{DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode}</b><small>Доставка</small></span></div>{owner && <button className="primary-button" onClick={edit}>Редагувати товар <span>→</span></button>}</div></section></div>
 }
 
-function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCategoryChange, onResultsChange, locationControls }: { categories: Category[]; openProduct: (product: Product) => void; notify: (message: string) => void } & Partial<HomeMapProps>) {
+function MapView({ categories, openProduct, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange }: { categories: Category[]; openProduct: (product: Product) => void; notify: (message: string) => void; city?: HomeCity } & Partial<HomeMapProps>) {
+    const location = useSearchLocation(request, userId, city, locationReady)
+    const searchCity = location.city
+    const homeLocation = useMemo(() => validCoordinates(location.address.coordinates) ? { ...location.address.coordinates, city: location.address.city } : null, [location.address])
+    const [searchScope, setSearchScope] = useState<'city' | 'nearby' | 'area' | 'country'>('city')
     const mapElement = useRef<HTMLDivElement>(null)
     const mapInstance = useRef<L.Map | null>(null)
     const markerLayer = useRef<L.LayerGroup | null>(null)
     const markerElements = useRef(new Map<string, HTMLElement>())
     const summaryElement = useRef<HTMLElement>(null)
     const [center, setCenter] = useState<MapPoint>(city ?? { latitude: 50.45, longitude: 30.52 })
-    const [radius, setRadius] = useState(25)
+    const [radius, setRadius] = useState(2)
     const [zoom, setZoom] = useState(city ? 12 : 10)
     const [geoZone, setGeoZone] = useState('')
     const [localCategoryId, setLocalCategoryId] = useState('')
@@ -116,7 +122,6 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
     const [fetching, setLoading] = useState(true)
     const [loadedKey, setLoadedKey] = useState('')
     const [error, setError] = useState('')
-    const [homeLocation, setHomeLocation] = useState<(MapPoint & { city: string }) | null>(null)
     const [mapQuery, setMapQuery] = useState('')
     const [mapSearch, setMapSearch] = useState('')
     const [searchIn, setSearchIn] = useState<'title' | 'all' | 'owner'>('title')
@@ -126,8 +131,12 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
     const [expanded, setExpanded] = useState(false)
     const [selection, setSelection] = useState<{ ownerId?: string; ids?: string[]; kind?: 'product' | 'buyRequest' } | null>(null)
     const [resultPage, setResultPage] = useState(1)
+    const [sellerProfile, setSellerProfile] = useState<PublicProfile | null>(null)
+    const [sellerProfileLoading, setSellerProfileLoading] = useState(false)
+    useEffect(() => { setSelection(null); setGeoZone(''); if (!searchCity) setSearchScope('country'); else if (!homeLocation) setSearchScope('city') }, [searchCity?.name, homeLocation?.latitude, homeLocation?.longitude])
     const filtered = Boolean(categoryId || mapSearch)
-    const requestKey = JSON.stringify([center.latitude, center.longitude, radius, zoom, showProducts, showBuyRequests, categoryId, geoZone, mapSearch, searchIn, searchRevision, viewport?.south, viewport?.north, viewport?.west, viewport?.east])
+    const searchOrigin = searchScope === 'nearby' ? homeLocation ?? searchCity ?? center : searchCity ?? center
+    const requestKey = JSON.stringify([searchScope, searchCity?.name ?? '', searchOrigin.latitude, searchOrigin.longitude, homeLocation?.latitude, homeLocation?.longitude, radius, location.busy, showProducts, showBuyRequests, categoryId, geoZone, mapSearch, searchIn, searchRevision, ...(searchScope === 'area' ? [center.latitude, center.longitude, zoom, viewport?.south, viewport?.north, viewport?.west, viewport?.east] : [])])
     const pending = mapQuery.trim() !== mapSearch || loadedKey !== requestKey
     const loading = fetching || pending
     const categoryById = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories])
@@ -137,8 +146,9 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
     const scopedMarkers = useMemo(() => {
         if (!selection) return areaMarkers
         const ids = new Set(selection.ids)
-        return areaMarkers.filter((item) => (!selection.kind || item.kind === selection.kind) && (selection.ownerId ? item.owner?.id === selection.ownerId : ids.has(item.id)))
-    }, [areaMarkers, selection])
+        const source = selection.ownerId ? markers : areaMarkers
+        return source.filter((item) => (!selection.kind || item.kind === selection.kind) && (selection.ownerId ? item.owner?.id === selection.ownerId : ids.has(item.id)))
+    }, [markers, areaMarkers, selection])
     const showSellerList = !selection && (displayMode === 'sellers' || (displayMode === 'adaptive' && !filtered))
     const resultItems = useMemo(() => showSellerList ? [...sellers, ...areaMarkers.filter((item) => item.kind === 'buyRequest')] : scopedMarkers, [showSellerList, sellers, areaMarkers, scopedMarkers])
     const pageSize = selection ? 8 : 20
@@ -186,50 +196,44 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
     }, [expanded])
 
     useEffect(() => {
-        if (!viewport) return
+        if (!viewport || location.busy) return
         const controller = new AbortController()
         setLoading(true); setError('')
         const timer = window.setTimeout(async () => {
-            const params = new URLSearchParams({ latitude: String(center.latitude), longitude: String(center.longitude), radiusKm: String(radius), zoom: String(zoom), showProducts: String(showProducts), showBuyRequests: String(showBuyRequests) })
-            for (const key of ['south', 'north', 'west', 'east'] as const) params.set(key, String(viewport[key]))
+            const origin = searchScope === 'area' ? center : searchOrigin
+            const params = new URLSearchParams({ latitude: String(origin.latitude), longitude: String(origin.longitude), radiusKm: String(radius), zoom: String(zoom), showProducts: String(showProducts), showBuyRequests: String(showBuyRequests) })
+            if (searchScope === 'area') for (const key of ['south', 'north', 'west', 'east'] as const) params.set(key, String(viewport[key]))
+            else if (searchScope === 'city' && searchCity) { params.set('cityName', searchCity.name); params.set('cityOutsideKm', String(radius)) }
+            else params.set('nationwide', 'true')
             if (geoZone.trim()) params.set('geoZone', geoZone.trim())
             if (mapSearch) params.set('q', mapSearch)
             params.set('searchIn', searchIn)
+            if (searchIn === 'owner') params.set('includeOwnerListings', 'true')
             if (categoryId) params.set('categoryId', categoryId)
             try {
                 const result = await request('/api/map/markers?' + params, { signal: controller.signal })
-                if (!controller.signal.aborted) { setMarkers(result.markers); setLoadedKey(requestKey) }
+                if (!controller.signal.aborted) {
+                    setMarkers(result.markers); setLoadedKey(requestKey)
+                    const map = mapInstance.current
+                    if (map && searchScope === 'nearby' && homeLocation) {
+                        const targets = result.markers.filter((item) => item.kind === 'product')
+                        const relevant = showProducts ? targets : result.markers
+                        const size = map.getSize()
+                        map.setView([homeLocation.latitude, homeLocation.longitude], nearestZoom(homeLocation, relevant, size.x, size.y))
+                    } else if (map && (searchScope === 'city' || searchScope === 'country')) {
+                        const fallback = searchCity ?? { latitude: 49.0, longitude: 31.0 }
+                        const bounds = L.latLngBounds([[fallback.latitude, fallback.longitude], ...result.markers.map((item) => [item.latitude, item.longitude])])
+                        if (homeLocation) bounds.extend([homeLocation.latitude, homeLocation.longitude])
+                        map.fitBounds(bounds, { padding: [55, 55], maxZoom: 12, animate: false })
+                    }
+                }
             } catch (caught) {
                 if (!controller.signal.aborted) { setError((caught as Error).message); setMarkers([]); setLoadedKey(requestKey) }
             } finally { if (!controller.signal.aborted) setLoading(false) }
         }, 120)
         return () => { window.clearTimeout(timer); controller.abort() }
-    }, [center.latitude, center.longitude, radius, zoom, showProducts, showBuyRequests, categoryId, geoZone, mapSearch, searchIn, searchRevision, viewport?.south, viewport?.north, viewport?.west, viewport?.east])
+    }, [requestKey, Boolean(viewport)])
 
-    useEffect(() => {
-        if (city) { setCenter(city); setZoom(12); setGeoZone(''); setSelection(null) }
-    }, [city])
-    useEffect(() => {
-        if (city) return
-        const apiKey = import.meta.env.VITE_HERE_API_KEY
-        const controller = new AbortController()
-        request('/api/profile/me', { signal: controller.signal }).then(async ({ profile }) => {
-            if (controller.signal.aborted) return
-            if (profile.mapLocation?.mode !== 'approximate' && validCoordinates(profile.mapLocation)) {
-                const point = { latitude: profile.mapLocation.latitude, longitude: profile.mapLocation.longitude, city: profile.location || '' }
-                setHomeLocation(point); setCenter(point); setZoom(14); setGeoZone(''); return
-            }
-            if (!profile.exactAddress || !apiKey) return
-            const params = new URLSearchParams({ q: profile.exactAddress, in: 'countryCode:UKR', lang: 'uk-UA', limit: '1', apiKey })
-            const response = await fetch('https://geocode.search.hereapi.com/v1/geocode?' + params, { signal: controller.signal })
-            const data = await response.json()
-            const result = data.items?.[0]
-            if (!result?.position || controller.signal.aborted) return
-            const point = { latitude: result.position.lat, longitude: result.position.lng, city: result.address?.city || '' }
-            setHomeLocation(point); setCenter(point); setZoom(14); setGeoZone(point.city)
-        }).catch(() => undefined)
-        return () => controller.abort()
-    }, [])
 
     useEffect(() => {
         if (!mapElement.current || mapInstance.current) return
@@ -266,10 +270,15 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
             else setSelectedRequest((await request('/api/buy-requests/' + marker.id)).buyRequest)
         } catch (caught) { notify((caught as Error).message) }
     }
-    const openSeller = (ownerId: string, kind: 'product' | 'buyRequest' = 'product') => {
+    const openSeller = async (owner: NonNullable<MapMarker['owner']>, kind: 'product' | 'buyRequest' = 'product') => {
+        const ownerId = owner.id
         setSelection({ ownerId, kind }); setResultPage(1)
-        const point = areaMarkers.find((item) => item.owner?.id === ownerId && item.kind === kind)
-        if (point && zoom < 14) mapInstance.current?.setView([point.latitude, point.longitude], 14)
+        setSellerProfileLoading(true); setSellerProfile(null)
+        try { setSellerProfile((await request('/api/profiles/' + encodeURIComponent(owner.username))).profile) }
+        catch (caught) { notify((caught as Error).message) }
+        finally { setSellerProfileLoading(false) }
+        const points = markers.filter((item) => item.owner?.id === ownerId && item.kind === kind)
+        if (points.length) mapInstance.current?.fitBounds(L.latLngBounds(points.map((point) => [point.latitude, point.longitude])), { padding: [55, 55], maxZoom: points.length === 1 ? 14 : 16 })
     }
     useEffect(() => {
         const map = mapInstance.current, layer = markerLayer.current
@@ -277,6 +286,7 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
         layer.clearLayers(); markerElements.current.clear()
         const nodes = buildMapNodes(areaMarkers, (item) => map.latLngToContainerPoint([item.latitude, item.longitude]), {
             zoom, width: viewport.width, height: viewport.height, filtered, mode: displayMode, selectedIds,
+            reservedPoints: homeLocation ? [map.latLngToContainerPoint([homeLocation.latitude, homeLocation.longitude])] : [],
         })
         for (const node of nodes) {
             const location = map.containerPointToLatLng([node.x, node.y])
@@ -299,7 +309,7 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
                 if (node.type === 'product' || node.type === 'request') { openMarker(node.items[0]); return }
                 if (node.type === 'seller' && node.items[0].owner) {
                     if (selection?.ownerId === node.items[0].owner.id && selection.kind === node.items[0].kind) setResultPage((page) => page >= resultPages ? 1 : page + 1)
-                    else openSeller(node.items[0].owner.id, node.items[0].kind)
+                    else openSeller(node.items[0].owner, node.items[0].kind)
                     return
                 }
                 if (stage === 'count' && zoom < 14) {
@@ -312,17 +322,16 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
             marker.addTo(layer)
             for (const item of node.items) markerElements.current.set(item.id, element)
         }
-        if (homeLocation) L.marker([homeLocation.latitude, homeLocation.longitude], { icon: L.divIcon({ className: 'home-map-marker', html: '⌂', iconSize: [34, 34], iconAnchor: [17, 17] }) }).bindTooltip('Моє місце').addTo(layer)
+        if (homeLocation) L.marker([homeLocation.latitude, homeLocation.longitude], { zIndexOffset: 2000, title: 'Ваша адреса пошуку', icon: L.divIcon({ className: 'home-map-marker', html: '⌂', iconSize: [34, 34], iconAnchor: [17, 17] }) }).bindTooltip('Ваша адреса пошуку · видима лише вам').addTo(layer)
     }, [areaMarkers, homeLocation, displayMode, zoom, stage, viewport, filtered, selectedIds, selection, resultPages])
 
     const highlight = (ids: string[], active: boolean) => {
         for (const id of ids) markerElements.current.get(id)?.classList.toggle('map-pin-highlight', active)
     }
-    const useMyLocation = () => navigator.geolocation.getCurrentPosition(
-        (position) => { setCenter({ latitude: position.coords.latitude, longitude: position.coords.longitude }); setSelection(null) },
-        () => notify('Не вдалося отримати ваше місцезнаходження'),
-        { enableHighAccuracy: false, maximumAge: 300000 },
-    )
+    const runSearch = (scope: 'city' | 'nearby') => {
+        if (scope === 'nearby' && !homeLocation) { notify('Спочатку оберіть адресу пошуку або натисніть «Моє місце».'); return }
+        setSearchScope(searchCity ? scope : 'country'); setMapSearch(mapQuery.trim()); setGeoZone(''); setSearchRevision(value => value + 1); setSelection(null); setResultPage(1)
+    }
     const clearFilters = () => { setMapQuery(''); setMapSearch(''); setCategoryId(''); setGeoZone(''); setSelection(null); setResultPage(1) }
     const chooseCategory = (id: string) => { setCategoryId(id); if (selection?.ids) setSelection(null) }
     const renderAvatar = (owner: MapMarker['owner']) => <span className="map-user-avatar" aria-hidden="true">{avatarInitials(owner)}{owner?.avatarUrl && <img src={imageUrl(owner.avatarUrl)} alt="" onError={(event) => { event.currentTarget.hidden = true }} />}</span>
@@ -332,22 +341,23 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
             ? 'Кожна картинка категорії — окреме оголошення. Наблизьте мапу, щоб побачити фото. Аватар із числом відкриває кілька оголошень одного продавця.'
             : 'Оберіть категорію або введіть назву, щоб бачити окремі товари. Аватар із числом показує продавця з кількома товарами.'
     return <section className="content map-view">
-        <div className="view-header"><div><span className="eyebrow">Орієнтир</span><h1>Мапа поруч</h1><p className="view-subtitle">Знайдіть продавця поруч або уточніть, який товар шукаєте.</p></div><button className="outline-button" onClick={useMyLocation}>⌖ Моє місце</button></div>
+        <div className="view-header"><div><span className="eyebrow">Орієнтир</span><h1>Мапа поруч</h1><p className="view-subtitle">Знайдіть товар у місті, поруч з адресою або по всій Україні.</p></div></div>
         <div className={'map-layout map-discovery-layout ' + (expanded ? 'map-layout-expanded' : '')}>
             <div className="map-search-controls">
-                <form className="map-search-row" role="search" onSubmit={(event) => { event.preventDefault(); setMapSearch(mapQuery.trim()); setSearchRevision((value) => value + 1); setSelection(null); setResultPage(1) }}>
-                    <label className="map-search-main"><span>{searchIn === 'owner' ? 'Продавець або покупець' : 'Пошук товару у видимій області'}</span><input type="search" value={mapQuery} maxLength={160} onChange={(event) => { setMapQuery(event.target.value); setSelection(null) }} placeholder={searchIn === 'owner' ? 'Ім’я або логін' : 'Наприклад, велосипед Trek'} /></label>
+                <form className="map-search-row" role="search" onSubmit={(event) => { event.preventDefault(); runSearch('city') }}>
+                    <label className="map-search-main"><span>{searchIn === 'owner' ? 'Продавець або покупець' : searchCity ? 'Пошук товару в місті' : 'Пошук товару по Україні'}</span><input type="search" value={mapQuery} maxLength={160} onChange={(event) => { setMapQuery(event.target.value); setSelection(null) }} placeholder={searchIn === 'owner' ? 'Ім’я або логін' : 'Наприклад, велосипед Trek'} /></label>
                     <label className="map-search-mode"><span>Шукати за</span><select value={searchIn} onChange={(event) => { setSearchIn(event.target.value as 'title' | 'all' | 'owner'); setSelection(null) }}><option value="title">Назвою товару</option><option value="all">Усіма полями</option><option value="owner">Продавцем / покупцем</option></select></label>
-                    <button type="submit" className="primary-button">Знайти</button>
-                    <button type="button" className="outline-button" onClick={() => setExpanded((value) => !value)} aria-pressed={expanded}>{expanded ? '↙ Згорнути' : '⛶ Розгорнути'}</button>
+                    <button type="submit" className="primary-button" disabled={location.busy}>Знайти</button>
+                    {searchCity && <label className="map-search-radius"><span>За межі міста: <b>{radius} км</b><input type="number" min="1" max="100" value={radius} aria-label="Кілометри за межі міста" onChange={(event) => { const value = Math.max(1, Math.min(100, Number(event.target.value) || 1)); setRadius(value); setSearchScope('city'); setSelection(null) }} /></span><input type="range" min="1" max="100" value={radius} onChange={(event) => { setRadius(Number(event.target.value)); setSearchScope('city'); setSelection(null) }} /></label>}
                 </form>
-                {locationControls ?? <div className="map-city-controls"><button type="button" className="outline-button" onClick={() => { setCenter({ latitude: 50.6199, longitude: 26.2516 }); setZoom(12); setGeoZone(''); setSelection(null) }}>⌖ Рівне</button><button type="button" className="outline-button" onClick={useMyLocation}>⌖ Моє місце</button></div>}
+                <SearchLocationControls location={location} onNearby={() => runSearch('nearby')} nearbyDisabled={location.busy || !homeLocation || !searchCity} nearbyTitle={!searchCity ? 'Оберіть місто для пошуку поруч' : homeLocation ? 'Найближчі товари з центром біля будиночка' : 'Спочатку оберіть адресу або «Моє місце»'} />
+                <p className="map-search-hint" role="status">{searchScope === 'nearby' ? `Поруч з будиночком у радіусі ${radius} км: масштаб підібрано за найближчими товарами.` : searchScope === 'city' ? `Пошук у ${searchCity?.name} і до ${radius} км за межами міста.` : searchScope === 'country' ? 'Місто не обрано — пошук по всій Україні.' : 'Пошук у видимій області та вибраному радіусі.'}{!loading && searchScope !== 'area' && ` Знайдено: ${markers.length}.`}{searchCity && !homeLocation && ' Для пошуку поруч оберіть адресу.'}</p>
                 <div className="map-filter-row">
                     <details className="map-filter-details"><summary>{categoryId ? categoryById.get(categoryId)?.name : 'Обрати категорію'}</summary><div className="map-filter-content"><CategoryPicker categories={categories} value={categoryId} onChange={chooseCategory} allowAll /><button type="button" className="outline-button" onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}>Готово</button></div></details>
                     <div className="map-toggles"><label><input type="checkbox" checked={showProducts} onChange={(event) => { setShowProducts(event.target.checked); setSelection(null) }} /> Продавці</label><label><input type="checkbox" checked={showBuyRequests} onChange={(event) => { setShowBuyRequests(event.target.checked); setSelection(null) }} /> Запити покупців</label></div>
                     <details className="map-filter-details"><summary>Налаштування мапи</summary><div className="map-filter-content map-advanced">
                         <label>Перегляд<select value={displayMode} onChange={(event) => setDisplayMode(event.target.value as 'adaptive' | 'sellers' | 'products')}><option value="adaptive">Автоматично</option><option value="sellers">Продавці та їхні товари</option><option value="products">Окремі товари</option></select></label>
-                        <label>Радіус: {radius} км<input type="range" min="1" max="200" value={radius} onChange={(event) => setRadius(Number(event.target.value))} /></label>
+                        <label>Радіус у видимій області: {radius} км<input type="range" min="1" max="100" value={radius} onChange={(event) => { setRadius(Number(event.target.value)); setSearchScope('area') }} /></label>
                         <label>Місто або область<input value={geoZone} onChange={(event) => setGeoZone(event.target.value)} placeholder="Усі місця" /></label>
                         <label>Масштаб: {zoom}<input type="range" min="3" max="19" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
                         <button type="button" className="outline-button" onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}>Готово</button>
@@ -364,6 +374,7 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
             <div className="map-canvas-wrapper">
                 <div ref={mapElement} className="map-canvas" aria-label="Мапа товарів, продавців та запитів" />
                 <span className="map-stage-label">{stage === 'count' ? 'Огляд району' : filtered || selection || displayMode === 'products' ? 'Окремі оголошення' : 'Продавці поруч'}</span>
+                <button type="button" className="map-expand-button" onClick={() => setExpanded((value) => !value)} aria-pressed={expanded}>{expanded ? '↙ Згорнути' : '⛶ Розгорнути'}</button>
                 {selection && scopedMarkers.length > 0 && <button type="button" className="map-selection-button" onClick={() => summaryElement.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}>{scopedMarkers.length} оголошень · відкрити список ↓</button>}
                 {loading && <span className="map-status" role="status">Оновлюємо результати…</span>}
                 {!loading && !areaMarkers.length && <span className="map-status">{!showProducts && !showBuyRequests ? 'Увімкніть продавців або запити покупців' : 'Нічого не знайдено. Змініть пошук або перемістіть мапу.'}</span>}
@@ -371,6 +382,9 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
             </div>
             <aside ref={summaryElement} className="map-summary" aria-label="Результати пошуку на мапі" aria-busy={loading}>
                 <div className="map-summary-heading"><span className="eyebrow">У видимій області</span>{selection && <button type="button" className="text-button" onClick={() => setSelection(null)}>← Усі результати</button>}</div>
+                {(sellerProfileLoading || sellerProfile) && <section className="map-seller-profile" aria-live="polite">
+                    {sellerProfileLoading ? <p>Завантажуємо профіль продавця…</p> : sellerProfile && <><div>{renderAvatar(sellerProfile)}<span><strong>{sellerProfile.nickname || sellerProfile.username}</strong><small>@{sellerProfile.username}</small></span></div>{sellerProfile.bio && <p>{sellerProfile.bio}</p>}<small>{sellerProfile.exactAddress || sellerProfile.location || 'Місце не вказано'}</small><small>{sellerProfile.statistics.listingsCount} оголошень · {sellerProfile.ratingSummary.count ? `рейтинг ${sellerProfile.ratingSummary.average}` : 'ще без відгуків'}</small>{sellerProfile.phone && <a href={'tel:' + sellerProfile.phone}>{sellerProfile.phone}</a>}</>}
+                </section>}
                 <h2>{selection ? selectionOwner?.nickname || selectionOwner?.username || 'Оголошення в цій точці' : showProducts ? areaProducts.length + ' товарів' : areaMarkers.length + ' запитів'}</h2>
                 <p className="map-result-count">{selection ? scopedMarkers.length + ' оголошень за вашим пошуком' : sellers.length + ' продавців · ' + (areaMarkers.length - areaProducts.length) + ' запитів'}</p>
                 <button type="button" className="map-back-to-map text-button" onClick={() => mapElement.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>↑ До мапи</button>
@@ -381,7 +395,7 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
                 <div className="map-result-list">{visibleResults.map((item) => {
                     if ('products' in item) {
                         const owner = item.products[0].owner
-                        return <button key={'seller-' + item.id} className="map-result" onClick={() => openSeller(item.id)} onMouseEnter={() => highlight(item.products.map((product) => product.id), true)} onMouseLeave={() => highlight(item.products.map((product) => product.id), false)} onFocus={() => highlight(item.products.map((product) => product.id), true)} onBlur={() => highlight(item.products.map((product) => product.id), false)}>
+                        return <button key={'seller-' + item.id} className="map-result" onClick={() => owner && openSeller(owner)} onMouseEnter={() => highlight(item.products.map((product) => product.id), true)} onMouseLeave={() => highlight(item.products.map((product) => product.id), false)} onFocus={() => highlight(item.products.map((product) => product.id), true)} onBlur={() => highlight(item.products.map((product) => product.id), false)}>
                             {renderAvatar(owner)}<span><strong>{owner?.nickname || item.username}</strong><small>{item.products.length} товарів · {item.products[0]?.publicAddress || item.geoZone}</small><small>Показати товари на мапі →</small></span>
                         </button>
                     }
@@ -391,7 +405,7 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
                             <span className="map-result-picture">{category && <CategoryImage category={category} />}{item.photoUrl && <img src={imageUrl(item.photoUrl)} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true }} />}</span>
                             <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{item.distanceKm} км · {item.publicAddress || item.geoZone}</small>{item.approximate === false && <small>Публічне місце продавця</small>}</span>
                         </button>
-                        {item.owner && <button type="button" className="map-owner-link" onClick={() => openSeller(item.owner.id, item.kind)}>{item.owner.nickname || item.owner.username} · усі знайдені оголошення →</button>}
+                        {item.owner && <button type="button" className="map-owner-link" onClick={() => openSeller(item.owner, item.kind)}>{item.owner.nickname || item.owner.username} · профіль і всі оголошення →</button>}
                     </div>
                 })}</div>
                 {resultPages > 1 && <div className="map-result-pagination"><button disabled={activePage <= 1} onClick={() => setResultPage(activePage - 1)}>← Назад</button><span>{activePage} / {resultPages}</span><button disabled={activePage >= resultPages} onClick={() => setResultPage(activePage + 1)}>Далі →</button></div>}
@@ -525,6 +539,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
 function App() {
     const [user, setUser] = useState<User | null>(null)
     const [authOpen, setAuthOpen] = useState(false)
+    const [authReady, setAuthReady] = useState(false)
     const [pendingCreate, setPendingCreate] = useState(false)
     const [view, setView] = useState<View>('home')
     const [products, setProducts] = useState<Product[]>([]) // This line is unchanged
@@ -548,17 +563,17 @@ function App() {
     const saved = (location?: AddressValue) => { rememberLocation(location); setView('mine'); setEditing(undefined); loadProducts(page); loadMine(); notify('Товар збережено') }
     const requestSaved = (location?: AddressValue) => { rememberLocation(location); setView('map'); notify('Запит опубліковано на мапі') }
     const removeProduct = async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; try { await request(`/api/products/${product.id}`, { method: 'DELETE' }); setSelected(null); await loadProducts(page); await loadMine(); notify('Товар видалено') } catch (error) { notify((error as Error).message) } }
-    useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined); request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, [])
+    useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined).finally(() => setAuthReady(true)); request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, [])
     useEffect(() => { if (user) { loadProducts(); loadMine(); request('/api/profile/me').then((result) => setProfileAvatar(result.profile.avatarUrl ?? null)).catch(() => undefined) } }, [user])
     if (window.location.pathname === '/verify-email') return <VerifyEmail />
     const enter = (create = false) => { setPendingCreate(create); setAuthOpen(true) }
     const loggedIn = (nextUser: User) => { setUser(nextUser); setAuthOpen(false); setView(pendingCreate ? 'create' : 'home'); setPendingCreate(false) }
     if (new URLSearchParams(window.location.search).has('reset-password') || (!user && authOpen)) return <><button className="auth-home-back" onClick={() => { window.history.replaceState({}, '', window.location.pathname); setAuthOpen(false); setPendingCreate(false) }}>← На головну</button><Auth initialRegister={!new URLSearchParams(window.location.search).has('reset-password')} onLogin={loggedIn} /></>
-    if (!user || view === 'home') return <><PublicHome categories={categories} request={request} user={user} onAccount={() => user ? go('profile') : enter()} onCreate={() => user ? go('create') : enter(true)} openProduct={setSelected} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={setSelected} notify={notify} />} />{selected && <ProductDetail product={selected} close={() => setSelected(null)} owner={selected.owner.id === user?.id} edit={() => { setEditing(selected); setSelected(null); setView('create') }} />}{toast && <div className="toast">{toast}</div>}</>
+    if (!user || view === 'home') return <><PublicHome locationReady={authReady} categories={categories} request={request} user={user} onAccount={() => user ? go('profile') : enter()} onCreate={() => user ? go('create') : enter(true)} openProduct={setSelected} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={setSelected} notify={notify} />} />{selected && <ProductDetail product={selected} close={() => setSelected(null)} owner={selected.owner.id === user?.id} edit={() => { setEditing(selected); setSelected(null); setView('create') }} />}{toast && <div className="toast">{toast}</div>}</>
     if (view === 'messages') return <MessagesView notify={notify} />
     if (view === 'notifications') return <NotificationsView notify={notify} />
     const nav = [['home', '⌂', 'Головна'], ['products', '⌕', 'Знайти товари'], ['map', '⌖', 'Мапа поруч'], ['request', '↗', 'Новий запит'], ['requests', '⇅', 'Мої запити'], ['market', '⇄', 'Запити покупців'], ['orders', '▣', 'Замовлення'], ['messages', '♧', 'Повідомлення'], ['notifications', '•', 'Сповіщення'], ['mine', '▣', 'Мої товари'], ['create', '＋', 'Додати товар']] as const
-    return <div className="app-shell"><aside className="sidebar"><div className="brand"><img className="brand-logo" src="/brand/logo-full.png" alt="ДещоТреба" /></div><button type="button" className="seller-badge" onClick={() => go('profile')}><div className="avatar">{profileAvatar ? <img src={profileAvatar} alt="Аватар профілю" /> : user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></button><nav>{nav.map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key)}><span>{icon}</span>{text}</button>)}<button className="notification" onClick={() => go('messages')}><span>♧</span>Повідомлення</button></nav><button className="sidebar-exit" onClick={logout}>↪ Вийти</button></aside><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('home')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{view === 'home' && <Home user={user} products={products} open={setSelected} explore={() => go('products')} create={() => go('create')} />}{view === 'products' && <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={setSelected} />}{view === 'map' && <MapView city={mapFocus} categories={categories} openProduct={setSelected} notify={notify} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} open={setSelected} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} setStatus={async (product, status) => { try { await request(`/api/products/${product.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadMine(); notify('Статус оновлено') } catch (error) { notify((error as Error).message) } }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'requests' && <MyRequests notify={notify} create={() => go('request')} />}{view === 'market' && <RequestsMarket mine={mine} notify={notify} />}{view === 'orders' && <OrdersView notify={notify} />}{view === 'profile' && <ProfileView logout={logout} notify={notify} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['products', '⌕', 'Пошук'], ['map', '⌖', 'Мапа'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}</button>)}</nav>{selected && <ProductDetail product={selected} close={() => setSelected(null)} owner={selected.owner.id === user.id} edit={() => { setEditing(selected); setSelected(null); setView('create') }} />}{toast && <div className="toast">{toast}</div>}</div>
+    return <div className="app-shell"><aside className="sidebar"><div className="brand"><img className="brand-logo" src="/brand/logo-full.png" alt="ДещоТреба" /></div><button type="button" className="seller-badge" onClick={() => go('profile')}><div className="avatar">{profileAvatar ? <img src={profileAvatar} alt="Аватар профілю" /> : user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></button><nav>{nav.map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key)}><span>{icon}</span>{text}</button>)}<button className="notification" onClick={() => go('messages')}><span>♧</span>Повідомлення</button></nav><button className="sidebar-exit" onClick={logout}>↪ Вийти</button></aside><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('home')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{view === 'home' && <Home user={user} products={products} open={setSelected} explore={() => go('products')} create={() => go('create')} />}{view === 'products' && <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={setSelected} />}{view === 'map' && <MapView userId={user.id} city={mapFocus} categories={categories} openProduct={setSelected} notify={notify} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} open={setSelected} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} setStatus={async (product, status) => { try { await request(`/api/products/${product.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadMine(); notify('Статус оновлено') } catch (error) { notify((error as Error).message) } }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'requests' && <MyRequests notify={notify} create={() => go('request')} />}{view === 'market' && <RequestsMarket mine={mine} notify={notify} />}{view === 'orders' && <OrdersView notify={notify} />}{view === 'profile' && <ProfileView logout={logout} notify={notify} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['products', '⌕', 'Пошук'], ['map', '⌖', 'Мапа'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}</button>)}</nav>{selected && <ProductDetail product={selected} close={() => setSelected(null)} owner={selected.owner.id === user.id} edit={() => { setEditing(selected); setSelected(null); setView('create') }} />}{toast && <div className="toast">{toast}</div>}</div>
 }
 
 function Home({ user, products, open, explore, create }: { user: User; products: Product[]; open: (product: Product) => void; explore: () => void; create: () => void }) { return <section className="content"><div className="welcome"><div><span className="eyebrow">Понеділок, гарного дня</span><h1>Привіт, {user.username} <span>✦</span></h1><p>Що шукаєте або продаєте сьогодні?</p></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="hero-strip"><div><span className="eyebrow">Локальний маркетплейс</span><h2>Ваш врожай<br /><em>має значення.</em></h2><button className="light-button" onClick={explore}>Переглянути товари <span>→</span></button></div><div className="hero-art">✦</div></div><div className="section-heading"><div><span className="eyebrow">Рекомендоване</span><h2>Товари поруч</h2></div><button className="text-button" onClick={explore}>Дивитись всі →</button></div><div className="product-grid">{products.slice(0, 4).map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} />)}</div>{!products.length && <Empty text="Поки немає активних товарів" />}</section> }

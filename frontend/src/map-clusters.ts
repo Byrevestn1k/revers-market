@@ -26,6 +26,7 @@ type DetailOptions = {
     mode?: 'adaptive' | 'sellers' | 'products'
     // A selected seller/group opens one page of individual listings on the map.
     selectedIds?: ReadonlySet<string>
+    reservedPoints?: Pixel[]
 }
 
 export function avatarInitials(owner?: SellerProductPoint['owner']) {
@@ -82,7 +83,7 @@ export function buildMapNodes(points: SellerProductPoint[], project: (point: Sel
                 const angle = step * 2 * Math.PI / steps - Math.PI / 2
                 const x = clamp(node.anchor.x + Math.cos(angle) * radius, node.size / 2 + 6, options.width - node.size / 2 - 6)
                 const y = clamp(node.anchor.y + Math.sin(angle) * radius, node.size / 2 + 6, options.height - node.size / 2 - 6)
-                if (placed.every((other) => Math.hypot(other.x - x, other.y - y) >= (other.size + node.size) / 2 + 8)) return { x, y }
+                if ((options.reservedPoints ?? []).every(point => Math.hypot(point.x - x, point.y - y) >= node.size / 2 + 25) && placed.every((other) => Math.hypot(other.x - x, other.y - y) >= (other.size + node.size) / 2 + 8)) return { x, y }
             }
         }
     }

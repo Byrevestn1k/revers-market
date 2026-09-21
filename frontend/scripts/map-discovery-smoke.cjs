@@ -22,6 +22,9 @@ assert.ok(individual.every((node) => node.type === 'product' && node.preview ===
 assert.ok(individual.some((node) => node.displaced))
 assert.ok(individual.every((node) => node.latitude === 50.62 && node.longitude === 26.25))
 const photos = buildMapNodes(four, project, { ...options, filtered: true, zoom: 17, width: 350 })
+const besideHome = buildMapNodes([point('home-product')], project, { ...options, zoom: 19, reservedPoints: [{ x: 300, y: 220 }] })
+assert.equal(besideHome[0].preview, 'photo')
+assert.ok(besideHome[0].displaced && Math.hypot(besideHome[0].x - 300, besideHome[0].y - 220) >= 47, 'House must not cover a product at the same address')
 assert.ok(photos.every((node) => node.size === 40))
 for (const zoom of [17, 18, 19]) {
     const single = buildMapNodes([point('own')], project, { ...options, zoom })
