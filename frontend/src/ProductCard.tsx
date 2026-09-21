@@ -8,6 +8,7 @@ export type ProductCardData = {
     photos?: { url: string; alt?: string }[]; photoUrl?: string | null
     price?: { amount: number; currency: string }; quantity?: number; availableQuantity?: number
     unit?: string; geoZone: string; deliveryMode?: string; status?: string
+    publicAddress?: string
     owner?: { id: string; username?: string; nickname?: string | null }
 }
 export function ListingPicture({ product, className = '' }: { product: ProductCardData; className?: string }) {
@@ -25,7 +26,7 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
             <div className="product-image"><ListingPicture product={product} /><span className={'status status-' + status}>{LISTING_STATUS[status] ?? status}</span></div>
             <div className="product-card-body"><small className="listing-category">{product.category.name}</small><h3>{product.title}</h3>
                 {product.price && <strong className="price">{listingPrice(product.price.amount, product.price.currency)}{product.unit && <small> / {unitLabel(product.unit)}</small>}</strong>}
-                <p>⌖ {product.geoZone}</p>
+                <p>⌖ {product.publicAddress || product.geoZone}</p>
                 <div className="card-meta"><span>{product.availableQuantity ?? product.quantity} {unitLabel(product.unit)}</span><span>{DELIVERY_LABELS[product.deliveryMode ?? ''] ?? ''}</span></div>
                 {product.owner?.username && <small className="listing-owner">{product.owner.nickname || product.owner.username}</small>}
             </div>

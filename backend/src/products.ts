@@ -8,6 +8,7 @@ import { ExternalUrlPhotoStorage, type PhotoStorage, type StoredPhoto } from './
 import { validateProductInput, type ProductInput, type ProductStatus } from './product-validation.js'
 
 type ProductRow = {
+    public_address?: string | null
     id: string; owner_id: string; owner_username: string; category_id: string; category_code: string; category_name: string; category_image_index: number | null
     title: string; description: string; quantity: string | number; unit: string; price: string | number; currency: string
     delivery_mode: string; geo_zone: string; pickup_address: string | null; latitude: string | number | null; longitude: string | number | null
@@ -34,6 +35,7 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
     price: { amount: Number(row.price), currency: row.currency },
     deliveryMode: row.delivery_mode,
     geoZone: row.geo_zone,
+    ...(row.public_address ? { publicAddress: row.public_address } : {}),
     address: includeAddress ? row.pickup_address : null,
     coordinates: row.latitude === null || row.longitude === null ? null : includeAddress ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
     status: row.status,
@@ -44,6 +46,7 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
 
 const productSelect = `
     SELECT p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index,
+           CASE WHEN u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
            p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.geo_zone,
            p.latitude, p.longitude, p.pickup_address, p.status, p.expires_at, p.created_at, p.updated_at
     FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id`

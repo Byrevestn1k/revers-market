@@ -10,6 +10,14 @@ const row = {
 }
 
 describe('profile DTO privacy', () => {
+    it('only publishes the profile address in address mode, not pin mode', () => {
+        const point = { public_latitude: '50.625951', public_longitude: '26.270642' }
+        const pin = toPublicProfile({ ...row, ...point, map_location_mode: 'pin' })
+        expect(pin).not.toHaveProperty('exactAddress')
+        expect(pin.mapLocation).toEqual({ mode: 'pin', latitude: 50.625951, longitude: 26.270642 })
+        expect(toPublicProfile({ ...row, ...point, map_location_mode: 'address' }).exactAddress).toBe(row.exact_address)
+        expect(toPublicProfile({ ...row, map_location_mode: 'approximate' })).not.toHaveProperty('mapLocation')
+    })
     it('omits exact address, recovery email, and private phone from public DTO', () => {
         const profile = toPublicProfile(row)
         expect(profile).not.toHaveProperty('exactAddress')

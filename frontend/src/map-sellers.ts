@@ -3,6 +3,7 @@ export type SellerProductPoint = {
     distanceKm: number; geoZone: string; category: { id: string; name: string; imageIndex?: number }
     photoUrl?: string | null; price?: { amount: number; currency: string }
     quantity?: number; unit?: string; deliveryMode?: string
+    publicAddress?: string; approximate?: boolean
     owner?: { id: string; username: string; nickname?: string | null; avatarUrl?: string | null }
 }
 export type MapResults = { markers: SellerProductPoint[]; loading: boolean; error: string; query: string; scope: string }

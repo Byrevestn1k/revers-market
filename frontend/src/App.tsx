@@ -6,7 +6,8 @@ import PasswordInput from './PasswordInput'
 import PhoneInput from './PhoneInput'
 import PasswordReset from './PasswordReset'
 import ResendCodeButton from './ResendCodeButton'
-import AddressInput from './AddressInput'
+import ProfileLocationFields from './ProfileLocationFields'
+import type { ProfileMapLocation } from './ProfileLocationFields'
 import PublicHome from './PublicHome'
 import Card, { ListingPicture } from './ProductCard'
 import { ListingBasics, QuantityFields, CurrencyField, FieldError } from './ListingFields'
@@ -27,10 +28,10 @@ import type { HomeCity, HomeMapProps } from './PublicHome'
 import './sidebar-profile.css'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
-export type Product = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; address?: string | null; coordinates?: MapPoint | null; status: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
+export type Product = { publicAddress?: string; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; address?: string | null; coordinates?: MapPoint | null; status: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
 type View = 'home' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
 type MapPoint = { latitude: number; longitude: number }
-type MapMarker = SellerProductPoint & { approximate: true }
+type MapMarker = SellerProductPoint & { approximate: boolean }
 type BuyRequest = { id: string; title: string; description: string; geoArea: string; category: { name: string }; quantity: number; fulfilledQuantity: number; unit: string; status: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null }; deadline: string | null }
 type ApiError = Error & { fields?: string[]; status?: number }
 const API = import.meta.env.VITE_API_URL ?? ''
@@ -92,7 +93,7 @@ function Empty({ text, action, onAction }: { text: string; action?: string; onAc
 function Pagination({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) { return pages > 1 ? <div className="pagination"><button disabled={page === 1} onClick={() => onPage(page - 1)}>←</button><span>{page} / {pages}</span><button disabled={page === pages} onClick={() => onPage(page + 1)}>→</button></div> : null }
 
 function ProductDetail({ product, close, owner, edit }: { product: Product; close: () => void; owner: boolean; edit: () => void }) {
-    return <div className="modal-backdrop" onClick={close}><section className="detail-modal" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={close}>×</button><ListingPicture product={product} className="detail-image" /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h2>{product.title}</h2><strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {unitLabel(product.unit)}</small></strong><p className="detail-description">{product.description || 'Опис товару ще не додано.'}</p><div className="detail-facts"><span>⌖ <b>{product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {unitLabel(product.unit)}</b><small>Кількість</small></span><span>♧ <b>{DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode}</b><small>Доставка</small></span></div>{owner && <button className="primary-button" onClick={edit}>Редагувати товар <span>→</span></button>}</div></section></div>
+    return <div className="modal-backdrop" onClick={close}><section className="detail-modal" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={close}>×</button><ListingPicture product={product} className="detail-image" /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h2>{product.title}</h2>{product.publicAddress && <p className="listing-location-note">Публічна адреса продавця: {product.publicAddress}</p>}<strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {unitLabel(product.unit)}</small></strong><p className="detail-description">{product.description || 'Опис товару ще не додано.'}</p><div className="detail-facts"><span>⌖ <b>{product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {unitLabel(product.unit)}</b><small>Кількість</small></span><span>♧ <b>{DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode}</b><small>Доставка</small></span></div>{owner && <button className="primary-button" onClick={edit}>Редагувати товар <span>→</span></button>}</div></section></div>
 }
 
 function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCategoryChange, onResultsChange, locationControls }: { categories: Category[]; openProduct: (product: Product) => void; notify: (message: string) => void } & Partial<HomeMapProps>) {
@@ -211,10 +212,14 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
     useEffect(() => {
         if (city) return
         const apiKey = import.meta.env.VITE_HERE_API_KEY
-        if (!apiKey) return
         const controller = new AbortController()
         request('/api/profile/me', { signal: controller.signal }).then(async ({ profile }) => {
-            if (!profile.exactAddress || controller.signal.aborted) return
+            if (controller.signal.aborted) return
+            if (profile.mapLocation?.mode !== 'approximate' && validCoordinates(profile.mapLocation)) {
+                const point = { latitude: profile.mapLocation.latitude, longitude: profile.mapLocation.longitude, city: profile.location || '' }
+                setHomeLocation(point); setCenter(point); setZoom(14); setGeoZone(''); return
+            }
+            if (!profile.exactAddress || !apiKey) return
             const params = new URLSearchParams({ q: profile.exactAddress, in: 'countryCode:UKR', lang: 'uk-UA', limit: '1', apiKey })
             const response = await fetch('https://geocode.search.hereapi.com/v1/geocode?' + params, { signal: controller.signal })
             const data = await response.json()
@@ -377,14 +382,14 @@ function MapView({ categories, openProduct, notify, city, sharedCategoryId, onCa
                     if ('products' in item) {
                         const owner = item.products[0].owner
                         return <button key={'seller-' + item.id} className="map-result" onClick={() => openSeller(item.id)} onMouseEnter={() => highlight(item.products.map((product) => product.id), true)} onMouseLeave={() => highlight(item.products.map((product) => product.id), false)} onFocus={() => highlight(item.products.map((product) => product.id), true)} onBlur={() => highlight(item.products.map((product) => product.id), false)}>
-                            {renderAvatar(owner)}<span><strong>{owner?.nickname || item.username}</strong><small>{item.products.length} товарів · {item.geoZone}</small><small>Показати товари на мапі →</small></span>
+                            {renderAvatar(owner)}<span><strong>{owner?.nickname || item.username}</strong><small>{item.products.length} товарів · {item.products[0]?.publicAddress || item.geoZone}</small><small>Показати товари на мапі →</small></span>
                         </button>
                     }
                     const category = categoryById.get(item.category.id)
                     return <div className="map-listing-result" key={item.kind + '-' + item.id}>
                         <button className="map-result" onClick={() => openMarker(item)} onMouseEnter={() => highlight([item.id], true)} onMouseLeave={() => highlight([item.id], false)} onFocus={() => highlight([item.id], true)} onBlur={() => highlight([item.id], false)}>
                             <span className="map-result-picture">{category && <CategoryImage category={category} />}{item.photoUrl && <img src={imageUrl(item.photoUrl)} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true }} />}</span>
-                            <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{item.distanceKm} км · {item.geoZone}</small></span>
+                            <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{item.distanceKm} км · {item.publicAddress || item.geoZone}</small>{item.approximate === false && <small>Публічне місце продавця</small>}</span>
                         </button>
                         {item.owner && <button type="button" className="map-owner-link" onClick={() => openSeller(item.owner.id, item.kind)}>{item.owner.nickname || item.owner.username} · усі знайдені оголошення →</button>}
                     </div>
@@ -565,7 +570,7 @@ type ChatMessage = { id: string; senderId: string; senderUsername: string; body:
 type Conversation = { id: string; orderId: string; status: string; otherUsername: string; lastMessage: string | null; lastMessageAt: string | null; lastReadAt: string | null }
 type Notification = { id: string; type: string; title: string; body: string; orderId: string | null; conversationId: string | null; readAt: string | null; createdAt: string }
 type PublicProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string | null; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number }; createdAt: string }
-type PrivateProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string; email: string | null; emailVerified: boolean; recoveryEmail: string | null; exactAddress: string | null; privacy: { phoneVisibility: 'private' | 'authenticated' | 'public'; phoneDisclosureConsent: boolean }; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number } }
+type PrivateProfile = { mapLocation?: ProfileMapLocation; id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string; email: string | null; emailVerified: boolean; recoveryEmail: string | null; exactAddress: string | null; privacy: { phoneVisibility: 'private' | 'authenticated' | 'public'; phoneDisclosureConsent: boolean }; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number } }
 const OFFER_STATUS: Record<string, string> = { submitted: 'Очікує', accepted: 'Прийнято', partially_accepted: 'Частково прийнято', rejected: 'Відхилено', withdrawn: 'Відкликано', expired: 'Завершено' }
 const ORDER_STATUS: Record<string, string> = { accepted: 'Прийняте', in_progress: 'Виконується', completed: 'Завершене', cancelled: 'Скасоване', rejected: 'Відхилене', expired: 'Закінчене', disputed: 'Спір' }
 const REQUEST_STATUS: Record<string, string> = { open: 'Відкритий', partially_fulfilled: 'Частково виконаний', fulfilled: 'Виконаний', cancelled: 'Скасований', expired: 'Завершений' }
@@ -820,6 +825,7 @@ function OrdersView({ notify }: { notify: (message: string) => void }) {
 }
 
 function ProfileView({ logout, notify }: { logout: () => void; notify: (message: string) => void }) {
+    const [locationBusy, setLocationBusy] = useState(false)
     const [profile, setProfile] = useState<PrivateProfile | null>(null)
     const [visibility, setVisibility] = useState('private')
     const [consent, setConsent] = useState(false)
@@ -844,9 +850,12 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
     }, [])
     if (!profile) return <section className="content"><Empty text="Завантаження профілю…" /></section>
     const save = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault(); setBusy(true); setMessage('')
+        event.preventDefault(); setMessage('')
+        if (locationBusy || busy) return
+        if (profile.mapLocation?.mode !== 'approximate' && profile.mapLocation && (!validCoordinates(profile.mapLocation) || !profile.mapLocation.consent)) { setMessage('Оберіть публічну точку та підтвердіть згоду на її показ.'); return }
+        setBusy(true)
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
-        try { const result = await request('/api/profile/me', { method: 'PATCH', body: JSON.stringify({ ...(data.email !== (profile.email ?? '') ? { email: data.email } : {}), nickname: data.nickname, bio: data.bio, avatarUrl: profile.avatarUrl, location: profile.location, exactAddress: data.exactAddress, phone: data.phone }) }); const privacy = await request('/api/profile/me/privacy', { method: 'PATCH', body: JSON.stringify({ phoneVisibility: visibility, phoneDisclosureConsent: consent }) }); setProfile(privacy.profile ?? result.profile); if (privacy.profile) setVisibility(privacy.profile.privacy.phoneVisibility); notify('Профіль збережено') }
+        try { const result = await request('/api/profile/me', { method: 'PATCH', body: JSON.stringify({ ...(data.email !== (profile.email ?? '') ? { email: data.email } : {}), nickname: data.nickname, bio: data.bio, avatarUrl: profile.avatarUrl, location: profile.location, exactAddress: profile.exactAddress, mapLocation: profile.mapLocation, phone: data.phone }) }); const privacy = await request('/api/profile/me/privacy', { method: 'PATCH', body: JSON.stringify({ phoneVisibility: visibility, phoneDisclosureConsent: consent }) }); setProfile(privacy.profile ?? result.profile); if (privacy.profile) setVisibility(privacy.profile.privacy.phoneVisibility); notify('Профіль збережено') }
         catch (caught) { setMessage((caught as Error).message) } finally { setBusy(false) }
     }
     const savePrivacy = async () => {
@@ -870,7 +879,7 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
             <div className="field-row">
                 <label>Резервна електронна пошта<input name="recoveryEmail" type="email" defaultValue={profile.recoveryEmail ?? ''} /></label>
             </div>
-            <label><span className="exact-address-caption">Точна адреса <small className="form-hint">(видима лише вам)</small></span><AddressInput initialValue={profile.exactAddress ?? ''} /></label>
+            <ProfileLocationFields profile={profile} onChange={(patch) => setProfile((current) => ({ ...current, ...patch }))} onBusyChange={setLocationBusy} />
             <div className="profile-privacy">
                 <strong>Видимість телефону</strong>
                 <select value={visibility} onChange={(event) => setVisibility(event.target.value)}><option value="private">Не видимий нікому</option><option value="authenticated">Лише авторизованим користувачам</option><option value="public">Видимий усім</option></select>
@@ -878,7 +887,7 @@ function ProfileView({ logout, notify }: { logout: () => void; notify: (message:
                 <button type="button" className="outline-button" onClick={savePrivacy}>Зберегти приватність</button>
             </div>
             {message && <p className="form-error">{message}</p>}
-            <div className="field-row"><button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти профіль'}</button><button type="button" className="outline-button" onClick={logout}>Вийти з акаунта</button></div>
+            <div className="field-row"><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : 'Зберегти профіль'}</button><button type="button" className="outline-button" onClick={logout}>Вийти з акаунта</button></div>
         </form>
     </section>
 }

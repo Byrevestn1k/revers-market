@@ -59,7 +59,7 @@ export default function ListingLocationFields({ value, onChange, request, error,
         <AddressInput value={value} onChange={change} onBusyChange={setAddressBusy} name="address" requireStreet={false} />
         <div className="listing-location-actions"><button type="button" className="outline-button compact" onClick={fromProfile}>Адреса з профілю</button><button type="button" className="outline-button compact" onClick={locate}>⌖ Моє місце</button></div>
         <label>Населений пункт, видимий іншим<input value={value.city} maxLength={160} required placeholder="Наприклад, Рівне" onChange={(event) => onChange({ ...value, city: event.target.value, ...(value.address ? { address: '', coordinates: null } : {}) })} /></label>
-        <p className="listing-location-note">На мапі показуємо приблизне місце. Точна адреса не публікується в картці оголошення.</p>
+        <p className="listing-location-note">Адреса отримання цього оголошення приватна. За замовчуванням місце на мапі приблизне. Для товарів можна окремо дозволити показ адреси профілю або власної точки в налаштуваннях профілю.</p>
         <p className="listing-location-note" role="status">{busy ? 'Визначаємо місце…' : validCoordinates(value.coordinates) ? '✓ Точку для мапи визначено' : 'Оберіть адресу або введіть координати, щоб оголошення було видно на мапі.'}</p>
         <details className="listing-location-coordinates"><summary>Переглянути або ввести координати вручну</summary><div className="field-row">
             <label>Широта<input type="number" step="any" min="-90" max="90" value={manualLatitude || value.coordinates?.latitude?.toString() || ''} onChange={(event) => setManual(event.target.value, manualLongitude || value.coordinates?.longitude?.toString() || '')} /></label>

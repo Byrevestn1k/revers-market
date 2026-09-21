@@ -27,3 +27,5 @@
 .address-editor .address-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .address-editor .address-popup p { font-size: 12px; line-height: 1.5; color: #65796e; }
 @media (max-width: 600px) { .product-form .listing-section { padding: 12px; } .address-editor .address-display { align-items: stretch; flex-direction: column; } }
+.profile-point-picker { height: 320px; width: 100%; border-radius: 12px; border: 1px solid #ccd8d2; z-index: 0; }
+.profile-public-pin { display: grid; place-items: center; border: 3px solid white; border-radius: 50%; background: #17825a; color: white; box-shadow: 0 2px 8px #0005; box-sizing: border-box; }
