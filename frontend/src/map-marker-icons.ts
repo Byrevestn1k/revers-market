@@ -4,8 +4,8 @@ import { unitLabel } from './listing-options'
 export function mapMarkerLabel(node: MapNode): string {
     const item = node.items[0], count = node.items.length
     const noun = new Set(node.items.map((point) => point.kind)).size > 1 ? 'оголошень' : item.kind === 'product' ? 'товарів' : 'запитів'
-    if (node.type === 'cluster') return `${count} ${noun} поруч. Натисніть, щоб роздивитися.`
-    if (node.type === 'seller') return `${item.owner?.nickname || item.owner?.username || 'Користувач'} · ${count} ${noun} за вашим пошуком. Відкрити оголошення.`
+    if (node.type === 'cluster') return `${count} ${noun} поруч. Показати список збоку мапи.`
+    if (node.type === 'seller') return `${item.owner?.nickname || item.owner?.username || 'Користувач'} · ${count} ${noun} за вашим пошуком. Показати коротку інформацію.`
     const price = item.price ? ` · ${new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 2 }).format(item.price.amount)} ${item.price.currency}${item.unit ? ' / ' + unitLabel(item.unit) : ''}` : ''
     return `${item.kind === 'buyRequest' ? 'Шукає: ' : ''}${item.title}${price} · ${item.category.name} · ${item.owner?.nickname || item.owner?.username || ''}`
 }

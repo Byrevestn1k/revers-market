@@ -1,0 +1,8 @@
+.settlement-picker { position: relative; min-width: 0; width: 100%; }
+.settlement-picker > label { display: block; margin-bottom: 5px; }
+.settlement-picker-field { display: flex; gap: 5px; }
+.settlement-picker-field input { width: 100%; min-width: 0; padding: 10px; border: 1px solid #ccdcd1; border-radius: 8px; color: #18342e; background: white; }
+.settlement-picker-results { position: absolute; z-index: 1500; top: 100%; left: 0; width: max(100%, 290px); max-width: min(580px, 85vw); max-height: 260px; overflow: auto; border: 1px solid #ccdcd1; border-radius: 8px; background: white; box-shadow: 0 8px 20px #18342e25; }
+.settlement-picker-results button, .settlement-picker-results > span { display: block; width: 100%; padding: 10px; text-align: left; white-space: normal; border: 0; border-bottom: 1px solid #edf2ee; background: white; color: #18342e; }
+.settlement-picker-results button:hover, .settlement-picker-results button[aria-selected=true] { background: #eaf5ed; }
+.settlement-picker-results small { display: block; color: #65796e; }

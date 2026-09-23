@@ -21,7 +21,7 @@ describe('MapService primitives', () => {
         expect(viewportConditions('r', { south: -10, north: 10, west: 170, east: -170 }, [])).toEqual(['r.latitude BETWEEN $1 AND $2', '(r.longitude >= $3 OR r.longitude <= $4)'])
     })
     it('clamps configurable radius and adapts it to zoom', () => {
-        expect(clampRadius(-3)).toBe(1)
+        expect(clampRadius(-3)).toBe(.2)
         expect(clampRadius(999)).toBe(200)
         expect(adaptiveRadius(100, 14)).toBe(10)
         expect(adaptiveRadius(10, 7)).toBe(50)

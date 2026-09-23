@@ -3,6 +3,7 @@ import { pool } from './db/client.js'
 import type { AuthUser } from './auth.js'
 import { createEmailVerification, emailTaken, normalizeEmail, sendVerificationEmail } from './email-verification.js'
 import { isValidEmail } from './validation.js'
+import { getSettlement, validateSettlement, type Settlement } from './settlements.js'
 
 type ProfileRow = {
     id: string
@@ -19,6 +20,10 @@ type ProfileRow = {
     recovery_email: string | null
     location_display: string | null
     exact_address: string | null
+    settlement_code?: string | null
+    address_settlement_code?: string | null
+    address_latitude?: number | null
+    address_longitude?: number | null
     map_location_mode?: 'approximate' | 'address' | 'pin'
     public_latitude?: string | number | null
     public_longitude?: string | number | null
@@ -40,6 +45,7 @@ export type PublicProfileDto = {
     bio: string | null
     countryCode: string
     location: string | null
+    settlement?: Settlement | null
     phone: string | null
     exactAddress?: string | null
     mapLocation?: { mode: 'approximate' | 'address' | 'pin'; latitude: number | null; longitude: number | null; consent?: boolean }
@@ -49,6 +55,8 @@ export type PublicProfileDto = {
 }
 
 export type PrivateProfileDto = PublicProfileDto & {
+    addressSettlement?: Settlement | null
+    addressCoordinates?: { latitude: number; longitude: number } | null
     phone: string
     phoneVerified: boolean
     email: string | null
@@ -61,7 +69,7 @@ export type PrivateProfileDto = PublicProfileDto & {
 const profileSelect = `
     SELECT id, username, country_code, phone, phone_verified, avatar_url, nickname, bio, recovery_email,
            email, email_verified, pending_email,
-           location_display, exact_address, phone_visibility, phone_disclosure_consent,
+           location_display, exact_address, settlement_code, address_settlement_code, address_latitude, address_longitude, phone_visibility, phone_disclosure_consent,
            map_location_mode, public_latitude, public_longitude,
            listings_count, completed_deals_count, response_rate, rating_sum, rating_count, created_at
     FROM users`
@@ -80,6 +88,7 @@ export const toPublicProfile = (row: ProfileRow): PublicProfileDto => ({
     bio: row.bio,
     countryCode: row.country_code,
     location: row.location_display,
+    settlement: getSettlement(row.settlement_code),
     ...(row.map_location_mode === 'address' ? { exactAddress: row.exact_address } : {}),
     ...(row.map_location_mode && row.map_location_mode !== 'approximate' ? { mapLocation: { mode: row.map_location_mode, latitude: Number(row.public_latitude), longitude: Number(row.public_longitude) } } : {}),
     phone: row.phone_visibility === 'public' && row.phone_disclosure_consent ? row.phone : null,
@@ -96,6 +105,8 @@ export const toPrivateProfile = (row: ProfileRow): PrivateProfileDto => ({
     emailVerified: Boolean(row.email_verified),
     recoveryEmail: row.recovery_email,
     exactAddress: row.exact_address,
+    addressSettlement: getSettlement(row.address_settlement_code),
+    addressCoordinates: row.address_latitude != null && row.address_longitude != null ? { latitude: Number(row.address_latitude), longitude: Number(row.address_longitude) } : null,
     mapLocation: { mode: row.map_location_mode ?? 'approximate', latitude: row.public_latitude == null ? null : Number(row.public_latitude), longitude: row.public_longitude == null ? null : Number(row.public_longitude), consent: row.map_location_mode === 'address' || row.map_location_mode === 'pin' },
     privacy: { phoneVisibility: row.phone_visibility, phoneDisclosureConsent: row.phone_disclosure_consent },
 })
@@ -105,6 +116,19 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const updateProfile = async (user: AuthUser, input: Record<string, unknown>) => {
     const fields: Record<string, string | null | undefined> = {}
+    if (validateSettlement(input, 'location').length || (input.addressSettlementCode != null && !getSettlement(input.addressSettlementCode))) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Оберіть населений пункт із підказок' } }
+    if ('settlementCode' in input) {
+        fields.settlementCode = input.settlementCode as string | null
+        if (getSettlement(input.settlementCode) && !('location' in input)) fields.location = getSettlement(input.settlementCode)!.name
+    } else if ('location' in input) fields.settlementCode = null
+    if ('addressSettlementCode' in input) fields.addressSettlementCode = input.addressSettlementCode as string | null
+    else if ('exactAddress' in input) fields.addressSettlementCode = null
+    if ('addressCoordinates' in input) {
+        const point = input.addressCoordinates as { latitude?: unknown; longitude?: unknown } | null
+        if (point !== null && (!point || typeof point.latitude !== 'number' || !Number.isFinite(point.latitude) || Math.abs(point.latitude) > 90 || typeof point.longitude !== 'number' || !Number.isFinite(point.longitude) || Math.abs(point.longitude) > 180)) return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректні координати адреси' } }
+        fields.addressLatitude = point ? String(point.latitude) : null
+        fields.addressLongitude = point ? String(point.longitude) : null
+    } else if ('exactAddress' in input) { fields.addressLatitude = null; fields.addressLongitude = null }
     for (const field of ['avatarUrl', 'nickname', 'bio', 'recoveryEmail', 'location', 'exactAddress']) {
         if (field in input && input[field] !== null && typeof input[field] !== 'string') return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректне текстове поле профілю' } }
         if (field in input) fields[field] = normalizeOptional(input[field]) as string | null
@@ -148,6 +172,7 @@ export const updateProfile = async (user: AuthUser, input: Record<string, unknow
         }
     }
     const columnNames: Record<string, string> = {
+        settlementCode: 'settlement_code', addressSettlementCode: 'address_settlement_code', addressLatitude: 'address_latitude', addressLongitude: 'address_longitude',
         mapMode: 'map_location_mode', publicLatitude: 'public_latitude', publicLongitude: 'public_longitude',
         avatarUrl: 'avatar_url', nickname: 'nickname', bio: 'bio', recoveryEmail: 'recovery_email',
         location: 'location_display', exactAddress: 'exact_address',

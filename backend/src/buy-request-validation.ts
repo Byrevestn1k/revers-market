@@ -1,3 +1,4 @@
+import { validateSettlement } from './settlements.js'
 export const BUY_REQUEST_STATUSES = ['open', 'partially_fulfilled', 'fulfilled', 'cancelled', 'expired'] as const
 export const OFFER_STATUSES = ['draft', 'submitted', 'accepted', 'partially_accepted', 'rejected', 'withdrawn', 'expired'] as const
 export const REQUEST_UNITS = ['kg', 'ton', 'litre', 'piece', 'box'] as const
@@ -8,7 +9,7 @@ const validQuantity = (value: unknown) => typeof value === 'number' && Number.is
 const validDate = (value: unknown) => typeof value === 'string' && !Number.isNaN(Date.parse(value))
 
 export const validateBuyRequestInput = (input: Record<string, unknown>, partial = false): string[] => {
-    const errors: string[] = []
+    const errors: string[] = validateSettlement(input, 'geoArea')
     // For a create every required field must be present; for PATCH validate
     // every field that was supplied without demanding the rest of the model.
     const required = (field: string) => !partial || field in input
@@ -20,13 +21,16 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
     if (required('unit') && !REQUEST_UNITS.includes(input.unit as typeof REQUEST_UNITS[number])) errors.push('unit')
     if (required('currency') && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) errors.push('currency')
     if (required('geoArea') && (typeof input.geoArea !== 'string' || input.geoArea.trim().length < 1 || input.geoArea.length > 160)) errors.push('geoArea')
-    if (input.latitude !== undefined && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90)) errors.push('latitude')
-    if (input.longitude !== undefined && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180)) errors.push('longitude')
+    if (input.latitude != null && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90)) errors.push('latitude')
+    if (input.longitude != null && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180)) errors.push('longitude')
     if (input.delivery !== undefined && !['no', 'yes', 'preferred'].includes(String(input.delivery))) errors.push('delivery')
     if (!partial && input.delivery === undefined && input.deliveryRequired === undefined) errors.push('delivery')
     if (input.deliveryRequired !== undefined && typeof input.deliveryRequired !== 'boolean') errors.push('deliveryRequired')
     if (input.preferredDelivery !== undefined && input.preferredDelivery !== null && (typeof input.preferredDelivery !== 'string' || input.preferredDelivery.length > 160)) errors.push('preferredDelivery')
     if (input.address !== undefined && input.address !== null && (typeof input.address !== 'string' || input.address.length > 500)) errors.push('address')
+    if (input.addressVisibility !== undefined && input.addressVisibility !== 'private' && input.addressVisibility !== 'public') errors.push('addressVisibility')
+    if (input.addressVisibility === 'public' && input.addressVisibilityConsent !== true) errors.push('addressVisibilityConsent')
+    if (input.addressVisibility === 'public' && (typeof input.address !== 'string' || !input.address.trim() || typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || typeof input.longitude !== 'number' || !Number.isFinite(input.longitude))) errors.push('addressVisibility')
     if (input.minPrice !== undefined && input.minPrice !== null && !validPrice(input.minPrice)) errors.push('minPrice')
     if (input.maxPrice !== undefined && input.maxPrice !== null && !validPrice(input.maxPrice)) errors.push('maxPrice')
     if (input.exactPrice !== undefined && input.exactPrice !== null && !validPrice(input.exactPrice)) errors.push('exactPrice')

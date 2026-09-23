@@ -36,6 +36,20 @@ if (hasDatabase) {
                 expect(nearby.body.markers.map((marker: { title: string }) => marker.title)).not.toContain('Тестові овочі далеко')
                 expect(nearby.body.markers.every((marker: { approximate: boolean }) => marker.approximate)).toBe(true)
 
+                // Nearby uses the saved exact point on the server, even though the map returns the rounded point.
+                for (const zoom of [7, 12, 19]) {
+                    const fixed = await seller.get('/api/map/markers').query({ latitude: 50.4506, longitude: 30.5239, radiusKm: .2, zoom, nearby: true, searchIn: 'owner', includeOwnerListings: true, q: sellerPayload.username, showBuyRequests: false })
+                    expect(fixed.status).toBe(200)
+                    expect(fixed.body.filters.radiusKm).toBe(.2)
+                    expect(fixed.body.markers.map((marker: { id: string }) => marker.id)).toEqual([nearProduct.body.product.id])
+                    expect(fixed.body.markers[0]).toMatchObject({ latitude: 50.45, longitude: 30.52, approximate: true, distanceBand: 'до 1 км' })
+                    expect(fixed.body.markers[0]).not.toHaveProperty('distanceKm')
+                }
+                const expanded = await seller.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 60, zoom: 19, nearby: true, searchIn: 'owner', q: sellerPayload.username, showBuyRequests: false })
+                expect(expanded.body.filters.radiusKm).toBe(60)
+                expect(expanded.body.markers.map((marker: { id: string }) => marker.id)).toEqual(expect.arrayContaining([nearProduct.body.product.id, farProduct.body.product.id]))
+                expect((await seller.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, nearby: true, nationwide: true })).status).toBe(400)
+
                 // Zoom around the public point: the private address is outside these bounds.
                 for (const zoom of [17, 18, 19]) {
                     const close = await seller.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 10, zoom, south: 50.4498, north: 50.4502, west: 30.5198, east: 30.5202, categoryId: grains.id })
@@ -65,6 +79,13 @@ if (hasDatabase) {
                 const ownerRequest = await buyer.get(`/api/buy-requests/${requestId}`)
                 expect(ownerRequest.status).toBe(200)
                 expect(ownerRequest.body.buyRequest.delivery.address).toBe('Точна тестова адреса 42')
+
+                const publicProduct = await seller.post('/api/products').send({ categoryId: vegetables.id, title: 'Тестовий публічний магазин', description: '', quantity: 10, unit: 'kg', price: 40, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київ', address: 'Київ, Публічна, 1', addressVisibility: 'public', addressVisibilityConsent: true, latitude: 50.452, longitude: 30.524, status: 'active' })
+                expect(publicProduct.status).toBe(201)
+                const visibleProduct = await buyer.get(`/api/products/${publicProduct.body.product.id}`)
+                expect(visibleProduct.body.product).toMatchObject({ addressVisibility: 'public', address: 'Київ, Публічна, 1', coordinates: { latitude: 50.452, longitude: 30.524 } })
+                const publicPoint = await buyer.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 10, categoryId: vegetables.id, showBuyRequests: false })
+                expect(publicPoint.body.markers.find((marker: { id: string }) => marker.id === publicProduct.body.product.id)).toMatchObject({ approximate: false, publicAddress: 'Київ, Публічна, 1', latitude: 50.452, longitude: 30.524 })
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [buyerPayload.username.toLowerCase(), sellerPayload.username.toLowerCase()])
             }

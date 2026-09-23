@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const ts = require('typescript')
-require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, filename)
+require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8').replaceAll('import.meta.env', '({ VITE_API_URL: "", VITE_HERE_API_KEY: "" })'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, filename)
 const { nearestZoom, distanceKm, parseIpCity, normalizeCity, savedSearchCity, profileSearchAddress } = require('../src/search-location-model.ts')
 const home = { latitude: 50.62, longitude: 26.25 }
 const close = { latitude: 50.62003, longitude: 26.25003 }
@@ -9,7 +9,7 @@ const distant = { latitude: 50.66, longitude: 26.3 }
 const profile = { exactAddress: 'Рівне, Соборна, 1', location: 'Львів', mapLocation: { mode: 'pin', latitude: 49.84, longitude: 24.03 } }
 assert.equal(profileSearchAddress(profile, null).coordinates, null, 'Seller public pin is not the private search home')
 const fromProfile = profileSearchAddress(profile, { position: { lat: home.latitude, lng: home.longitude }, address: { city: 'Рівне' } })
-assert.deepEqual(fromProfile, { address: profile.exactAddress, city: 'Рівне', coordinates: home })
+assert.deepEqual(fromProfile, { address: profile.exactAddress, city: 'Рівне', coordinates: home, settlement: undefined })
 fromProfile.address = 'Лише для пошуку'
 assert.equal(profile.exactAddress, 'Рівне, Соборна, 1', 'Search overrides must not mutate the profile')
 assert.deepEqual(profileSearchAddress({ ...profile, mapLocation: { mode: 'address', ...home } }, null).coordinates, home)

@@ -13,6 +13,7 @@ import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress,
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
+import { getSettlement, searchSettlements } from './settlements.js'
 import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
 
 const mapService = new MapService()
@@ -79,6 +80,16 @@ export const createApp = () => {
 
     app.get('/api/categories', withResult(() => listCategories()))
 
+    app.get('/api/settlements', (request, response) => {
+        const query = typeof request.query.q === 'string' ? request.query.q.trim() : ''
+        if (query.length > 160) { response.status(400).json({ error: 'INVALID_SETTLEMENT_QUERY' }); return }
+        response.json(searchSettlements(query))
+    })
+    app.get('/api/settlements/:code', (request, response) => {
+        const settlement = getSettlement(request.params.code)
+        response.status(settlement ? 200 : 404).json({ settlement })
+    })
+
     app.get('/api/map/markers', withResult(async (request) => {
         const latitude = Number(request.query.latitude)
         const longitude = Number(request.query.longitude)
@@ -86,10 +97,17 @@ export const createApp = () => {
             return { status: 400, body: { error: 'INVALID_MAP_CENTER' } }
         }
         const cityName = typeof request.query.cityName === 'string' ? request.query.cityName.trim() : undefined
+        const settlement = getSettlement(request.query.settlementCode)
+        const geoSettlement = getSettlement(request.query.geoSettlementCode)
+        if (request.query.geoSettlementCode !== undefined && !geoSettlement) return { status: 400, body: { error: 'INVALID_SETTLEMENT' } }
+        if (request.query.settlementCode !== undefined && !settlement) return { status: 400, body: { error: 'INVALID_SETTLEMENT' } }
+        if (settlement && (!cityName || cityName !== settlement.name)) return { status: 400, body: { error: 'INVALID_SEARCH_CITY' } }
         const nationwide = request.query.nationwide === 'true'
+        const nearby = request.query.nearby === 'true'
+        if (nearby && (nationwide || cityName || request.query.cityOutsideKm !== undefined)) return { status: 400, body: { error: 'CONFLICTING_SEARCH_SCOPE' } }
         const cityOutsideKm = request.query.cityOutsideKm === undefined ? undefined : clampRadius(request.query.cityOutsideKm as string | undefined)
-        const boundary = cityName && cityOutsideKm !== undefined ? await cityBoundary(cityName, { latitude, longitude }) : null
-        const radiusKm = cityName ? boundary ? Math.min(200, boundary.maxDistanceKm + cityOutsideKm!) : Math.min(100, clampRadius(request.query.radiusKm as string | undefined)) : adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
+        const boundary = cityName && cityOutsideKm !== undefined ? await cityBoundary(cityName, { latitude, longitude }, settlement) : null
+        const radiusKm = nearby ? clampRadius(request.query.radiusKm as string | undefined) : cityName ? cityOutsideKm !== undefined ? boundary ? Math.min(200, boundary.maxDistanceKm + cityOutsideKm!) : Math.min(100, 5 + cityOutsideKm) : clampRadius(request.query.radiusKm as string | undefined) : adaptiveRadius(request.query.radiusKm as string | undefined, request.query.zoom as string | undefined)
         if (request.query.cityName !== undefined && (!cityName || cityName.length > 120)) return { status: 400, body: { error: 'INVALID_SEARCH_CITY' } }
         if (nationwide && cityName) return { status: 400, body: { error: 'CONFLICTING_SEARCH_SCOPE' } }
         const hasViewport = ['south', 'north', 'west', 'east'].some((key) => request.query[key] !== undefined)
@@ -99,8 +117,11 @@ export const createApp = () => {
         const showBuyRequests = request.query.showBuyRequests !== 'false'
         const markers = await mapService.findMarkers({ latitude, longitude }, {
             nationwide,
-            includeOwnerListings: request.query.includeOwnerListings === 'true' && request.query.searchIn === 'owner',
+            exactDistance: nearby,
+            includeOwnerListings: !nearby && request.query.includeOwnerListings === 'true' && request.query.searchIn === 'owner',
             cityName,
+            settlementCode: settlement?.code,
+            geoSettlementCode: geoSettlement?.code,
             cityBoundary: boundary ?? undefined,
             cityOutsideKm,
             categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,

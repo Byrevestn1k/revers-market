@@ -1,3 +1,4 @@
+import type { Settlement } from './settlements.js'
 export type Point = { latitude: number; longitude: number }
 export type CityBoundary = { rings: Point[][]; maxDistanceKm: number }
 
@@ -13,16 +14,19 @@ const ringsFromGeoJson = (geometry: any): Point[][] => {
     return polygons.flatMap((polygon: any[]) => polygon.slice(0, 1)).map((ring: any[]) => ring.map(([longitude, latitude]: [unknown, unknown]) => ({ latitude: Number(latitude), longitude: Number(longitude) })).filter((point: Point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))).filter((ring: Point[]) => ring.length >= 3)
 }
 
-export async function cityBoundary(name: string, center: Point): Promise<CityBoundary | null> {
-    const key = name.trim().toLocaleLowerCase('uk-UA')
+export async function cityBoundary(name: string, center: Point, settlement?: Settlement | null): Promise<CityBoundary | null> {
+    const key = `${settlement?.code ?? name.trim().toLocaleLowerCase('uk-UA')}:${center.latitude.toFixed(2)}:${center.longitude.toFixed(2)}`
     const known = cache.get(key)
     if (known && known.expiresAt > Date.now()) return known.value
     let value: CityBoundary | null = null
     try {
         const params = new URLSearchParams({ city: name, country: 'Ukraine', format: 'jsonv2', polygon_geojson: '1', limit: '5', addressdetails: '1' })
+        if (settlement) params.set('state', settlement.region)
         const response = await fetch('https://nominatim.openstreetmap.org/search?' + params, { headers: { 'User-Agent': process.env.OSM_USER_AGENT || 'NavpakyMarketplace/1.0 (city-boundary lookup)' }, signal: AbortSignal.timeout(8000) })
         const results = response.ok ? await response.json() : []
-        const rings = Array.isArray(results) ? results.flatMap(item => ringsFromGeoJson(item.geojson)) : []
+        // Never union boundaries of namesakes in different regions.
+        const candidates = Array.isArray(results) ? results.filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) && distanceKm(center, { latitude: Number(item.lat), longitude: Number(item.lon) }) < 25).sort((a, b) => distanceKm(center, { latitude: Number(a.lat), longitude: Number(a.lon) }) - distanceKm(center, { latitude: Number(b.lat), longitude: Number(b.lon) })) : []
+        const rings = candidates.length ? ringsFromGeoJson(candidates[0].geojson) : []
         if (rings.length) value = { rings, maxDistanceKm: Math.max(...rings.flat().map(point => distanceKm(center, point))) }
     } catch { /* The existing city-only search remains available when OSM is unavailable. */ }
     cache.set(key, { value, expiresAt: Date.now() + DAY })

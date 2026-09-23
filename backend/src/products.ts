@@ -1,17 +1,19 @@
+import { getSettlement } from './settlements.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
-import { approximatePoint } from './map-service.js'
+import { approximatePoint, settlementCondition } from './map-service.js'
 import { ExternalUrlPhotoStorage, type PhotoStorage, type StoredPhoto } from './photo-storage.js'
 import { validateProductInput, type ProductInput, type ProductStatus } from './product-validation.js'
 
 type ProductRow = {
+    settlement_code?: string | null
     public_address?: string | null
     id: string; owner_id: string; owner_username: string; category_id: string; category_code: string; category_name: string; category_image_index: number | null
     title: string; description: string; quantity: string | number; unit: string; price: string | number; currency: string
-    delivery_mode: string; geo_zone: string; pickup_address: string | null; latitude: string | number | null; longitude: string | number | null
+    delivery_mode: string; geo_zone: string; pickup_address: string | null; address_visibility: 'private' | 'public'; latitude: string | number | null; longitude: string | number | null
     status: ProductStatus; reserved_quantity: string | number; expires_at: Date | null; created_at: Date; updated_at: Date
 }
 type PhotoRow = { id: string; storage_key: string; url: string; alt: string; sort_order: number }
@@ -35,9 +37,11 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
     price: { amount: Number(row.price), currency: row.currency },
     deliveryMode: row.delivery_mode,
     geoZone: row.geo_zone,
+    settlement: getSettlement(row.settlement_code),
     ...(row.public_address ? { publicAddress: row.public_address } : {}),
-    address: includeAddress ? row.pickup_address : null,
-    coordinates: row.latitude === null || row.longitude === null ? null : includeAddress ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
+    addressVisibility: row.address_visibility,
+    address: includeAddress || row.address_visibility === 'public' ? row.pickup_address : null,
+    coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
     status: row.status,
     expiresAt: row.expires_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
@@ -46,9 +50,9 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
 
 const productSelect = `
     SELECT p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index,
-           CASE WHEN u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
+           CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
            p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.geo_zone,
-           p.latitude, p.longitude, p.pickup_address, p.status, p.expires_at, p.created_at, p.updated_at
+           p.settlement_code, p.latitude, p.longitude, p.pickup_address, p.address_visibility, p.status, p.expires_at, p.created_at, p.updated_at
     FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id`
 
 const getProductRow = async (queryable: Queryable, id: string, ownerId?: string): Promise<ProductWithPhotos | null> => {
@@ -96,9 +100,9 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
     try {
         await client.query('BEGIN')
         const result = await client.query<ProductRow>(
-            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at, pickup_address)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
-            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null],
+            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at, pickup_address, settlement_code, address_visibility)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null, product.settlementCode ?? null, product.addressVisibility ?? 'private'],
         )
         storedPhotos = await writePhotos(client, result.rows[0].id, product.photos)
         const created = await getProductRow(client, result.rows[0].id, user.id)
@@ -122,6 +126,11 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     const conditions = user && query.mine === 'true' ? ['p.owner_id = $1'] : ['p.status = \'active\'']
     const parameters: unknown[] = user && query.mine === 'true' ? [user.id] : []
     if (typeof query.categoryId === 'string' && query.categoryId) { parameters.push(query.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
+    if (query.settlementCode !== undefined) {
+        const settlement = getSettlement(query.settlementCode)
+        if (!settlement) return invalid(['settlementCode'])
+        conditions.push(settlementCondition('p.settlement_code', 'p.geo_zone', { settlementCode: settlement.code, cityName: settlement.name }, parameters))
+    }
     if (typeof query.geoZone === 'string' && query.geoZone.trim()) { parameters.push(query.geoZone.trim()); conditions.push(`p.geo_zone ILIKE $${parameters.length}`) }
     conditions.push(...textSearchConditions(query.searchIn === 'title' ? ['p.title'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, parameters))
     const where = conditions.join(' AND ')
@@ -134,9 +143,11 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
 }
 
 export const updateProduct = async (user: AuthUser, id: string, input: Record<string, unknown>) => {
+    if ('geoZone' in input && !('settlementCode' in input)) input = { ...input, settlementCode: null }
+    if (getSettlement(input.settlementCode) && !('geoZone' in input)) input = { ...input, geoZone: getSettlement(input.settlementCode)!.name }
     const errors = validateProductInput(input, true)
     if (errors.length) return invalid(errors)
-    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', geoZone: 'geo_zone', address: 'pickup_address', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', geoZone: 'geo_zone', settlementCode: 'settlement_code', address: 'pickup_address', addressVisibility: 'address_visibility', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
     const entries = Object.entries(input).filter(([key]) => key in allowed)
     if (!entries.length && !('photos' in input)) return invalid(['product'])
     const client = await pool.connect()

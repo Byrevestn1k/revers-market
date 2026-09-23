@@ -42,7 +42,7 @@ export function buildMapNodes(points: SellerProductPoint[], project: (point: Sel
     const candidates: MapNode[] = []
     const makeNode = (items: SellerProductPoint[], type: MapNode['type']): MapNode => {
         const first = items[0], anchor = project(first)
-        const preview = type === 'cluster' ? 'count' : type === 'seller' ? 'avatar' : 'category'
+        const preview = type === 'cluster' ? 'count' : type === 'seller' ? 'avatar' : (first.kind === 'product' && first.photoUrl ? 'photo' : 'category')
         return { id: `${type}:${first.kind}:${first.id}`, type, preview, items, latitude: first.latitude, longitude: first.longitude, anchor, ...anchor, size: preview === 'category' ? 40 : 44, displaced: false }
     }
     for (const kind of ['product', 'buyRequest'] as const) {
@@ -69,11 +69,6 @@ export function buildMapNodes(points: SellerProductPoint[], project: (point: Sel
     }
     candidates.sort((a, b) => Number(selected.has(b.items[0].id)) - Number(selected.has(a.items[0].id)) || a.id.localeCompare(b.id))
     // Photos depend on local crowding, not on whether this is a desktop or phone.
-    if (stage === 'photos') for (const node of candidates) {
-        if (node.type !== 'product' || !node.items[0].photoUrl) continue
-        const nearby = candidates.filter((other) => Math.hypot(other.anchor.x - node.anchor.x, other.anchor.y - node.anchor.y) < 90).length
-        if (nearby <= 12 || selected.has(node.items[0].id)) { node.preview = 'photo'; node.size = options.width < 480 ? 40 : 44 }
-    }
     const placed: MapNode[] = []
     const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(Math.max(min, max), value))
     const locate = (node: MapNode): Pixel | undefined => {
@@ -89,7 +84,7 @@ export function buildMapNodes(points: SellerProductPoint[], project: (point: Sel
     }
     for (const node of candidates) {
         let position = locate(node)
-        if (!position && node.preview === 'photo') { node.preview = 'category'; node.size = 40; position = locate(node) }
+        if (!position && node.preview === 'photo') { node.size = 40; position = locate(node) }
         if (position) {
             Object.assign(node, position)
             node.displaced = Math.hypot(node.x - node.anchor.x, node.y - node.anchor.y) > 8
@@ -115,7 +110,7 @@ export function clusterMapProducts(products: SellerProductPoint[], zoom: number,
     const spacing = stage === 'photos' ? 86 : stage === 'categories' ? 68 : 58
     for (const product of products) {
         const pixel = project(product)
-        const group = zoom <= 12 ? groups[0] : groups.find((item) => Math.hypot(item.x - pixel.x, item.y - pixel.y) < spacing)
+        const group = groups.find((item) => Math.hypot(item.x - pixel.x, item.y - pixel.y) < spacing)
         if (group) group.products.push(product)
         else groups.push({ latitude: product.latitude, longitude: product.longitude, products: [product], ...pixel })
     }

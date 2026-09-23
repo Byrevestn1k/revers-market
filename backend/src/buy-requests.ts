@@ -1,3 +1,4 @@
+import { getSettlement } from './settlements.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
@@ -30,6 +31,7 @@ const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS produ
     FROM offers o JOIN users u ON u.id = o.seller_id LEFT JOIN products p ON p.id = o.product_id`
 
 interface BuyRequestRow {
+    settlement_code?: string | null
     id: string
     buyer_id: string
     buyer_username: string
@@ -48,6 +50,7 @@ interface BuyRequestRow {
     delivery_required: boolean
     preferred_delivery: string | null
     delivery_address: string | null
+    address_visibility: 'private' | 'public'
     geo_area: string
     latitude: string | number | null
     longitude: string | number | null
@@ -85,8 +88,9 @@ const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     productId: row.product_id, title: row.title, description: row.description,
     quantity: Number(row.requested_quantity), fulfilledQuantity: Number(row.fulfilled_quantity), unit: row.unit,
     price: { min: number(row.min_unit_price), max: number(row.max_unit_price), currency: row.currency },
-    delivery: { required: row.delivery_required, preferred: row.preferred_delivery, address: includeAddress ? row.delivery_address : null },
-    geoArea: row.geo_area, coordinates: row.latitude === null || row.longitude === null ? null : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }), deadline: row.deadline?.toISOString() ?? null, status: row.status,
+    delivery: { required: row.delivery_required, preferred: row.preferred_delivery, address: includeAddress || row.address_visibility === 'public' ? row.delivery_address : null },
+    addressVisibility: row.address_visibility,
+    geoArea: row.geo_area, settlement: getSettlement(row.settlement_code), coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }), deadline: row.deadline?.toISOString() ?? null, status: row.status,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
 })
 const offerDto = (row: OfferRow) => ({
@@ -139,8 +143,8 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     const deliveryRequired = input.delivery === 'yes' || input.delivery === 'preferred' || input.deliveryRequired === true
     const preferredDelivery = input.preferredDelivery ?? (input.delivery === 'preferred' ? 'preferred' : null)
     const created = await pool.query<{ id: string }>(
-        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id',
-        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline],
+        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id',
+        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private'],
     )
     const response = await getBuyRequest(created.rows[0].id, user)
     return { ...response, status: 201 }
@@ -162,12 +166,14 @@ export const listBuyRequests = async (query: Record<string, unknown>, user?: Aut
 }
 
 export const updateBuyRequest = async (user: AuthUser, id: string, input: Record<string, unknown>) => {
+    if ('geoArea' in input && !('settlementCode' in input)) input = { ...input, settlementCode: null }
+    if (getSettlement(input.settlementCode) && !('geoArea' in input)) input = { ...input, geoArea: getSettlement(input.settlementCode)!.name }
     const errors = validateBuyRequestInput(input, true)
     if (errors.length) return invalid(errors)
     const normalizedInput = { ...input }
     if (input.exactPrice !== undefined) { normalizedInput.minPrice = input.exactPrice; normalizedInput.maxPrice = input.exactPrice }
     if (input.delivery !== undefined) { normalizedInput.deliveryRequired = input.delivery !== 'no'; if (input.delivery === 'preferred') normalizedInput.preferredDelivery = input.preferredDelivery ?? 'preferred' }
-    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', address: 'delivery_address', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', status: 'status' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', status: 'status' }
     const { assignments, values } = buildUpdate(allowed, normalizedInput)
     if (!assignments.length) return invalid(['buyRequest'])
     const current = await pool.query('SELECT status, fulfilled_quantity FROM buy_requests WHERE id = $1 AND buyer_id = $2', [id, user.id])

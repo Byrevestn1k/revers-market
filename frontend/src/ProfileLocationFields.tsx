@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import AddressInput from './AddressInput'
+import SettlementPicker from './SettlementPicker'
+import type { SelectedSettlement } from './settlement-model'
 import { validCoordinates, type Coordinates } from './address-model'
 
 export type ProfileMapLocation = { mode: 'approximate' | 'address' | 'pin'; latitude: number | null; longitude: number | null; consent?: boolean }
-type LocationProfile = { exactAddress: string | null; location: string | null; mapLocation?: ProfileMapLocation }
+type LocationProfile = { exactAddress: string | null; location: string | null; mapLocation?: ProfileMapLocation; settlement?: SelectedSettlement | null; addressSettlement?: SelectedSettlement | null; addressCoordinates?: Coordinates | null }
+const samePoint = (left: Coordinates | null, right: Coordinates | null) => Boolean(left && right && Math.abs(left.latitude - right.latitude) < .000001 && Math.abs(left.longitude - right.longitude) < .000001)
 
 function PointPicker({ point, onChange }: { point: Coordinates | null; onChange: (point: Coordinates) => void }) {
     const container = useRef<HTMLDivElement>(null)
@@ -39,27 +42,33 @@ export default function ProfileLocationFields({ profile, onChange, onBusyChange 
     const setting = profile.mapLocation ?? { mode: 'approximate', latitude: null, longitude: null }
     const candidate = setting.latitude !== null && setting.longitude !== null ? { latitude: setting.latitude, longitude: setting.longitude } : null
     const point = validCoordinates(candidate) ? candidate : null
-    const [addressPoint, setAddressPoint] = useState<Coordinates | null>(setting.mode === 'address' ? point : null)
+    const [addressPoint, setAddressPoint] = useState<Coordinates | null>(profile.addressCoordinates ?? (setting.mode === 'address' ? point : null))
+    const [pinSource, setPinSource] = useState<'profile' | 'map'>(() => samePoint(point, profile.addressCoordinates ?? null) ? 'profile' : 'map')
     const updatePoint = (next: Coordinates) => onChange({ mapLocation: { ...setting, ...next, consent: false } })
     return <fieldset className="listing-section"><legend>Моє місце на мапі</legend>
         <label>Адреса профілю</label>
-        <AddressInput name="exactAddress" value={{ address: profile.exactAddress ?? '', city: profile.location ?? '', coordinates: addressPoint }} onBusyChange={onBusyChange} onChange={(value) => {
+        <AddressInput name="exactAddress" value={{ address: profile.exactAddress ?? '', city: profile.addressSettlement?.name ?? profile.location ?? '', settlement: profile.addressSettlement, coordinates: addressPoint }} onBusyChange={onBusyChange} onChange={(value) => {
             setAddressPoint(value.coordinates)
-            onChange({ exactAddress: value.address, location: value.city, ...(setting.mode === 'address' ? { mapLocation: { ...setting, latitude: value.coordinates?.latitude ?? null, longitude: value.coordinates?.longitude ?? null, consent: false } } : {}) })
+            const useAddressPoint = setting.mode === 'address' || (setting.mode === 'pin' && pinSource === 'profile')
+            onChange({ exactAddress: value.address, addressSettlement: value.settlement, addressCoordinates: value.coordinates, ...(useAddressPoint ? { location: value.city, settlement: value.settlement, mapLocation: { ...setting, latitude: value.coordinates?.latitude ?? null, longitude: value.coordinates?.longitude ?? null, consent: false } } : {}) })
         }} />
         <label>Як показувати мої товари<select value={setting.mode} onChange={(event) => {
             const mode = event.target.value as ProfileMapLocation['mode']
             const next = mode === 'address' ? addressPoint : mode === 'pin' ? point ?? addressPoint : null
-            onChange({ mapLocation: { mode, latitude: next?.latitude ?? null, longitude: next?.longitude ?? null, consent: false } })
+            if (mode === 'pin') setPinSource(addressPoint && (!point || samePoint(point, addressPoint)) ? 'profile' : 'map')
+            onChange({ mapLocation: { mode, latitude: next?.latitude ?? null, longitude: next?.longitude ?? null, consent: false }, ...(mode === 'address' && profile.addressSettlement ? { location: profile.addressSettlement.name, settlement: profile.addressSettlement } : {}) })
         }}><option value="approximate">Приблизне місце — точна адреса прихована</option><option value="address">Показувати точну адресу профілю</option><option value="pin">Власна публічна точка на мапі</option></select></label>
         <p className="listing-location-note">Налаштування діє для всіх ваших товарів. Адреси отримання товарів та місця запитів покупця не змінюються.</p>
-        {setting.mode === 'address' && <p className="listing-location-note">Адреса та її координати будуть видимі всім. Якщо точку ще не визначено, повторно оберіть адресу кнопкою вище.</p>}
+        {setting.mode === 'address' && <div className="field-error" role="status"><strong>Адреса стане публічною.</strong> Перевага: покупцям легше знайти офіційний магазин або постійне місце видачі. Ризик: будь-хто побачить адресу, зможе приїхати туди та пов’язати її з вашим профілем. Якщо точку ще не визначено, повторно оберіть адресу вище.</div>}
         {setting.mode === 'pin' && <>
-            <p className="listing-location-note">Натисніть на мапу або перетягніть точку, наприклад до місця зустрічі. Текст адреси профілю залишиться прихованим.</p>
-            <PointPicker point={point} onChange={updatePoint} />
-            <label>Населений пункт публічної точки<input value={profile.location ?? ''} maxLength={120} placeholder="Наприклад, Рівне" onChange={(event) => onChange({ location: event.target.value })} /></label>
-            <div className="field-row"><label>Широта<input type="number" step="any" min="-90" max="90" value={setting.latitude ?? ''} onChange={(event) => onChange({ mapLocation: { ...setting, latitude: event.target.value === '' ? null : Number(event.target.value), consent: false } })} /></label><label>Довгота<input type="number" step="any" min="-180" max="180" value={setting.longitude ?? ''} onChange={(event) => onChange({ mapLocation: { ...setting, longitude: event.target.value === '' ? null : Number(event.target.value), consent: false } })} /></label></div>
+            <label>Публічна точка<select value={pinSource} onChange={(event) => {
+                const source = event.target.value as 'profile' | 'map'
+                setPinSource(source)
+                if (source === 'profile') onChange({ mapLocation: { ...setting, latitude: addressPoint?.latitude ?? null, longitude: addressPoint?.longitude ?? null, consent: false }, ...(profile.addressSettlement ? { location: profile.addressSettlement.name, settlement: profile.addressSettlement } : {}) })
+            }}><option value="profile">Збігається з адресою профілю</option><option value="map">Обрати точку на мапі</option></select></label>
+            {pinSource === 'profile' ? <p className="listing-location-note">Публічна точка буде там, де вибрана адреса профілю. Щоб змінити її, оберіть іншу адресу вище.</p> : <><p className="listing-location-note">Натисніть на мапу або перетягніть точку до потрібного місця. Текст адреси профілю залишиться прихованим.</p><PointPicker point={point} onChange={updatePoint} /><SettlementPicker label="Населений пункт публічної точки" value={profile.settlement} legacyName={profile.location ?? ''} onChange={item => onChange({ location: item?.name ?? '', settlement: item })} /></>}
         </>}
+        {setting.mode === 'pin' && <div className="field-error" role="status"><strong>Обрана точка стане публічною.</strong> Перевага: можна показати зручне місце зустрічі без тексту адреси. Ризик: люди бачитимуть це місце на карті та можуть приїхати туди.</div>}
         {setting.mode !== 'approximate' && <>
             <p role="status">{validCoordinates(point) ? '✓ Публічну точку визначено' : 'Оберіть точку перед збереженням'}</p>
             <label className="consent-row"><input type="checkbox" checked={setting.consent === true} onChange={(event) => onChange({ mapLocation: { ...setting, consent: event.target.checked } })} />Погоджуюся показувати всім {setting.mode === 'address' ? 'цю точну адресу та її місце' : 'обрану точку'}</label>

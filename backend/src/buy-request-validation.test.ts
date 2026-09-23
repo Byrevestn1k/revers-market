@@ -10,4 +10,8 @@ describe('buy request and offer validation', () => {
     it('accepts exact price and normalized delivery modes', () => expect(validateBuyRequestInput({ ...request, exactPrice: 220, minPrice: undefined, maxPrice: undefined, delivery: 'preferred' })).toEqual([]))
     it('rejects unsafe additional offer photos', () => expect(validateOfferInput({ ...offer, additionalPhotoUrl: 'javascript:alert(1)' })).toContain('additionalPhotoUrl'))
     it('validates supplied fields for partial request updates', () => expect(validateBuyRequestInput({ title: 'Оновлено' }, true)).toEqual([]))
+    it('requires consent and a complete address before publishing a request address', () => {
+        expect(validateBuyRequestInput({ ...request, addressVisibility: 'public', latitude: 50.45, longitude: 30.52 })).toContain('addressVisibilityConsent')
+        expect(validateBuyRequestInput({ ...request, addressVisibility: 'public', addressVisibilityConsent: true, latitude: 50.45, longitude: 30.52 })).toEqual([])
+    })
 })

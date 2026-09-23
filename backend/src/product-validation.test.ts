@@ -16,6 +16,11 @@ describe('product validation', () => {
         expect(validateProductInput({ title: 'Оновлено' }, true)).toEqual([])
         expect(validateProductInput({ price: -1 }, true)).toEqual(['price'])
     })
+    it('requires a complete, explicitly approved address before publishing it', () => {
+        expect(validateProductInput({ ...validProduct, addressVisibility: 'public', address: 'Київ, Хрещатик, 1', latitude: 50.45, longitude: 30.52 })).toContain('addressVisibilityConsent')
+        expect(validateProductInput({ ...validProduct, addressVisibility: 'public', addressVisibilityConsent: true, address: 'Київ, Хрещатик, 1', latitude: 50.45, longitude: 30.52 })).toEqual([])
+        expect(validateProductInput({ ...validProduct, addressVisibility: 'public', addressVisibilityConsent: true })).toContain('addressVisibility')
+    })
     it('accepts a browser image data URL and rejects oversized or non-image data', () => {
         expect(validateProductInput({ ...validProduct, photos: [{ dataUrl: 'data:image/png;base64,aGVsbG8=' }] })).toEqual([])
         expect(validateProductInput({ ...validProduct, photos: [{ dataUrl: 'data:text/plain;base64,aGVsbG8=' }] })).toEqual(['photos'])

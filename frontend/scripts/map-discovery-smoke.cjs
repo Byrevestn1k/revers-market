@@ -7,7 +7,7 @@ require.extensions['.ts'] = (module, filename) => {
 }
 const { buildMapNodes, avatarInitials } = require('../src/map-clusters.ts')
 const { mapMarkerLabel } = require('../src/map-marker-icons.ts')
-const point = (id, owner = 'seller', x = 300, y = 220) => ({ id, kind: 'product', title: `Товар ${id}`, latitude: 50.62, longitude: 26.25, x, y, owner: { id: owner, username: owner }, category: { id: 'cat', name: 'Велосипеди', imageIndex: 12 }, distanceKm: 1, geoZone: 'Рівне', photoUrl: 'https://example.com/photo.jpg' })
+const point = (id, owner = 'seller', x = 300, y = 220) => ({ id, kind: 'product', title: `Товар ${id}`, latitude: 50.62, longitude: 26.25, x, y, owner: { id: owner, username: owner }, category: { id: 'cat', name: 'Велосипеди', imageIndex: 12 }, distanceBand: 'до 1 км', geoZone: 'Рівне', photoUrl: 'https://example.com/photo.jpg' })
 const project = (item) => ({ x: item.x, y: item.y })
 const options = { zoom: 14, width: 800, height: 560, filtered: false }
 const assertConserved = (nodes, items) => assert.deepEqual(nodes.flatMap((node) => node.items.map((item) => item.id)).sort(), items.map((item) => item.id).sort())
@@ -18,14 +18,16 @@ const sellers = buildMapNodes(four, project, options)
 assert.equal(sellers.length, 1); assert.equal(sellers[0].type, 'seller'); assert.equal(sellers[0].preview, 'avatar')
 const individual = buildMapNodes(four, project, { ...options, filtered: true })
 assert.equal(individual.length, 4)
-assert.ok(individual.every((node) => node.type === 'product' && node.preview === 'category' && node.items.length === 1))
+assert.ok(individual.every((node) => node.type === 'product' && node.preview === 'photo' && node.items.length === 1))
+const withoutPhotos = buildMapNodes(four.map(item => ({ ...item, photoUrl: null })), project, { ...options, filtered: true })
+assert.ok(withoutPhotos.every(node => node.preview === 'category'), 'Category images remain the fallback when a product has no photo')
 assert.ok(individual.some((node) => node.displaced))
 assert.ok(individual.every((node) => node.latitude === 50.62 && node.longitude === 26.25))
 const photos = buildMapNodes(four, project, { ...options, filtered: true, zoom: 17, width: 350 })
 const besideHome = buildMapNodes([point('home-product')], project, { ...options, zoom: 19, reservedPoints: [{ x: 300, y: 220 }] })
 assert.equal(besideHome[0].preview, 'photo')
 assert.ok(besideHome[0].displaced && Math.hypot(besideHome[0].x - 300, besideHome[0].y - 220) >= 47, 'House must not cover a product at the same address')
-assert.ok(photos.every((node) => node.size === 40))
+assert.ok(photos.every((node) => node.size === 44))
 for (const zoom of [17, 18, 19]) {
     const single = buildMapNodes([point('own')], project, { ...options, zoom })
     assert.equal(single.length, 1)
@@ -85,7 +87,8 @@ async function verifyLive() {
         return { visible, nodes }
     }
     const overview = layout(all, 12, false)
-    assert.equal(overview.nodes.length, 1)
+    assert.ok(overview.nodes.length >= 1)
+    assert.ok(overview.nodes.every(node => node.preview === 'count'), 'Overview groups depend on actual demo coordinates; all must remain count markers')
     const detailed = layout(all, 14, false)
     assert.ok(detailed.nodes.length > 10)
     assert.ok(detailed.nodes.some((node) => node.preview === 'avatar'))

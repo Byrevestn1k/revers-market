@@ -1,5 +1,7 @@
 import { validCoordinates, type Coordinates, type AddressValue } from './address-model'
-export type HomeCity = Coordinates & { name: string }
+import type { SelectedSettlement } from './settlement-model'
+import { matchesSettlement } from './settlement-model'
+export type HomeCity = Coordinates & { name: string; settlement?: SelectedSettlement | null; privateOrigin?: boolean }
 export const CITIES: HomeCity[] = [
     { name: 'Київ', latitude: 50.45, longitude: 30.52 },
     { name: 'Рівне', latitude: 50.62, longitude: 26.25 },
@@ -30,10 +32,11 @@ export const CITIES: HomeCity[] = [
     { name: 'Млинів', latitude: 50.51, longitude: 25.62 },
 ]
 export const CITY_KEY = 'deshchotreba.home-city'
-export function profileSearchAddress(profile: { exactAddress: string; location?: string; mapLocation?: { mode: string; latitude: number; longitude: number } }, geocoded?: any): AddressValue {
+export function profileSearchAddress(profile: { exactAddress: string; location?: string; addressSettlement?: SelectedSettlement | null; addressCoordinates?: Coordinates | null; mapLocation?: { mode: string; latitude: number; longitude: number } }, geocoded?: any): AddressValue {
     const candidate = geocoded?.position ? { latitude: geocoded.position.lat, longitude: geocoded.position.lng } : null
     const confirmed = profile.mapLocation?.mode === 'address' && validCoordinates(profile.mapLocation) ? { latitude: profile.mapLocation.latitude, longitude: profile.mapLocation.longitude } : null
-    return { address: profile.exactAddress, city: geocoded?.address?.city || profile.exactAddress.split(',')[0].replace(/^м\.\s*/i, '').trim() || profile.location || '', coordinates: validCoordinates(candidate) ? candidate : confirmed }
+    const compatible = !profile.addressSettlement || (geocoded && matchesSettlement(geocoded, profile.addressSettlement))
+    return { address: profile.exactAddress, city: profile.addressSettlement?.name || geocoded?.address?.district || geocoded?.address?.city || profile.exactAddress.split(',')[0].replace(/^м\.\s*/i, '').trim() || profile.location || '', settlement: profile.addressSettlement, coordinates: validCoordinates(profile.addressCoordinates) ? profile.addressCoordinates : compatible && validCoordinates(candidate) ? candidate : confirmed }
 }
 export function normalizeCity(name: string) { return name.trim().replace(/^м[.\s]+/iu, '').toLocaleLowerCase('uk-UA') }
 export function savedSearchCity(): HomeCity | null {

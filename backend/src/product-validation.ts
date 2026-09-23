@@ -1,3 +1,4 @@
+import { validateSettlement } from './settlements.js'
 export const PRODUCT_STATUSES = ['draft', 'active', 'paused', 'sold', 'expired'] as const
 export const DELIVERY_MODES = ['pickup', 'seller_delivery', 'carrier'] as const
 export const PRODUCT_UNITS = ['kg', 'ton', 'litre', 'piece', 'box'] as const
@@ -16,7 +17,10 @@ export type ProductInput = {
     currency: string
     deliveryMode: DeliveryMode
     geoZone: string
+    settlementCode?: string | null
     address?: string | null
+    addressVisibility?: 'private' | 'public'
+    addressVisibilityConsent?: boolean
     latitude?: number | null
     longitude?: number | null
     status?: ProductStatus
@@ -31,7 +35,7 @@ const supportedPhotoProtocols = new Set(['http:', 'https:'])
 const dataPhotoPattern = /^data:image\/(jpeg|png|webp|gif);base64,[a-z0-9+/=]+$/i
 
 export const validateProductInput = (input: Record<string, unknown>, partial = false): string[] => {
-    const errors: string[] = []
+    const errors: string[] = validateSettlement(input, 'geoZone')
     const required = (field: string) => !partial || field in input
     if (required('categoryId') && (typeof input.categoryId !== 'string' || !uuidPattern.test(input.categoryId))) errors.push('categoryId')
     if (required('title') && (typeof input.title !== 'string' || input.title.trim().length < 2 || input.title.trim().length > 160)) errors.push('title')
@@ -43,6 +47,9 @@ export const validateProductInput = (input: Record<string, unknown>, partial = f
     if (required('deliveryMode') && !DELIVERY_MODES.includes(input.deliveryMode as DeliveryMode)) errors.push('deliveryMode')
     if (required('geoZone') && (typeof input.geoZone !== 'string' || input.geoZone.trim().length < 1 || input.geoZone.length > 160)) errors.push('geoZone')
     if (input.address !== undefined && input.address !== null && (typeof input.address !== 'string' || input.address.length > 500)) errors.push('address')
+    if (input.addressVisibility !== undefined && input.addressVisibility !== 'private' && input.addressVisibility !== 'public') errors.push('addressVisibility')
+    if (input.addressVisibility === 'public' && input.addressVisibilityConsent !== true) errors.push('addressVisibilityConsent')
+    if (input.addressVisibility === 'public' && (typeof input.address !== 'string' || !input.address.trim() || typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || typeof input.longitude !== 'number' || !Number.isFinite(input.longitude))) errors.push('addressVisibility')
     if (input.latitude !== undefined && (input.latitude !== null && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90))) errors.push('latitude')
     if (input.longitude !== undefined && (input.longitude !== null && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180))) errors.push('longitude')
     if (input.status !== undefined && !PRODUCT_STATUSES.includes(input.status as ProductStatus)) errors.push('status')
