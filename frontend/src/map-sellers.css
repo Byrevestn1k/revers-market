@@ -59,8 +59,6 @@
 .map-stage-label, .map-displacement-note { position: absolute; z-index: 500; right: 10px; padding: 6px 9px; border-radius: 6px; background: #fffffff2; color: #24423a; font-size: 11px; pointer-events: none; box-shadow: 0 1px 4px #24423a20; }
 .map-stage-label { top: 12px; }
 .map-expand-button { position: absolute; z-index: 600; right: 10px; top: 42px; padding: 7px 9px; border: 1px solid #d6e4dc; border-radius: 7px; background: #fffffff2; color: #24423a; font-size: 11px; box-shadow: 0 1px 4px #24423a20; }
-.map-selection-button { position: absolute; z-index: 500; right: 10px; top: 48px; padding: 8px 10px; background: #17825a; color: white; border: 2px solid white; border-radius: 8px; font-size: 12px; }
-.map-selection-button { top: 82px; }
 .map-listing-preview { display: grid; gap: 10px; margin: 14px 0; padding: 12px; border: 1px solid #b9d8c5; border-radius: 12px; background: #f6fbf7; }
 .map-preview-media { display: grid; place-items: center; min-height: 70px; overflow: hidden; border-radius: 9px; background: #e8f1eb; color: #37644e; font-size: 13px; }
 .map-preview-media > * { grid-area: 1 / 1; }

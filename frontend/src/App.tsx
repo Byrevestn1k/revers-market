@@ -439,7 +439,6 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
                 <div ref={mapElement} className={'map-canvas' + (pickingPoint ? ' map-picking-point' : '')} aria-label="Мапа товарів, продавців та запитів" />
                 <span className="map-stage-label">{stage === 'count' ? 'Огляд району' : filtered || selection || displayMode === 'products' ? 'Окремі оголошення' : 'Продавці поруч'}</span>
                 <button type="button" className="map-expand-button" onClick={() => setExpanded((value) => !value)} aria-pressed={expanded}>{expanded ? '↙ Згорнути' : '⛶ Розгорнути'}</button>
-                {selection && scopedMarkers.length > 0 && <button type="button" className="map-selection-button" onClick={() => summaryElement.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}>{scopedMarkers.length} оголошень · відкрити список ↓</button>}
                 {loading && <span className="map-status" role="status">Оновлюємо результати…</span>}
                 {!loading && !areaMarkers.length && <span className="map-status">{!showProducts && !showBuyRequests ? 'Увімкніть продавців або запити покупців' : 'Нічого не знайдено. Змініть пошук або перемістіть мапу.'}</span>}
                 <span className="map-displacement-note">Лінія з’єднує оголошення з його місцем</span>
