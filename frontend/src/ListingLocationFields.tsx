@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import AddressInput from './AddressInput'
-import SettlementPicker from './SettlementPicker'
-import { resolveSettlement, findSettlements, matchesSettlement, type Settlement } from './settlement-model'
-import { validCoordinates, type AddressValue } from './address-model'
+import LocationPointPicker from './LocationPointPicker'
+import { validCoordinates, type AddressValue, type ListingMapLocationMode } from './address-model'
 import { FieldError } from './ListingFields'
+
+type ProfileLocation = { location?: string | null; settlement?: AddressValue['settlement']; addressSettlement?: AddressValue['settlement']; addressCoordinates?: AddressValue['coordinates']; mapLocation?: { mode?: string; latitude?: number | null; longitude?: number | null } }
 
 export default function ListingLocationFields({ value, onChange, request, error, onBusyChange }: {
     value: AddressValue; onChange: (value: AddressValue) => void
@@ -11,80 +12,35 @@ export default function ListingLocationFields({ value, onChange, request, error,
 }) {
     const [busy, setBusy] = useState(false)
     const [addressBusy, setAddressBusy] = useState(false)
-    useEffect(() => { onBusyChange?.(busy || addressBusy); return () => onBusyChange?.(false) }, [busy, addressBusy, onBusyChange])
     const [message, setMessage] = useState('')
-    const [manualLatitude, setManualLatitude] = useState('')
-    const [manualLongitude, setManualLongitude] = useState('')
-    const change = (next: AddressValue) => { onChange(next); setMessage(''); setManualLatitude(''); setManualLongitude('') }
-    const fromProfile = async () => {
+    const mode: ListingMapLocationMode = value.mapLocationMode ?? 'profile'
+    const change = (next: AddressValue) => { onChange(next); setMessage('') }
+    const applyProfileLocation = async () => {
         setBusy(true); setMessage('')
         try {
-            const { profile } = await request('/api/profile/me')
-            const address = profile.exactAddress || ''
-            if (!address && !profile.location) { setMessage('У профілі ще немає адреси. Скористайтеся кнопкою «Обрати адресу».'); return }
-            let next: AddressValue = { address, city: profile.addressSettlement?.name || profile.location || '', settlement: profile.addressSettlement ?? profile.settlement, coordinates: profile.addressCoordinates ?? null }
-            const apiKey = import.meta.env.VITE_HERE_API_KEY
-            if (apiKey && !next.coordinates) {
-                const response = await fetch('https://geocode.search.hereapi.com/v1/geocode?' + new URLSearchParams({ q: address || profile.location, in: 'countryCode:UKR', lang: 'uk-UA', limit: '1', apiKey }), { signal: AbortSignal.timeout(12000) })
-                if (response.ok) {
-                    const item = (await response.json()).items?.[0]
-                    if (item?.position && (!next.settlement || matchesSettlement(item, next.settlement))) next = { ...next, city: next.settlement?.name || item.address?.district || next.city || item.address?.city || '', coordinates: { latitude: item.position.lat, longitude: item.position.lng } }
-                }
-            }
-            change(next)
-        } catch { setMessage('Не вдалося завантажити місце. Оберіть адресу або вкажіть координати вручну.') }
+            const { profile } = await request('/api/profile/me') as { profile: ProfileLocation }
+            const mapCandidate = profile.mapLocation?.latitude != null && profile.mapLocation.longitude != null ? { latitude: Number(profile.mapLocation.latitude), longitude: Number(profile.mapLocation.longitude) } : null
+            const profilePoint = validCoordinates(mapCandidate) ? mapCandidate : validCoordinates(profile.addressCoordinates) ? profile.addressCoordinates : null
+            const settlement = profile.mapLocation?.mode && profile.mapLocation.mode !== 'approximate' ? profile.settlement ?? profile.addressSettlement : profile.addressSettlement ?? profile.settlement
+            change({ ...value, address: '', city: settlement?.name ?? profile.location ?? '', settlement, coordinates: profilePoint, addressVisibility: 'private', addressVisibilityConsent: false, mapLocationMode: 'profile' })
+            if (!profilePoint) setMessage('У профілі ще не визначено місце. Оберіть точку або адресу для цього оголошення.')
+        } catch { setMessage('Не вдалося завантажити місце з профілю.') }
         finally { setBusy(false) }
     }
-    const locate = () => {
-        if (!navigator.geolocation) { setMessage('Визначення місця недоступне. Оберіть адресу.'); return }
-        setBusy(true); setMessage('')
-        navigator.geolocation.getCurrentPosition(async (position) => {
-            const coordinates = { latitude: position.coords.latitude, longitude: position.coords.longitude }
-            let city = ''
-            let settlement: Settlement | null = null
-            try {
-                const apiKey = import.meta.env.VITE_HERE_API_KEY
-                if (apiKey) {
-                    const response = await fetch('https://revgeocode.search.hereapi.com/v1/revgeocode?' + new URLSearchParams({ at: coordinates.latitude + ',' + coordinates.longitude, lang: 'uk-UA', apiKey }), { signal: AbortSignal.timeout(12000) })
-                    if (response.ok) {
-                        const item = (await response.json()).items?.[0]
-                        city = item?.address?.district || item?.address?.city || ''
-                        const matches = (await findSettlements(city)).filter(candidate => matchesSettlement(item, candidate))
-                        if (matches.length === 1) { settlement = matches[0]; city = settlement.name }
-                    }
-                }
-            } catch { /* Keep the GPS point and let the user supply its city. */ }
-            change({ address: '', city: settlement?.name ?? '', settlement, coordinates }); setBusy(false)
-            if (!settlement) setMessage('Точку визначено. Оберіть населений пункт із підказок нижче.')
-        }, () => { setBusy(false); setMessage('Не вдалося визначити місце. Оберіть адресу вручну.') }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 })
+    useEffect(() => { onBusyChange?.(busy || addressBusy); return () => onBusyChange?.(false) }, [busy, addressBusy, onBusyChange])
+    useEffect(() => { if (!value.mapLocationMode) void applyProfileLocation() }, [])
+    const setMode = (nextMode: ListingMapLocationMode) => {
+        if (nextMode === 'profile') { void applyProfileLocation(); return }
+        change({ ...value, address: nextMode === 'pin' ? '' : value.address, addressVisibility: 'private', addressVisibilityConsent: false, mapLocationMode: nextMode })
     }
-    const setManual = (latitude: string, longitude: string) => {
-        setManualLatitude(latitude); setManualLongitude(longitude)
-        const coordinates = latitude.trim() && longitude.trim() ? { latitude: Number(latitude), longitude: Number(longitude) } : null
-        onChange({ ...value, address: '', coordinates: validCoordinates(coordinates) ? coordinates : null })
-    }
-    const chooseSettlement = async (item: Settlement | null) => {
-        if (!item) return
-        setBusy(true); setMessage('')
-        const next: AddressValue = { address: '', city: item.name, settlement: item, coordinates: value.settlement?.code === item.code || (!value.city && !value.settlement) ? value.coordinates : null }
-        try { const resolved = await resolveSettlement(item); change({ ...next, settlement: resolved, coordinates: next.coordinates ?? resolved.coordinates ?? null }) }
-        catch (error) { change(next); setMessage((error as Error).message) }
-        finally { setBusy(false) }
-    }
+    const setPoint = (coordinates: AddressValue['coordinates']) => change({ ...value, coordinates, mapLocationMode: 'pin', address: '', addressVisibility: 'private', addressVisibilityConsent: false })
     const visibility = value.addressVisibility ?? 'private'
-    const setVisibility = (addressVisibility: 'private' | 'public') => change({ ...value, addressVisibility, addressVisibilityConsent: addressVisibility === 'private' ? false : value.addressVisibilityConsent })
-    return <fieldset className="listing-section" disabled={busy}><legend>Адреса товару</legend>
-        <AddressInput value={value} onChange={change} onBusyChange={setAddressBusy} name="address" requireStreet={false} />
-        <label>Видимість цієї адреси<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'private' | 'public')}><option value="private">Приблизна точка на мапі — адреса прихована</option><option value="public">Показувати точну адресу й точку всім</option></select></label>
-        {visibility === 'public' && <div className="field-error" role="status"><strong>Адреса стане публічною.</strong> Перевага: покупцям простіше знайти офіційний магазин або місце видачі. Ризик: будь-хто побачить адресу, зможе приїхати туди та пов’язати її з оголошенням.<label className="consent-row"><input type="checkbox" checked={value.addressVisibilityConsent === true} onChange={(event) => change({ ...value, addressVisibilityConsent: event.target.checked })} />Розумію наслідки й погоджуюся показувати цю адресу всім.</label></div>}
-        <div className="listing-location-actions"><button type="button" className="outline-button compact" onClick={fromProfile}>Адреса з профілю</button><button type="button" className="outline-button compact" onClick={locate}>⌖ Моє місце</button></div>
-        <SettlementPicker label="Населений пункт, видимий іншим" value={value.settlement} legacyName={value.city} onChange={chooseSettlement} disabled={busy || addressBusy} />
-        <p className="listing-location-note">Адреса отримання цього оголошення приватна. За замовчуванням місце на мапі приблизне. Для товарів можна окремо дозволити показ адреси профілю або власної точки в налаштуваннях профілю.</p>
-        <p className="listing-location-note" role="status">{busy ? 'Визначаємо місце…' : validCoordinates(value.coordinates) ? '✓ Точку для мапи визначено' : 'Точку на мапі можна вказати додатково.'}</p>
-        <details className="listing-location-coordinates"><summary>Переглянути або ввести координати вручну</summary><div className="field-row">
-            <label>Широта<input type="number" step="any" min="-90" max="90" value={manualLatitude || value.coordinates?.latitude?.toString() || ''} onChange={(event) => setManual(event.target.value, manualLongitude || value.coordinates?.longitude?.toString() || '')} /></label>
-            <label>Довгота<input type="number" step="any" min="-180" max="180" value={manualLongitude || value.coordinates?.longitude?.toString() || ''} onChange={(event) => setManual(manualLatitude || value.coordinates?.latitude?.toString() || '', event.target.value)} /></label>
-        </div></details>
+    return <fieldset className="listing-section" disabled={busy}><legend>Місце оголошення на мапі</legend>
+        <label>Публічна точка цього оголошення<select value={mode} onChange={(event) => setMode(event.target.value as ListingMapLocationMode)}><option value="profile">Збігається з публічним місцем профілю</option><option value="pin">Обрати точку на мапі</option><option value="address">Обрати адресу вручну</option></select></label>
+        {mode === 'profile' && <p className="listing-location-note">Використовується публічне місце з профілю. Адреса профілю не копіюється в оголошення й не відкривається через нього.</p>}
+        {mode === 'pin' && <><p className="listing-location-note">Натисніть на мапу або перетягніть позначку до потрібного місця. Текст адреси не показуватиметься.</p><LocationPointPicker point={value.coordinates} onChange={setPoint} /></>}
+        {mode === 'address' && <><p className="listing-location-note">Виберіть населений пункт, вулицю та номер будинку. Це окрема адреса лише для цього оголошення.</p><AddressInput value={{ ...value, mapLocationMode: 'address' }} onChange={(next) => change({ ...next, mapLocationMode: 'address' })} onBusyChange={setAddressBusy} name="address" /><label>Видимість цієї адреси<select value={visibility} onChange={(event) => change({ ...value, mapLocationMode: 'address', addressVisibility: event.target.value as 'private' | 'public', addressVisibilityConsent: event.target.value === 'private' ? false : value.addressVisibilityConsent })}><option value="private">Показувати точку без тексту адреси</option><option value="public">Показувати точну адресу й точку всім</option></select></label>{visibility === 'public' && <div className="field-error" role="status"><strong>Адреса стане публічною.</strong> Перевага: покупцям простіше знайти магазин або місце видачі. Ризик: будь-хто побачить адресу й зможе приїхати туди.<label className="consent-row"><input type="checkbox" checked={value.addressVisibilityConsent === true} onChange={(event) => change({ ...value, mapLocationMode: 'address', addressVisibilityConsent: event.target.checked })} />Розумію наслідки й погоджуюся показувати цю адресу всім.</label></div>}</>}
+        <p className="listing-location-note" role="status">{busy ? 'Завантажуємо місце профілю…' : validCoordinates(value.coordinates) ? '✓ Точку для мапи визначено' : 'Оберіть місце для мапи.'}</p>
         {message && <p className="listing-location-note" role="status">{message}</p>}<FieldError message={error} />
     </fieldset>
 }

@@ -13,7 +13,7 @@ type ProductRow = {
     public_address?: string | null
     id: string; owner_id: string; owner_username: string; category_id: string; category_code: string; category_name: string; category_image_index: number | null
     title: string; description: string; quantity: string | number; unit: string; price: string | number; currency: string
-    delivery_mode: string; geo_zone: string; pickup_address: string | null; address_visibility: 'private' | 'public'; latitude: string | number | null; longitude: string | number | null
+    delivery_mode: string; geo_zone: string; pickup_address: string | null; address_visibility: 'private' | 'public'; map_location_mode: 'profile' | 'pin' | 'address' | 'approximate'; latitude: string | number | null; longitude: string | number | null
     status: ProductStatus; reserved_quantity: string | number; expires_at: Date | null; created_at: Date; updated_at: Date
 }
 type PhotoRow = { id: string; storage_key: string; url: string; alt: string; sort_order: number }
@@ -40,8 +40,9 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
     settlement: getSettlement(row.settlement_code),
     ...(row.public_address ? { publicAddress: row.public_address } : {}),
     addressVisibility: row.address_visibility,
+    mapLocationMode: row.map_location_mode,
     address: includeAddress || row.address_visibility === 'public' ? row.pickup_address : null,
-    coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
+    coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' || ['pin', 'address'].includes(row.map_location_mode) ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
     status: row.status,
     expiresAt: row.expires_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
@@ -50,9 +51,9 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
 
 const productSelect = `
     SELECT p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index,
-           CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
+           CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
            p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.geo_zone,
-           p.settlement_code, p.latitude, p.longitude, p.pickup_address, p.address_visibility, p.status, p.expires_at, p.created_at, p.updated_at
+           p.settlement_code, p.latitude, p.longitude, p.pickup_address, p.address_visibility, p.map_location_mode, p.status, p.expires_at, p.created_at, p.updated_at
     FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id`
 
 const getProductRow = async (queryable: Queryable, id: string, ownerId?: string): Promise<ProductWithPhotos | null> => {
@@ -100,9 +101,9 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
     try {
         await client.query('BEGIN')
         const result = await client.query<ProductRow>(
-            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at, pickup_address, settlement_code, address_visibility)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
-            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null, product.settlementCode ?? null, product.addressVisibility ?? 'private'],
+            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at, pickup_address, settlement_code, address_visibility, map_location_mode)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
+            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null, product.settlementCode ?? null, product.addressVisibility ?? 'private', product.mapLocationMode ?? 'profile'],
         )
         storedPhotos = await writePhotos(client, result.rows[0].id, product.photos)
         const created = await getProductRow(client, result.rows[0].id, user.id)
@@ -147,7 +148,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
     if (getSettlement(input.settlementCode) && !('geoZone' in input)) input = { ...input, geoZone: getSettlement(input.settlementCode)!.name }
     const errors = validateProductInput(input, true)
     if (errors.length) return invalid(errors)
-    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', geoZone: 'geo_zone', settlementCode: 'settlement_code', address: 'pickup_address', addressVisibility: 'address_visibility', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', geoZone: 'geo_zone', settlementCode: 'settlement_code', address: 'pickup_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
     const entries = Object.entries(input).filter(([key]) => key in allowed)
     if (!entries.length && !('photos' in input)) return invalid(['product'])
     const client = await pool.connect()

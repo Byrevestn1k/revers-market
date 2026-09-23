@@ -14,4 +14,8 @@ describe('buy request and offer validation', () => {
         expect(validateBuyRequestInput({ ...request, addressVisibility: 'public', latitude: 50.45, longitude: 30.52 })).toContain('addressVisibilityConsent')
         expect(validateBuyRequestInput({ ...request, addressVisibility: 'public', addressVisibilityConsent: true, latitude: 50.45, longitude: 30.52 })).toEqual([])
     })
+    it('requires an address and coordinates for a request-specific address point', () => {
+        expect(validateBuyRequestInput({ ...request, mapLocationMode: 'address', latitude: 50.45, longitude: 30.52 })).toEqual([])
+        expect(validateBuyRequestInput({ ...request, mapLocationMode: 'address' })).toContain('mapLocationMode')
+    })
 })

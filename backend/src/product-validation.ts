@@ -21,6 +21,7 @@ export type ProductInput = {
     address?: string | null
     addressVisibility?: 'private' | 'public'
     addressVisibilityConsent?: boolean
+    mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'
     latitude?: number | null
     longitude?: number | null
     status?: ProductStatus
@@ -48,8 +49,11 @@ export const validateProductInput = (input: Record<string, unknown>, partial = f
     if (required('geoZone') && (typeof input.geoZone !== 'string' || input.geoZone.trim().length < 1 || input.geoZone.length > 160)) errors.push('geoZone')
     if (input.address !== undefined && input.address !== null && (typeof input.address !== 'string' || input.address.length > 500)) errors.push('address')
     if (input.addressVisibility !== undefined && input.addressVisibility !== 'private' && input.addressVisibility !== 'public') errors.push('addressVisibility')
+    if (input.mapLocationMode !== undefined && !['profile', 'pin', 'address', 'approximate'].includes(String(input.mapLocationMode))) errors.push('mapLocationMode')
     if (input.addressVisibility === 'public' && input.addressVisibilityConsent !== true) errors.push('addressVisibilityConsent')
     if (input.addressVisibility === 'public' && (typeof input.address !== 'string' || !input.address.trim() || typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || typeof input.longitude !== 'number' || !Number.isFinite(input.longitude))) errors.push('addressVisibility')
+    if (['pin', 'address'].includes(String(input.mapLocationMode)) && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || typeof input.longitude !== 'number' || !Number.isFinite(input.longitude))) errors.push('mapLocationMode')
+    if (input.mapLocationMode === 'address' && (typeof input.address !== 'string' || !input.address.trim())) errors.push('mapLocationMode')
     if (input.latitude !== undefined && (input.latitude !== null && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90))) errors.push('latitude')
     if (input.longitude !== undefined && (input.longitude !== null && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180))) errors.push('longitude')
     if (input.status !== undefined && !PRODUCT_STATUSES.includes(input.status as ProductStatus)) errors.push('status')

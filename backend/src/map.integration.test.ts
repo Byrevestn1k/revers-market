@@ -86,6 +86,12 @@ if (hasDatabase) {
                 expect(visibleProduct.body.product).toMatchObject({ addressVisibility: 'public', address: 'Київ, Публічна, 1', coordinates: { latitude: 50.452, longitude: 30.524 } })
                 const publicPoint = await buyer.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 10, categoryId: vegetables.id, showBuyRequests: false })
                 expect(publicPoint.body.markers.find((marker: { id: string }) => marker.id === publicProduct.body.product.id)).toMatchObject({ approximate: false, publicAddress: 'Київ, Публічна, 1', latitude: 50.452, longitude: 30.524 })
+
+                expect((await seller.patch('/api/profile/me').send({ mapLocation: { mode: 'pin', latitude: 49.84, longitude: 24.03, consent: true } })).status).toBe(200)
+                const ownPointProduct = await seller.post('/api/products').send({ categoryId: vegetables.id, title: 'Тестова власна точка товару', description: '', quantity: 10, unit: 'kg', price: 40, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київ', mapLocationMode: 'pin', latitude: 50.452, longitude: 30.524, status: 'active' })
+                expect(ownPointProduct.status).toBe(201)
+                const ownPoint = await buyer.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 10, categoryId: vegetables.id, showBuyRequests: false })
+                expect(ownPoint.body.markers.find((marker: { id: string }) => marker.id === ownPointProduct.body.product.id)).toMatchObject({ approximate: false, latitude: 50.452, longitude: 30.524 })
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [buyerPayload.username.toLowerCase(), sellerPayload.username.toLowerCase()])
             }

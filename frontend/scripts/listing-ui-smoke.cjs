@@ -33,9 +33,9 @@ assert.ok(basics.includes('name="categoryId" value="root"')); assert.match(basic
 const quantities = render(QuantityFields, {})
 for (const unit of ['piece', 'kg', 'ton', 'litre', 'box']) assert.ok(quantities.includes(`value="${unit}"`))
 const value = { address: 'Рівне, Соборна, 10', city: 'Рівне', coordinates: { latitude: 50.62, longitude: 26.25 } }
-assert.deepEqual(addressFields(value), { address: value.address, settlementCode: null, addressVisibility: 'private', addressVisibilityConsent: false, latitude: 50.62, longitude: 26.25 })
+assert.deepEqual(addressFields(value), { address: value.address, settlementCode: null, addressVisibility: 'private', addressVisibilityConsent: false, mapLocationMode: 'profile', latitude: 50.62, longitude: 26.25 })
 assert.ok(validCoordinates(value.coordinates)); assert.ok(!validCoordinates({ latitude: NaN, longitude: 26.25 })); assert.ok(!validCoordinates({ latitude: 50.62, longitude: 190 }))
-assert.deepEqual(addressFields({ ...value, coordinates: null }), { address: value.address, settlementCode: null, addressVisibility: 'private', addressVisibilityConsent: false, latitude: null, longitude: null })
+assert.deepEqual(addressFields({ ...value, coordinates: null }), { address: value.address, settlementCode: null, addressVisibility: 'private', addressVisibilityConsent: false, mapLocationMode: 'profile', latitude: null, longitude: null })
 const address = render(AddressInput, { value, name: 'address', requireStreet: false })
 const controls = render(SearchLocationControls, { location: { city: { name: 'Рівне', latitude: 50.62, longitude: 26.25 }, address: value, busy: false, message: '', suggestion: null, chooseCity: noop, changeAddress: noop, locate: noop, setAddressBusy: noop, dismissSuggestion: noop } })
 const noOrigin = render(SearchLocationControls, { location: { address: { address: '', city: '', coordinates: null }, busy: false }, nearbyDisabled: true })

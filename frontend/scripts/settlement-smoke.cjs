@@ -24,7 +24,7 @@ assert.equal(matchesStreet('Тараса Шевченка вулиця', 'вул
 assert.equal(matchesStreet('Соборна вулиця', 'вул. Шевченка'), false)
 assert.equal(settlementLabel(village), 'село, Бармаки, Рівненський район, Рівненська область')
 assert.equal(settlementLabel({ ...village, type: 'town', name: 'Клевань' }), 'селище, Клевань, Рівненський район, Рівненська область')
-assert.deepEqual(addressFields({ address: '', city: village.name, settlement: village, coordinates: null }), { address: null, settlementCode: village.code, addressVisibility: 'private', addressVisibilityConsent: false, latitude: null, longitude: null })
+assert.deepEqual(addressFields({ address: '', city: village.name, settlement: village, coordinates: null }), { address: null, settlementCode: village.code, addressVisibility: 'private', addressVisibilityConsent: false, mapLocationMode: 'profile', latitude: null, longitude: null })
 const point = { latitude: 50.63356, longitude: 26.3021 }
 const profile = { exactAddress: 'Бармаки, Нова, 1', addressSettlement: village, addressCoordinates: point, location: 'Київ', mapLocation: { mode: 'pin', latitude: 50.45, longitude: 30.52 } }
 assert.deepEqual(profileSearchAddress(profile).coordinates, point)

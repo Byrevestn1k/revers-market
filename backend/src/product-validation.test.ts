@@ -21,6 +21,10 @@ describe('product validation', () => {
         expect(validateProductInput({ ...validProduct, addressVisibility: 'public', addressVisibilityConsent: true, address: 'Київ, Хрещатик, 1', latitude: 50.45, longitude: 30.52 })).toEqual([])
         expect(validateProductInput({ ...validProduct, addressVisibility: 'public', addressVisibilityConsent: true })).toContain('addressVisibility')
     })
+    it('requires coordinates for an own map point', () => {
+        expect(validateProductInput({ ...validProduct, mapLocationMode: 'pin' })).toContain('mapLocationMode')
+        expect(validateProductInput({ ...validProduct, mapLocationMode: 'pin', latitude: 50.45, longitude: 30.52 })).toEqual([])
+    })
     it('accepts a browser image data URL and rejects oversized or non-image data', () => {
         expect(validateProductInput({ ...validProduct, photos: [{ dataUrl: 'data:image/png;base64,aGVsbG8=' }] })).toEqual([])
         expect(validateProductInput({ ...validProduct, photos: [{ dataUrl: 'data:text/plain;base64,aGVsbG8=' }] })).toEqual(['photos'])

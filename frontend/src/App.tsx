@@ -35,11 +35,11 @@ import type { HomeCity, HomeMapProps } from './PublicHome'
 import './sidebar-profile.css'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
-export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; address?: string | null; coordinates?: MapPoint | null; status: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
+export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; address?: string | null; coordinates?: MapPoint | null; status: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
 type View = 'home' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
 type MapPoint = { latitude: number; longitude: number }
 type MapMarker = SellerProductPoint & { approximate: boolean }
-type BuyRequest = { id: string; title: string; description: string; addressVisibility?: 'private' | 'public'; geoArea: string; category: { name: string }; quantity: number; fulfilledQuantity: number; unit: string; status: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null }; deadline: string | null }
+type BuyRequest = { id: string; title: string; description: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; geoArea: string; category: { name: string }; quantity: number; fulfilledQuantity: number; unit: string; status: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null }; deadline: string | null }
 type ApiError = Error & { fields?: string[]; status?: number }
 const API = import.meta.env.VITE_API_URL ?? ''
 const FALLBACK = 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=900&q=80'
@@ -481,7 +481,7 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
     const [categoryId, setCategoryId] = useState(product?.category.id ?? '')
     const [photo, setPhoto] = useState(product?.photos[0]?.url ?? '')
     const [photoChanged, setPhotoChanged] = useState(false)
-    const [location, setLocation] = useState<AddressValue>({ address: product?.address ?? '', city: product?.geoZone ?? '', coordinates: product?.coordinates ?? null, settlement: product?.settlement ?? null, addressVisibility: product?.addressVisibility ?? 'private', addressVisibilityConsent: product?.addressVisibility === 'public' })
+    const [location, setLocation] = useState<AddressValue>({ address: product?.address ?? '', city: product?.geoZone ?? '', coordinates: product?.coordinates ?? null, settlement: product?.settlement ?? null, addressVisibility: product?.addressVisibility ?? 'private', addressVisibilityConsent: product?.addressVisibility === 'public', mapLocationMode: product?.mapLocationMode })
     const [status, setStatus] = useState(product?.status ?? 'active')
     const [errors, setErrors] = useState<Record<string, string>>({})
     const [error, setError] = useState('')

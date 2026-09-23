@@ -127,18 +127,18 @@ export class MapService {
         if (filters.geoSettlementCode) conditions.push(settlementCondition('public_point.settlement_code', 'public_point.geo_zone', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['p.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], filters.q, parameters))
         const result = await this.queryable.query(`SELECT p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode,
-            (p.address_visibility = 'public' OR u.map_location_mode <> 'approximate') AS is_public_point,
-            CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
+            (p.map_location_mode IN ('pin', 'address') OR p.address_visibility = 'public' OR (p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate')) AS is_public_point,
+            CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
             (u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%') AS is_demo,
             photo.url AS photo_url, ${distanceSql(distancePoint)} AS distance_km
             FROM products p JOIN categories c ON c.id = p.category_id JOIN users u ON u.id = p.owner_id
             CROSS JOIN LATERAL (SELECT CASE WHEN u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%' THEN 100000::numeric ELSE 100::numeric END AS factor) privacy
             CROSS JOIN LATERAL (SELECT
-                CASE WHEN p.address_visibility = 'public' THEN p.latitude WHEN u.map_location_mode <> 'approximate' THEN u.public_latitude ELSE floor(p.latitude * privacy.factor + 0.5) / privacy.factor END AS latitude,
-                CASE WHEN p.address_visibility = 'public' THEN p.longitude WHEN u.map_location_mode <> 'approximate' THEN u.public_longitude ELSE floor(p.longitude * privacy.factor + 0.5) / privacy.factor END AS longitude,
-                CASE WHEN u.map_location_mode <> 'approximate' THEN COALESCE(NULLIF(u.location_display, ''), p.geo_zone) ELSE p.geo_zone END AS geo_zone,
-                CASE WHEN u.map_location_mode <> 'approximate' THEN u.settlement_code ELSE p.settlement_code END AS settlement_code
+                CASE WHEN p.map_location_mode IN ('pin', 'address') OR p.address_visibility = 'public' THEN p.latitude WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN u.public_latitude ELSE floor(p.latitude * privacy.factor + 0.5) / privacy.factor END AS latitude,
+                CASE WHEN p.map_location_mode IN ('pin', 'address') OR p.address_visibility = 'public' THEN p.longitude WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN u.public_longitude ELSE floor(p.longitude * privacy.factor + 0.5) / privacy.factor END AS longitude,
+                CASE WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN COALESCE(NULLIF(u.location_display, ''), p.geo_zone) ELSE p.geo_zone END AS geo_zone,
+                CASE WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN u.settlement_code ELSE p.settlement_code END AS settlement_code
             ) public_point
             LEFT JOIN LATERAL (SELECT url FROM product_photos WHERE product_id = p.id ORDER BY sort_order, id LIMIT 1) photo ON true
             WHERE ${conditions.join(' AND ')}`, parameters)
@@ -147,20 +147,29 @@ export class MapService {
 
     private async buyRequests(center: MapPoint, filters: MapFilterState): Promise<MapMarker[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
-        const conditions = [`r.status IN ('open', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql('r')} <= $3`, 'r.latitude IS NOT NULL', 'r.longitude IS NOT NULL']
+        const distancePoint = filters.exactDistance ? 'r' : 'public_point'
+        const conditions = [`r.status IN ('open', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
         if (filters.cityName && !filters.cityBoundary) {
-            const match = settlementCondition('r.settlement_code', 'r.geo_area', filters, parameters)
-            conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('r')} <= $3)` : match)
+            const match = settlementCondition('public_point.settlement_code', 'public_point.geo_area', filters, parameters)
+            conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('public_point')} <= $3)` : match)
         }
-        conditions.push(...viewportConditions('r', filters.viewport, parameters, '2'))
+        conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('r.category_id', parameters.length)) }
-        if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`r.geo_area ILIKE $${parameters.length}`) }
-        if (filters.geoSettlementCode) conditions.push(settlementCondition('r.settlement_code', 'r.geo_area', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
+        if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_area ILIKE $${parameters.length}`) }
+        if (filters.geoSettlementCode) conditions.push(settlementCondition('public_point.settlement_code', 'public_point.geo_area', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['r.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['r.title', 'r.description', 'u.username', 'u.nickname'], filters.q, parameters))
-        const result = await this.queryable.query(`SELECT r.id, r.title, r.geo_area, r.latitude, r.longitude, r.category_id, c.name AS category_name, c.image_index,
+        const result = await this.queryable.query(`SELECT r.id, r.title, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
-            (r.address_visibility = 'public') AS is_public_point, CASE WHEN r.address_visibility = 'public' THEN r.delivery_address ELSE NULL END AS public_address,
-            ${distanceSql('r')} AS distance_km FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id WHERE ${conditions.join(' AND ')}`, parameters)
+            (r.map_location_mode IN ('pin', 'address') OR r.address_visibility = 'public' OR (r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate')) AS is_public_point,
+            CASE WHEN r.address_visibility = 'public' THEN r.delivery_address WHEN r.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
+            ${distanceSql(distancePoint)} AS distance_km FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id
+            CROSS JOIN LATERAL (SELECT CASE WHEN u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%' THEN 100000::numeric ELSE 100::numeric END AS factor) privacy
+            CROSS JOIN LATERAL (SELECT
+                CASE WHEN r.map_location_mode IN ('pin', 'address') OR r.address_visibility = 'public' THEN r.latitude WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN u.public_latitude ELSE floor(r.latitude * privacy.factor + 0.5) / privacy.factor END AS latitude,
+                CASE WHEN r.map_location_mode IN ('pin', 'address') OR r.address_visibility = 'public' THEN r.longitude WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN u.public_longitude ELSE floor(r.longitude * privacy.factor + 0.5) / privacy.factor END AS longitude,
+                CASE WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN COALESCE(NULLIF(u.location_display, ''), r.geo_area) ELSE r.geo_area END AS geo_area,
+                CASE WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' THEN u.settlement_code ELSE r.settlement_code END AS settlement_code
+            ) public_point WHERE ${conditions.join(' AND ')}`, parameters)
         return result.rows.map((row) => this.marker(row, 'buyRequest'))
     }
 
