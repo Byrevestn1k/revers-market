@@ -105,6 +105,7 @@ function ProductDetail({ product, close, owner, edit }: { product: Product; clos
 
 function MapView({ categories, openProduct, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange }: { categories: Category[]; openProduct: (product: Product) => void; notify: (message: string) => void; city?: HomeCity } & Partial<HomeMapProps>) {
     const location = useSearchLocation(request, userId, city, locationReady)
+    const [pickingPoint, setPickingPoint] = useState(false)
     const searchCity = location.city
     const homeLocation = useMemo(() => validCoordinates(location.address.coordinates) ? { ...location.address.coordinates, city: location.address.city } : null, [location.address])
     const [searchScope, setSearchScope] = useState<'city' | 'nearby' | 'area' | 'country'>('city')
@@ -299,6 +300,21 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
 
     useEffect(() => {
         const map = mapInstance.current
+        if (!map || !pickingPoint) return
+        const choose = (event: L.LeafletMouseEvent) => {
+            const point = event.latlng.wrap()
+            location.choosePoint({ latitude: Number(point.lat.toFixed(6)), longitude: Number(point.lng.toFixed(6)) })
+            setPickingPoint(false)
+            setFocusRevision(0); setSelection(null)
+        }
+        const cancel = (event: KeyboardEvent) => { if (event.key === 'Escape') setPickingPoint(false) }
+        map.on('click', choose)
+        window.addEventListener('keydown', cancel)
+        return () => { map.off('click', choose); window.removeEventListener('keydown', cancel) }
+    }, [pickingPoint, location.choosePoint])
+
+    useEffect(() => {
+        const map = mapInstance.current
         if (!map) return
         const current = map.getCenter().wrap()
         if (Math.abs(current.lat - center.latitude) > 0.00001 || Math.abs(current.lng - center.longitude) > 0.00001 || map.getZoom() !== zoom) map.setView([center.latitude, center.longitude], zoom)
@@ -398,8 +414,8 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
                     {searchCity && <label className="map-search-radius"><span>За межі міста: <b>{radius} км</b><input type="number" min="1" max="100" value={radius} aria-label="Кілометри за межі міста" onChange={(event) => { const value = Math.max(1, Math.min(100, Number(event.target.value) || 1)); setRadius(value); setSearchScope('city'); setSelection(null) }} /></span><input type="range" min="1" max="100" value={radius} onChange={(event) => { setRadius(Number(event.target.value)); setSearchScope('city'); setSelection(null) }} /></label>}
                     <button type="submit" className="primary-button" disabled={location.busy}>Знайти</button>
                 </form>
-                <SearchLocationControls location={location} hideCity nearbyRadius={nearbyRadius} setNearbyRadius={value => { setNearbyRadius(value); if (searchScope === 'nearby') { setFocusRevision(0); setSelection(null) } }} onNearby={() => runSearch('nearby')} nearbyDisabled={location.busy || !homeLocation} nearbyTitle={homeLocation ? 'Найближчі товари з центром біля будиночка' : 'Спочатку оберіть адресу або «Моє місце»'} />
-                <p className="map-search-hint" role="status">{searchScope === 'nearby' ? `Поруч з будиночком у радіусі ${nearbyRadius} км.` : searchScope === 'city' ? `Пошук у ${searchCity?.name} і до ${radius} км за межами міста.` : searchScope === 'country' ? 'Місто не обрано — пошук по всій Україні.' : 'Пошук у видимій області та вибраному радіусі.'}{!loading && searchScope !== 'area' && ` Знайдено: ${markers.length}.`}{searchCity && !homeLocation && ' Для пошуку поруч оберіть адресу.'}</p>
+                <SearchLocationControls location={location} pickingPoint={pickingPoint} onPickPoint={() => setPickingPoint(value => !value)} hideCity nearbyRadius={nearbyRadius} setNearbyRadius={value => { setNearbyRadius(value); if (searchScope === 'nearby') { setFocusRevision(0); setSelection(null) } }} onNearby={() => runSearch('nearby')} nearbyDisabled={location.busy || !homeLocation} nearbyTitle={homeLocation ? 'Найближчі товари з центром біля будиночка' : 'Оберіть адресу, поставте точку на мапі або натисніть «Моє місце»'} />
+                <p className="map-search-hint" role="status">{searchScope === 'nearby' ? `Поруч з будиночком у радіусі ${nearbyRadius} км.` : searchScope === 'city' ? `Пошук у ${searchCity?.name} і до ${radius} км за межами міста.` : searchScope === 'country' ? 'Місто не обрано — пошук по всій Україні.' : 'Пошук у видимій області та вибраному радіусі.'}{!loading && searchScope !== 'area' && ` Знайдено: ${markers.length}.`}{searchCity && !homeLocation && ' Для пошуку поруч оберіть адресу або поставте точку на мапі.'}</p>
                 <div className="map-filter-row">
                     <div className="map-toggles"><label><input type="checkbox" checked={showProducts} onChange={(event) => { setShowProducts(event.target.checked); setSelection(null) }} /> Продавці</label><label><input type="checkbox" checked={showBuyRequests} onChange={(event) => { setShowBuyRequests(event.target.checked); setSelection(null) }} /> Запити покупців</label></div>
                     <details className="map-filter-details"><summary>Налаштування мапи</summary><div className="map-filter-content map-advanced">
@@ -420,7 +436,7 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
                 {!filtered && !selection && <p className="map-search-hint">Шукаєте конкретний товар? Оберіть категорію або введіть назву — точки стануть детальнішими.</p>}
             </div>
             <div className="map-canvas-wrapper">
-                <div ref={mapElement} className="map-canvas" aria-label="Мапа товарів, продавців та запитів" />
+                <div ref={mapElement} className={'map-canvas' + (pickingPoint ? ' map-picking-point' : '')} aria-label="Мапа товарів, продавців та запитів" />
                 <span className="map-stage-label">{stage === 'count' ? 'Огляд району' : filtered || selection || displayMode === 'products' ? 'Окремі оголошення' : 'Продавці поруч'}</span>
                 <button type="button" className="map-expand-button" onClick={() => setExpanded((value) => !value)} aria-pressed={expanded}>{expanded ? '↙ Згорнути' : '⛶ Розгорнути'}</button>
                 {selection && scopedMarkers.length > 0 && <button type="button" className="map-selection-button" onClick={() => summaryElement.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}>{scopedMarkers.length} оголошень · відкрити список ↓</button>}

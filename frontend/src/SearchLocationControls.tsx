@@ -99,7 +99,14 @@ export function useSearchLocation(request: Request, userId?: string, initialCity
         const nextCity = await resolveCity(next.city, next.coordinates ?? undefined, next.settlement)
         if (version !== operation.current) return
         if (nextCity) { setCity(nextCity); remember(nextCity) }
-        setBusy(false); setMessage(validCoordinates(next.coordinates) ? 'Будиночок — ваша адреса пошуку. Профіль не змінено.' : 'Не вдалося визначити точку адреси. Уточніть адресу або натисніть «Моє місце».')
+        setBusy(false); setMessage(validCoordinates(next.coordinates) ? 'Будиночок — ваша адреса пошуку. Профіль не змінено.' : 'Не вдалося визначити точку адреси. Поставте точку на мапі або натисніть «Моє місце».')
+    }
+    const choosePoint = (coordinates: Coordinates) => {
+        if (!validCoordinates(coordinates)) return
+        operation.current++
+        setBusy(false); setSuggestion(null)
+        setAddress({ address: 'Точка на мапі', city: '', coordinates })
+        setMessage('Точку пошуку встановлено. Оберіть радіус і натисніть «Знайти поруч». Профіль не змінено.')
     }
     const locate = () => {
         const version = ++operation.current
@@ -123,10 +130,10 @@ export function useSearchLocation(request: Request, userId?: string, initialCity
             setBusy(false); setMessage(item ? 'Будиночок встановлено за вашим поточним місцем.' : 'Точку визначено. Перевірте місто пошуку: адресу визначити не вдалося.')
         }, () => { if (version === operation.current) { setBusy(false); setMessage('Не вдалося визначити місце. Оберіть адресу вручну.') } }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 })
     }
-    return { city, address, busy: busy || addressBusy, message, suggestion, chooseCity, changeAddress, locate, setAddressBusy: addressBusyChanged, dismissSuggestion: () => setSuggestion(null) }
+    return { city, address, busy: busy || addressBusy, message, suggestion, chooseCity, changeAddress, choosePoint, locate, setAddressBusy: addressBusyChanged, dismissSuggestion: () => setSuggestion(null) }
 }
 
-export default function SearchLocationControls({ location, nearbyRadius, setNearbyRadius, onNearby, nearbyDisabled, nearbyTitle, hideCity = false }: { location: ReturnType<typeof useSearchLocation>; nearbyRadius: number; setNearbyRadius: (value: number) => void; onNearby: () => void; nearbyDisabled: boolean; nearbyTitle: string; hideCity?: boolean }) {
+export default function SearchLocationControls({ location, nearbyRadius, setNearbyRadius, onNearby, nearbyDisabled, nearbyTitle, hideCity = false, pickingPoint = false, onPickPoint }: { location: ReturnType<typeof useSearchLocation>; nearbyRadius: number; setNearbyRadius: (value: number) => void; onNearby: () => void; nearbyDisabled: boolean; nearbyTitle: string; hideCity?: boolean; pickingPoint?: boolean; onPickPoint?: () => void }) {
     const { city, address, busy, message, suggestion } = location
     const [addressRequest, setAddressRequest] = useState(0)
     const [nearbyMessage, setNearbyMessage] = useState('')
@@ -144,8 +151,10 @@ export default function SearchLocationControls({ location, nearbyRadius, setNear
             {!hideCity && <SettlementSearchInput value={city} onChange={location.chooseCity} />}
             <div className="map-search-address"><span>Адреса пошуку</span><AddressInput value={address} onChange={location.changeAddress} onBusyChange={location.setAddressBusy} name="searchAddress" openRequest={addressRequest} /></div>
             <button type="button" className="outline-button" onClick={location.locate} disabled={busy}>{busy ? 'Визначаємо…' : '⌖ Моє місце'}</button>
+            {onPickPoint && <button type="button" className="outline-button" onClick={onPickPoint} disabled={busy} aria-pressed={pickingPoint}>{pickingPoint ? 'Скасувати вибір точки' : 'Поставити точку на мапі'}</button>}
             <button type="button" className="primary-button compact map-nearby-button" disabled={busy || (nearbyDisabled && validCoordinates(address.coordinates))} title={nearbyTitle} onClick={findNearby}>Знайти поруч</button>
         </div>
+        {pickingPoint && <p className="map-search-hint" role="status">Натисніть на потрібне місце на мапі нижче. Escape — скасувати.</p>}
         {suggestion && <div className="map-city-suggestion" role="status">Ваше місто — {suggestion.name}? <small>Приблизно за IP · ipapi.is</small><button type="button" onClick={() => location.chooseCity(suggestion)}>Так</button><button type="button" onClick={location.dismissSuggestion}>Ні, оберу вручну</button></div>}
         {message && <p className="map-search-hint" role="status">{message}</p>}
         {nearbyMessage && !validCoordinates(address.coordinates) && <p className="map-search-hint" role="status">{nearbyMessage}</p>}

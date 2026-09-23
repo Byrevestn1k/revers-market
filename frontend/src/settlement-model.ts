@@ -6,6 +6,15 @@ export type HereItem = { id: string; title: string; resultType?: string; localit
 export const settlementType = (item: Settlement) => ({ city: 'місто', town: 'селище', village: 'село' })[item.type]
 export const settlementLabel = (item: Settlement) => [settlementType(item), item.name, item.district || 'без району', item.region].join(', ')
 export const normalizePlace = (name: string) => name.toLocaleLowerCase('uk-UA').trim().replace(/^(?:місто|селище|село|смт\.?|м\.|с\.|с-ще)\s+/u, '').replace(/[’ʼ`]/g, "'").replace(/\s+/g, ' ')
+export function splitHouseNumber(value: string): { number: string; letter: string } {
+    const match = value.trim().match(/^(\d+(?:[/-]\d+)?)\s*[-–—]?\s*([a-zа-яіїєґ])$/iu)
+    return match ? { number: match[1], letter: match[2].toLocaleUpperCase('uk-UA') } : { number: value.trim(), letter: '' }
+}
+export function joinHouseNumber(number: string, letter = ''): string {
+    const parts = splitHouseNumber(number)
+    return parts.number ? parts.number + (letter.trim() || parts.letter).toLocaleUpperCase('uk-UA') : ''
+}
+export const matchesHouseNumber = (actual: string | undefined, entered: string) => Boolean(actual && entered.trim()) && joinHouseNumber(actual ?? '') === joinHouseNumber(entered)
 const area = (name = '') => normalizePlace(name).replace(/\s*(область|обл\.?|район|р-н|територіальна громада|громада)$/u, '').trim()
 export function matchesStreet(actual: string | undefined, entered: string): boolean {
     const tokens = (text: string) => normalizePlace(text).replace(/(?:^|\s)(?:вул\.?|вулиця)(?=\s|$)/gu, ' ').replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean)

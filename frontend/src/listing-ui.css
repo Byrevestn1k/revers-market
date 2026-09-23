@@ -31,7 +31,11 @@
 .address-editor .address-display { display: flex; align-items: center; gap: 8px; }
 .address-editor .address-display input { flex: 1; min-width: 0; }
 .address-editor .address-popup { max-height: calc(100dvh - 40px); overflow-y: auto; }
-.address-editor .address-results { position: static; margin-top: 4px; }
+.address-editor .address-street-row { align-items: start; }
+.address-editor .address-street-row > label { align-content: start; }
+.address-editor .address-results { position: absolute; top: calc(100% + 4px); left: 0; right: 0; margin: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.address-editor .address-results button { white-space: normal; }
+.address-editor .settlement-picker-results { width: 100%; max-width: 100%; overflow-wrap: anywhere; }
 .address-editor .address-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .address-editor .address-popup p { font-size: 12px; line-height: 1.5; color: #65796e; }
 @media (max-width: 600px) { .product-form .listing-section { padding: 12px; } .address-editor .address-display { align-items: stretch; flex-direction: column; } }

@@ -7,6 +7,20 @@ require.extensions['.ts'] = (module, filename) => {
 }
 const { matchesSettlement, matchesStreet, settlementLabel, resolveSettlement, searchStreets, savedAddressParts } = require('../src/settlement-model.ts')
 const { addressFields } = require('../src/address-model.ts')
+const { splitHouseNumber, joinHouseNumber, matchesHouseNumber } = require('../src/settlement-model.ts')
+for (const value of ['91-б', '91б', '91Б', '91 б', '91–Б']) {
+    assert.deepEqual(splitHouseNumber(value), { number: '91', letter: 'Б' })
+    assert.equal(joinHouseNumber(value), '91Б')
+    assert.equal(matchesHouseNumber('91Б', value), true)
+}
+assert.equal(joinHouseNumber('91', 'ж'), '91Ж')
+assert.equal(joinHouseNumber('91'), '91')
+assert.equal(joinHouseNumber('', 'Б'), '')
+assert.equal(joinHouseNumber('12/3', 'А'), '12/3А')
+assert.equal(joinHouseNumber('12-14'), '12-14')
+assert.equal(matchesHouseNumber('91В', '91-а'), false)
+assert.equal(matchesHouseNumber('91', '91Б'), false)
+assert.equal(matchesHouseNumber(undefined, '91Б'), false)
 const { profileSearchAddress } = require('../src/search-location-model.ts')
 const village = { code: 'village', type: 'village', name: 'Бармаки', district: 'Рівненський район', region: 'Рівненська область', community: 'Шпанівська' }
 const hereVillage = { id: 'here:village', resultType: 'locality', localityType: 'district', address: { district: 'Бармаки', city: 'Рівненський район', county: 'Рівненська область', countryCode: 'UKR' }, position: { lat: 50.63356, lng: 26.3021 } }

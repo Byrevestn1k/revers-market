@@ -158,3 +158,5 @@
 .map-location-group .address-dialog-backdrop { z-index: 1300; }
 .map-city-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; margin-top: 8px; background: #eaf5ed; border-radius: 8px; }
 .map-city-suggestion button { padding: 7px 10px; border: 1px solid #17825a; border-radius: 6px; background: white; color: #185c40; }
+.map-canvas.map-picking-point { cursor: crosshair; }
+.map-picking-point .leaflet-marker-icon, .map-picking-point .leaflet-marker-shadow, .map-picking-point .leaflet-interactive { pointer-events: none !important; }
