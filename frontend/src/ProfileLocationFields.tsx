@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import AddressInput from './AddressInput'
-import SettlementPicker from './SettlementPicker'
 import type { SelectedSettlement } from './settlement-model'
-import { validCoordinates, type Coordinates } from './address-model'
+import { validCoordinates, type AddressValue, type Coordinates } from './address-model'
 
 export type ProfileMapLocation = { mode: 'approximate' | 'address' | 'pin'; latitude: number | null; longitude: number | null; consent?: boolean }
 type LocationProfile = { exactAddress: string | null; location: string | null; mapLocation?: ProfileMapLocation; settlement?: SelectedSettlement | null; addressSettlement?: SelectedSettlement | null; addressCoordinates?: Coordinates | null }
@@ -30,7 +29,7 @@ function PointPicker({ point, onChange }: { point: Coordinates | null; onChange:
         if (marker.current) { marker.current.remove(); marker.current = null }
         if (!point) return
         const position: L.LatLngExpression = [point.latitude, point.longitude]
-        const pin = L.marker(position, { draggable: true, icon: L.divIcon({ className: 'profile-public-pin', html: '<span aria-hidden="true">●</span>', iconSize: [32, 32], iconAnchor: [16, 16] }) }).addTo(map.current)
+        const pin = L.marker(position, { draggable: true, icon: L.divIcon({ className: 'profile-public-pin', html: '<span aria-hidden="true">●</span>', iconSize: [34, 42], iconAnchor: [17, 42] }) }).addTo(map.current)
         pin.on('dragend', () => { const next = pin.getLatLng().wrap(); callback.current({ latitude: Number(next.lat.toFixed(6)), longitude: Number(next.lng.toFixed(6)) }) })
         marker.current = pin
         map.current.panTo(position)
@@ -43,7 +42,8 @@ export default function ProfileLocationFields({ profile, onChange, onBusyChange 
     const candidate = setting.latitude !== null && setting.longitude !== null ? { latitude: setting.latitude, longitude: setting.longitude } : null
     const point = validCoordinates(candidate) ? candidate : null
     const [addressPoint, setAddressPoint] = useState<Coordinates | null>(profile.addressCoordinates ?? (setting.mode === 'address' ? point : null))
-    const [pinSource, setPinSource] = useState<'profile' | 'map'>(() => samePoint(point, profile.addressCoordinates ?? null) ? 'profile' : 'map')
+    const [pinSource, setPinSource] = useState<'profile' | 'map' | 'manual'>(() => samePoint(point, profile.addressCoordinates ?? null) ? 'profile' : 'map')
+    const [manualPointAddress, setManualPointAddress] = useState<AddressValue>(() => ({ address: '', city: profile.settlement?.name ?? profile.location ?? '', settlement: profile.settlement, coordinates: point }))
     const updatePoint = (next: Coordinates) => onChange({ mapLocation: { ...setting, ...next, consent: false } })
     return <fieldset className="listing-section"><legend>Моє місце на мапі</legend>
         <label>Адреса профілю</label>
@@ -62,11 +62,11 @@ export default function ProfileLocationFields({ profile, onChange, onBusyChange 
         {setting.mode === 'address' && <div className="field-error" role="status"><strong>Адреса стане публічною.</strong> Перевага: покупцям легше знайти офіційний магазин або постійне місце видачі. Ризик: будь-хто побачить адресу, зможе приїхати туди та пов’язати її з вашим профілем. Якщо точку ще не визначено, повторно оберіть адресу вище.</div>}
         {setting.mode === 'pin' && <>
             <label>Публічна точка<select value={pinSource} onChange={(event) => {
-                const source = event.target.value as 'profile' | 'map'
+                const source = event.target.value as 'profile' | 'map' | 'manual'
                 setPinSource(source)
                 if (source === 'profile') onChange({ mapLocation: { ...setting, latitude: addressPoint?.latitude ?? null, longitude: addressPoint?.longitude ?? null, consent: false }, ...(profile.addressSettlement ? { location: profile.addressSettlement.name, settlement: profile.addressSettlement } : {}) })
-            }}><option value="profile">Збігається з адресою профілю</option><option value="map">Обрати точку на мапі</option></select></label>
-            {pinSource === 'profile' ? <p className="listing-location-note">Публічна точка буде там, де вибрана адреса профілю. Щоб змінити її, оберіть іншу адресу вище.</p> : <><p className="listing-location-note">Натисніть на мапу або перетягніть точку до потрібного місця. Текст адреси профілю залишиться прихованим.</p><PointPicker point={point} onChange={updatePoint} /><SettlementPicker label="Населений пункт публічної точки" value={profile.settlement} legacyName={profile.location ?? ''} onChange={item => onChange({ location: item?.name ?? '', settlement: item })} /></>}
+            }}><option value="profile">Збігається з адресою профілю</option><option value="map">Обрати точку на мапі</option><option value="manual">Обрати адресу вручну</option></select></label>
+            {pinSource === 'profile' ? <p className="listing-location-note">Публічна точка буде там, де вибрана адреса профілю. Щоб змінити її, оберіть іншу адресу вище.</p> : pinSource === 'map' ? <><p className="listing-location-note">Натисніть на мапу або перетягніть позначку до потрібного місця. Текст адреси профілю залишиться прихованим.</p><PointPicker point={point} onChange={updatePoint} /></> : <><p className="listing-location-note">Виберіть населений пункт, вулицю та номер будинку. Адреса потрібна лише для встановлення публічної точки: вона не замінить адресу профілю й не буде показана текстом.</p><AddressInput name="publicPointAddress" value={manualPointAddress} onBusyChange={onBusyChange} onChange={(value) => { setManualPointAddress(value); if (validCoordinates(value.coordinates)) onChange({ mapLocation: { ...setting, latitude: value.coordinates.latitude, longitude: value.coordinates.longitude, consent: false }, location: value.city, settlement: value.settlement }) }} /></>}
         </>}
         {setting.mode === 'pin' && <div className="field-error" role="status"><strong>Обрана точка стане публічною.</strong> Перевага: можна показати зручне місце зустрічі без тексту адреси. Ризик: люди бачитимуть це місце на карті та можуть приїхати туди.</div>}
         {setting.mode !== 'approximate' && <>
