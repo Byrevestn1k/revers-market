@@ -15,6 +15,12 @@
 .product-form .listing-section { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 18px; border: 1px solid #dce7df; border-radius: 12px; }
 .listing-section legend { padding: 0 6px; color: #24423a; font-size: 15px; font-weight: 800; }
 .listing-field { display: grid; gap: 7px; font-size: 13px; }
+.location-field-label { display: flex; align-items: center; gap: 7px; color: #687771; font-size: 12px; font-weight: 700; }
+.location-hint { position: relative; display: inline-grid; place-items: center; width: 19px; height: 19px; flex: 0 0 19px; cursor: help; outline: none; }
+.location-hint-badge { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; background: #17825a; color: white; font-size: 11px; font-weight: 800; }
+.location-hint-popup { position: absolute; z-index: 20; left: 50%; bottom: calc(100% + 8px); display: none; width: min(330px, calc(100vw - 48px)); padding: 10px 12px; border: 1px solid #b9d8c5; border-radius: 9px; background: #fff; box-shadow: 0 8px 24px #18342e2b; color: #24423a; font-size: 12px; font-weight: 400; line-height: 1.45; transform: translateX(-50%); }
+.location-hint:hover .location-hint-popup, .location-hint:focus .location-hint-popup { display: block; }
+.location-hint:focus-visible .location-hint-badge { outline: 2px solid #18342e; outline-offset: 2px; }
 .listing-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .listing-section .consent-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; color: inherit; font-size: inherit; font-weight: inherit; line-height: 1.4; }
 .listing-section .consent-row input { width: 16px; height: 16px; flex: 0 0 16px; margin: 2px 0 0; }

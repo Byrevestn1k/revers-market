@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import L from 'leaflet'
 import AddressInput from './AddressInput'
 import type { SelectedSettlement } from './settlement-model'
@@ -7,6 +7,10 @@ import { validCoordinates, type AddressValue, type Coordinates } from './address
 export type ProfileMapLocation = { mode: 'approximate' | 'address' | 'pin'; latitude: number | null; longitude: number | null; consent?: boolean }
 type LocationProfile = { exactAddress: string | null; location: string | null; mapLocation?: ProfileMapLocation; settlement?: SelectedSettlement | null; addressSettlement?: SelectedSettlement | null; addressCoordinates?: Coordinates | null }
 const samePoint = (left: Coordinates | null, right: Coordinates | null) => Boolean(left && right && Math.abs(left.latitude - right.latitude) < .000001 && Math.abs(left.longitude - right.longitude) < .000001)
+
+function LocationHint({ number, children }: { number: number; children: ReactNode }) {
+    return <span className="location-hint" tabIndex={0} aria-label={`Пояснення ${number}`}><span className="location-hint-badge" aria-hidden="true">{number}</span><span className="location-hint-popup" role="tooltip">{children}</span></span>
+}
 
 function PointPicker({ point, onChange }: { point: Coordinates | null; onChange: (point: Coordinates) => void }) {
     const container = useRef<HTMLDivElement>(null)
@@ -46,7 +50,7 @@ export default function ProfileLocationFields({ profile, onChange, onBusyChange 
     const [manualPointAddress, setManualPointAddress] = useState<AddressValue>(() => ({ address: '', city: profile.settlement?.name ?? profile.location ?? '', settlement: profile.settlement, coordinates: point }))
     const updatePoint = (next: Coordinates) => onChange({ mapLocation: { ...setting, ...next, consent: false } })
     return <fieldset className="listing-section"><legend>Моє місце на мапі</legend>
-        <label>Адреса профілю</label>
+        <div className="location-field-label">Адреса профілю <LocationHint number={1}><strong>Адреса профілю</strong> — ваша приватна адреса. Вона допомагає визначити ваше місце для пошуку «поруч», підставити адресу під час створення оголошення та вибрати публічну точку. Іншим вона не показується, якщо ви окремо не обрали її публічність.</LocationHint></div>
         <AddressInput name="exactAddress" value={{ address: profile.exactAddress ?? '', city: profile.addressSettlement?.name ?? profile.location ?? '', settlement: profile.addressSettlement, coordinates: addressPoint }} onBusyChange={onBusyChange} onChange={(value) => {
             setAddressPoint(value.coordinates)
             const useAddressPoint = setting.mode === 'address' || (setting.mode === 'pin' && pinSource === 'profile')
@@ -61,7 +65,7 @@ export default function ProfileLocationFields({ profile, onChange, onBusyChange 
         <p className="listing-location-note">Налаштування діє для всіх ваших товарів. Адреси отримання товарів та місця запитів покупця не змінюються.</p>
         {setting.mode === 'address' && <div className="field-error" role="status"><strong>Адреса стане публічною.</strong> Перевага: покупцям легше знайти офіційний магазин або постійне місце видачі. Ризик: будь-хто побачить адресу, зможе приїхати туди та пов’язати її з вашим профілем. Якщо точку ще не визначено, повторно оберіть адресу вище.</div>}
         {setting.mode === 'pin' && <>
-            <label>Публічна точка<select value={pinSource} onChange={(event) => {
+            <label><span className="location-field-label">Публічна точка <LocationHint number={2}><strong>Публічна точка</strong> — місце, яке бачать інші на мапі біля ваших товарів. Це може бути магазин, пункт видачі або зручне місце зустрічі. Вона не зобов’язана збігатися з адресою профілю.</LocationHint></span><select value={pinSource} onChange={(event) => {
                 const source = event.target.value as 'profile' | 'map' | 'manual'
                 setPinSource(source)
                 if (source === 'profile') onChange({ mapLocation: { ...setting, latitude: addressPoint?.latitude ?? null, longitude: addressPoint?.longitude ?? null, consent: false }, ...(profile.addressSettlement ? { location: profile.addressSettlement.name, settlement: profile.addressSettlement } : {}) })
