@@ -52,6 +52,7 @@ const resolveSessionUser = async (request: Request): Promise<AuthUser | null> =>
          WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`
         , [hashToken(token)],
     )
+    if (result.rowCount) await pool.query("UPDATE users SET last_seen_at = now() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '5 minutes')", [result.rows[0].id])
     return result.rowCount ? publicUser(result.rows[0]) : null
 }
 

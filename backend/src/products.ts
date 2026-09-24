@@ -145,6 +145,7 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     const limit = Math.min(50, Math.max(1, Number.parseInt(String(query.limit ?? '20'), 10) || 20))
     const conditions = user && query.mine === 'true' ? ['p.owner_id = $1'] : ['p.status = \'active\'']
     const parameters: unknown[] = user && query.mine === 'true' ? [user.id] : []
+    if (typeof query.ownerUsername === 'string' && query.ownerUsername.trim()) { parameters.push(query.ownerUsername.trim().toLowerCase()); conditions.push(`u.username_normalized = $${parameters.length}`) }
     if (typeof query.categoryId === 'string' && query.categoryId) { parameters.push(query.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
     if (query.settlementCode !== undefined) {
         const settlement = getSettlement(query.settlementCode)

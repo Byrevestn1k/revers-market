@@ -35,6 +35,7 @@ type ProfileRow = {
     rating_sum: string | number
     rating_count: number
     created_at: Date
+    last_seen_at: Date | null
 }
 
 export type PublicProfileDto = {
@@ -52,6 +53,7 @@ export type PublicProfileDto = {
     statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }
     ratingSummary: { average: number | null; count: number }
     createdAt: string
+    lastSeenAt: string | null
 }
 
 export type PrivateProfileDto = PublicProfileDto & {
@@ -71,7 +73,7 @@ const profileSelect = `
            email, email_verified, pending_email,
            location_display, exact_address, settlement_code, address_settlement_code, address_latitude, address_longitude, phone_visibility, phone_disclosure_consent,
            map_location_mode, public_latitude, public_longitude,
-           listings_count, completed_deals_count, response_rate, rating_sum, rating_count, created_at
+           listings_count, completed_deals_count, response_rate, rating_sum, rating_count, created_at, last_seen_at
     FROM users`
 
 const toNumberOrNull = (value: string | number | null) => value === null ? null : Number(value)
@@ -95,6 +97,7 @@ export const toPublicProfile = (row: ProfileRow): PublicProfileDto => ({
     statistics: { listingsCount: row.listings_count, completedDealsCount: row.completed_deals_count, responseRate: toNumberOrNull(row.response_rate) },
     ratingSummary: ratingSummary(row),
     createdAt: row.created_at.toISOString(),
+    lastSeenAt: row.last_seen_at?.toISOString() ?? null,
 })
 
 export const toPrivateProfile = (row: ProfileRow): PrivateProfileDto => ({

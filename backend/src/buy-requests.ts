@@ -162,6 +162,7 @@ export const getBuyRequest = async (id: string, user?: AuthUser) => {
 export const listBuyRequests = async (query: Record<string, unknown>, user?: AuthUser) => {
     const params: unknown[] = []
     const conditions = [user && query.mine === 'true' ? `r.buyer_id = $${params.push(user.id)}` : `r.status IN ('open', 'partially_fulfilled')`]
+    if (typeof query.buyerUsername === 'string' && query.buyerUsername.trim()) { params.push(query.buyerUsername.trim().toLowerCase()); conditions.push(`u.username_normalized = $${params.length}`) }
     if (typeof query.categoryId === 'string' && uuid(query.categoryId)) conditions.push(categoryFilterSql('r.category_id', params.push(query.categoryId)))
     const result = await pool.query(`${requestSelect} WHERE ${conditions.join(' AND ')} ORDER BY r.created_at DESC LIMIT 50`, params)
     return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)) } }
