@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Product, User } from './App'
-import { CategoryImage } from './CategoryPicker'
+import CategoryPicker from './CategoryPicker'
 import ProductCard from './ProductCard'
 import type { MapResults } from './map-sellers'
-import { categoryChildren, categoryTrail } from './categories'
 import type { Category } from './categories'
 import './public-home.css'
 
@@ -38,7 +37,6 @@ export default function PublicHome({ categories, request, user, onAccount, onCre
     const activePage = Math.min(page, pages)
     useEffect(() => { setPage(1); setOpenError('') }, [results.markers])
     useEffect(() => () => { openVersion.current++ }, [])
-    const selectedRootId = categoryTrail(categories, categoryId)[0]?.id
     const open = async (id: string) => {
         const version = ++openVersion.current
         setOpenError('')
@@ -55,7 +53,7 @@ export default function PublicHome({ categories, request, user, onAccount, onCre
         <main className="market-main">
             <section className="market-search-section" aria-labelledby="market-title"><span className="eyebrow">Поруч і для тебе</span><h1 id="market-title">Знайдіть те, що потрібно, поруч</h1></section>
             <section className="market-map" aria-label="Єдиний пошук на мапі">{renderMap({ userId: user?.id, locationReady, sharedCategoryId: categoryId, onCategoryChange: setCategoryId, onResultsChange: setResults })}</section>
-            <details className="market-categories"><summary>Усі категорії</summary><div className="market-category-grid">{categoryChildren(categories, null).map((category) => <button type="button" className={'market-category ' + (selectedRootId === category.id ? 'is-selected' : '')} key={category.id} onClick={() => setCategoryId(category.id)} aria-pressed={selectedRootId === category.id}><CategoryImage category={category} /><strong>{category.name}</strong></button>)}</div></details>
+            <details className="market-categories"><summary>Усі категорії</summary><CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} allowAll className="market-category-picker" /></details>
             <section className="market-results" aria-labelledby="results-title" aria-busy={results.loading}>
                 <div className="market-section-title"><h2 id="results-title">{results.query ? 'Результати для «' + results.query + '»' : 'Товари у видимій області'}{results.scope ? ' · ' + results.scope : ''}</h2><span>{products.length} товарів</span></div>
                 <p className="market-results-note">Ті самі товари, що й на мапі. Перемістіть мапу або змініть фільтри, щоб оновити список.</p>

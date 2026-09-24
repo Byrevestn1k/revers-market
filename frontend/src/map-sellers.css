@@ -2,7 +2,9 @@
 .map-search-controls { grid-column: 1 / -1; padding: 14px; border: 1px solid #dce7df; border-radius: 12px; background: #fff; }
 .map-search-row, .map-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .map-search-row { align-items: flex-end; }
-.map-search-main { flex: 0 1 43%; min-width: 250px; display: grid; gap: 5px; }
+.map-search-main { flex: 0 1 31%; min-width: 190px; display: grid; gap: 5px; }
+.map-search-category { flex: 1 1 320px; min-width: 260px; max-width: 420px; align-self: end; }
+.map-search-category .category-picker-menu { z-index: 1302; }
 .map-search-main > span, .map-advanced label { color: #5d7269; font-size: 12px; font-weight: 700; }
 .map-search-main input, .map-advanced input:not([type=range]), .map-advanced select { width: 100%; min-height: 42px; padding: 10px; border: 1px solid #ccdcd1; border-radius: 8px; background: #f8fbf8; color: #18342e; }
 .map-search-main input:focus { outline: 2px solid #17825a; outline-offset: 1px; }
