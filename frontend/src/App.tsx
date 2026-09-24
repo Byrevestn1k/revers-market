@@ -257,9 +257,12 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
                     if (map && searchScope !== 'nearby' && initialSearch) {
                         const points = result.markers
                         const origin = searchScope === 'city' && searchCity ? [searchCity.latitude, searchCity.longitude] as [number, number] : [49.0, 31.0] as [number, number]
-                        const bounds = points.length ? L.latLngBounds(points.map((item) => [item.latitude, item.longitude])) : L.latLngBounds([[44, 22], [52.5, 40.5]])
-                        if (searchScope === 'city') bounds.extend(origin)
-                        map.fitBounds(bounds, { padding: [55, 55], maxZoom: searchScope === 'city' ? 12 : 7, animate: false })
+                        if (!points.length && searchScope === 'city' && searchCity) map.setView(origin, 12, { animate: false })
+                        else {
+                            const bounds = points.length ? L.latLngBounds(points.map((item) => [item.latitude, item.longitude])) : L.latLngBounds([[44, 22], [52.5, 40.5]])
+                            if (searchScope === 'city') bounds.extend(origin)
+                            map.fitBounds(bounds, { padding: [55, 55], maxZoom: searchScope === 'city' ? 12 : 7, animate: false })
+                        }
                         setFocusRevision((value) => value + 1)
                     } else if (map && searchScope === 'nearby' && homeLocation && initialSearch) {
                         const points = result.markers.map((item) => [item.latitude, item.longitude] as [number, number])
@@ -409,8 +412,8 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
             <div className="map-search-controls">
                 <form className="map-search-row" role="search" onSubmit={(event) => { event.preventDefault(); runSearch('city') }}>
                     <label className="map-search-main"><span>{searchIn === 'owner' ? 'Продавець або покупець' : searchCity ? 'Пошук товару в місті' : 'Пошук товару по Україні'}</span><input type="search" value={mapQuery} maxLength={160} onChange={(event) => { setMapQuery(event.target.value); setSelection(null) }} placeholder={searchIn === 'owner' ? 'Ім’я або логін' : 'Наприклад, велосипед Trek'} /></label>
-                    <CategoryPicker categories={categories} value={categoryId} onChange={chooseCategory} allowAll className="map-search-category" />
-                    <SettlementSearchInput value={searchCity} onChange={location.chooseCity} />
+                    <CategoryPicker categories={categories} value={categoryId} onChange={chooseCategory} allowAll className="map-search-category" label="Категорія" />
+                    <SettlementSearchInput value={searchCity} onChange={location.chooseCity} onRegionChange={region => { setGeoZone(region ?? ''); setGeoSettlement(null); if (region) location.chooseCity(null) }} />
                     {searchCity && <label className="map-search-radius"><span>За межі міста: <b>{radius} км</b><input type="number" min="1" max="100" value={radius} aria-label="Кілометри за межі міста" onChange={(event) => { const value = Math.max(1, Math.min(100, Number(event.target.value) || 1)); setRadius(value); setSearchScope('city'); setSelection(null) }} /></span><input type="range" min="1" max="100" value={radius} onChange={(event) => { setRadius(Number(event.target.value)); setSearchScope('city'); setSelection(null) }} /></label>}
                     <button type="submit" className="primary-button" disabled={location.busy}>Знайти</button>
                 </form>
@@ -422,7 +425,7 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
                         <label>Шукати за<select value={searchIn} onChange={(event) => { setSearchIn(event.target.value as 'title' | 'all' | 'owner'); setSelection(null) }}><option value="title">Назвою товару</option><option value="all">Усіма полями</option><option value="owner">Продавцем / покупцем</option></select></label>
                         <label>Перегляд<select value={displayMode} onChange={(event) => setDisplayMode(event.target.value as 'adaptive' | 'sellers' | 'products')}><option value="adaptive">Автоматично</option><option value="sellers">Продавці та їхні товари</option><option value="products">Окремі товари</option></select></label>
                         <label>Радіус у видимій області: {radius} км<input type="range" min="1" max="100" value={radius} onChange={(event) => { setRadius(Number(event.target.value)); setSearchScope('area') }} /></label>
-                        <SettlementPicker value={geoSettlement} onChange={setGeoSettlement} allowClear /><label>Область або інше місце<input value={geoZone} onChange={(event) => setGeoZone(event.target.value)} placeholder="Усі місця" /></label>
+                        <SettlementPicker value={geoSettlement} onChange={setGeoSettlement} /><label>Область або інше місце<input value={geoZone} onChange={(event) => setGeoZone(event.target.value)} placeholder="Усі місця" /></label>
                         <label>Масштаб: {zoom}<input type="range" min="3" max="19" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
                         <button type="button" className="outline-button" onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}>Готово</button>
                     </div></details>

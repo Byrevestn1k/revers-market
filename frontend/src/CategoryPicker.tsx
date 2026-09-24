@@ -8,9 +8,9 @@ export function CategoryImage({ category, className = '' }: { category: Category
     return <span className={`category-image ${className}`} aria-hidden="true" style={{ backgroundPosition: `${(index % 5) * 25}% ${Math.floor(index / 5) * (100 / 3)}%` }} />
 }
 
-type Props = { categories: Category[]; value?: string; defaultValue?: string; onChange?: (id: string) => void; name?: string; required?: boolean; allowAll?: boolean; className?: string }
+type Props = { categories: Category[]; value?: string; defaultValue?: string; onChange?: (id: string) => void; name?: string; required?: boolean; allowAll?: boolean; className?: string; label?: string }
 
-export default function CategoryPicker({ categories, value, defaultValue = '', onChange, name = 'categoryId', required = false, allowAll = false, className = '' }: Props) {
+export default function CategoryPicker({ categories, value, defaultValue = '', onChange, name = 'categoryId', required = false, allowAll = false, className = '', label }: Props) {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [query, setQuery] = useState('')
     const [open, setOpen] = useState(false)
@@ -41,17 +41,18 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         const children = categoryChildren(categories, parentId)
         return children.length ? [...items, children] : items
     }, [])
-    const label = (item: Category) => normalized ? labels.get(item.id) ?? item.name : item.name
+    const itemLabel = (item: Category) => normalized ? labels.get(item.id) ?? item.name : item.name
     const list = (items: Category[], level: number, flyout = false) => <div className={flyout ? 'category-picker-submenu' : 'category-picker-results'} role="listbox" aria-label={flyout ? 'Підкатегорії' : normalized ? 'Знайдені категорії' : 'Усі категорії'}>
         {!flyout && allowAll && !normalized && <button type="button" role="option" aria-selected={!selectedId} className="category-picker-all" onMouseDown={(event) => event.preventDefault()} onClick={() => choose('')}>Усі категорії</button>}
         {items.map((item) => {
             const hasChildren = categoryChildren(categories, item.id).length > 0
-            return <button type="button" role="option" aria-selected={item.id === selectedId} key={item.id} className={hoveredIds[level] === item.id ? 'is-hovered' : ''} onMouseEnter={() => setHover(item.id, level)} onFocus={() => setHover(item.id, level)} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item.id)}><span>{label(item)}</span>{hasChildren && <b aria-label="Має підкатегорії">›</b>}</button>
+            return <button type="button" role="option" aria-selected={item.id === selectedId} key={item.id} className={hoveredIds[level] === item.id ? 'is-hovered' : ''} onMouseEnter={() => setHover(item.id, level)} onFocus={() => setHover(item.id, level)} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item.id)}><span>{itemLabel(item)}</span>{hasChildren && <b aria-label="Має підкатегорії">›</b>}</button>
         })}
     </div>
 
     return <div className={`category-picker ${className}`} ref={root}>
         <input type="hidden" name={name} value={selectedId} />
+        {label && <label htmlFor={`${id}-search`}>{label}</label>}
         <div className="category-picker-control">
             <input ref={input} id={`${id}-search`} type="text" role="combobox" autoComplete="off" value={open ? query : selectedLabel} onFocus={showMenu} onChange={(event) => { setQuery(event.target.value); setOpen(true); setHoveredIds([]) }} onKeyDown={(event) => { if (event.key === 'Escape') { close(); input.current?.blur() }; if (event.key === 'ArrowDown') showMenu(); if (event.key === 'Enter' && normalized && matchingCategories.length === 1) { event.preventDefault(); choose(matchingCategories[0].id) } }} placeholder="Введіть або оберіть категорію" aria-label="Пошук або вибір категорії" aria-expanded={open} aria-controls={`${id}-menu`} required={required} disabled={!categories.length} />
             <button type="button" className={`category-picker-toggle ${open ? 'is-open' : ''}`} onClick={() => open ? close() : (showMenu(), input.current?.focus())} aria-label={open ? 'Закрити список категорій' : 'Відкрити список категорій'} aria-expanded={open} disabled={!categories.length}><span aria-hidden="true" /></button>

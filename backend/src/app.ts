@@ -13,7 +13,7 @@ import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress,
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
-import { getSettlement, searchSettlements } from './settlements.js'
+import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements } from './settlements.js'
 import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
 
 const mapService = new MapService()
@@ -81,6 +81,13 @@ export const createApp = () => {
     app.get('/api/categories', withResult(() => listCategories()))
 
     app.get('/api/settlements', (request, response) => {
+        if (request.query.mode === 'regions') { response.json(listSettlementRegions()); return }
+        const region = typeof request.query.region === 'string' ? request.query.region.trim() : ''
+        if (region) {
+            const offset = Math.max(0, Number.parseInt(String(request.query.offset ?? '0'), 10) || 0)
+            const limit = Math.max(1, Math.min(200, Number.parseInt(String(request.query.limit ?? '100'), 10) || 100))
+            response.json(listSettlementsInRegion(region, offset, limit)); return
+        }
         const query = typeof request.query.q === 'string' ? request.query.q.trim() : ''
         if (query.length > 160) { response.status(400).json({ error: 'INVALID_SETTLEMENT_QUERY' }); return }
         response.json(searchSettlements(query))

@@ -1,5 +1,6 @@
 .category-image { display: inline-block; flex: 0 0 auto; width: 76px; height: 76px; border-radius: 18px; background-image: url('/categories/category-atlas.png'); background-size: 500% 400%; background-repeat: no-repeat; background-color: #faf7f0; }
 .category-picker { position: relative; min-width: 0; width: 100%; }
+.category-picker > label { display: block; margin-bottom: 5px; }
 .category-picker-control { position: relative; display: flex; align-items: center; }
 .category-picker input { box-sizing: border-box; width: 100%; min-width: 0; padding: .65rem 4.5rem .65rem .75rem; font: inherit; color: #24423a; background: #fff; border: 1px solid #d6e4dc; border-radius: 8px; }
 .category-picker input:focus-visible { outline: 2px solid #29846b; outline-offset: 2px; }

@@ -101,3 +101,15 @@ export async function findSettlements(query: string, signal?: AbortSignal): Prom
     if (!response.ok) throw new Error('Не вдалося завантажити населені пункти. Спробуйте ще раз.')
     return (await response.json()).settlements
 }
+
+export async function findSettlementRegions(signal?: AbortSignal): Promise<string[]> {
+    const response = await fetch((import.meta.env.VITE_API_URL ?? '') + '/api/settlements?mode=regions', { signal: signal ?? AbortSignal.timeout(12000) })
+    if (!response.ok) throw new Error('Не вдалося завантажити області. Спробуйте ще раз.')
+    return (await response.json()).regions
+}
+
+export async function findSettlementsInRegion(region: string, offset = 0, signal?: AbortSignal): Promise<{ settlements: Settlement[]; total: number }> {
+    const response = await fetch((import.meta.env.VITE_API_URL ?? '') + '/api/settlements?' + new URLSearchParams({ region, offset: String(offset), limit: '100' }), { signal: signal ?? AbortSignal.timeout(12000) })
+    if (!response.ok) throw new Error('Не вдалося завантажити населені пункти. Спробуйте ще раз.')
+    return await response.json()
+}

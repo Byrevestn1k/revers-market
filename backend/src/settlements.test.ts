@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getSettlement, searchSettlements, validateSettlement } from './settlements.js'
+import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements, validateSettlement } from './settlements.js'
 
 describe('official settlement directory', () => {
     it('returns all namesakes, ordered cities then towns then villages', () => {
@@ -17,6 +17,16 @@ describe('official settlement directory', () => {
         expect(searchSettlements('с. Бармаки').settlements[0].type).toBe('village')
         expect(searchSettlements('Клевань').settlements[0].type).toBe('town')
         expect(searchSettlements('Р').settlements).toEqual([])
+    })
+    it('lists regions and alphabetically ordered settlements within a region in pages', () => {
+        const regions = listSettlementRegions().regions
+        expect(regions).toContain('Рівненська область')
+        const first = listSettlementsInRegion('Рівненська область', 0, 10)
+        const second = listSettlementsInRegion('Рівненська область', 10, 10)
+        expect(first.total).toBeGreaterThan(10)
+        expect(first.settlements.every(item => item.region === 'Рівненська область')).toBe(true)
+        expect(first.settlements.map(item => item.name)).toEqual([...first.settlements].map(item => item.name).sort((a, b) => a.localeCompare(b, 'uk')))
+        expect(new Set([...first.settlements, ...second.settlements].map(item => item.code)).size).toBe(20)
     })
     it('rejects forged identities and mismatched names, permits legacy addresses', () => {
         const item = searchSettlements('Бармаки').settlements[0]

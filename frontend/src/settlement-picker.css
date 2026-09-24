@@ -1,8 +1,20 @@
 .settlement-picker { position: relative; min-width: 0; width: 100%; }
 .settlement-picker > label { display: block; margin-bottom: 5px; }
-.settlement-picker-field { display: flex; gap: 5px; }
-.settlement-picker-field input { width: 100%; min-width: 0; padding: 10px; border: 1px solid #ccdcd1; border-radius: 8px; color: #18342e; background: white; }
-.settlement-picker-results { position: absolute; z-index: 1500; top: 100%; left: 0; width: max(100%, 290px); max-width: min(580px, 85vw); max-height: 260px; overflow: auto; border: 1px solid #ccdcd1; border-radius: 8px; background: white; box-shadow: 0 8px 20px #18342e25; }
-.settlement-picker-results button, .settlement-picker-results > span { display: block; width: 100%; padding: 10px; text-align: left; white-space: normal; border: 0; border-bottom: 1px solid #edf2ee; background: white; color: #18342e; }
-.settlement-picker-results button:hover, .settlement-picker-results button[aria-selected=true] { background: #eaf5ed; }
+.settlement-picker-field { position: relative; }
+.settlement-picker-field input { width: 100%; min-width: 0; padding: 10px 42px 10px 10px; border: 1px solid #ccdcd1; border-radius: 8px; color: #18342e; background: white; }
+.settlement-picker-toggle { position: absolute; right: 4px; top: 4px; display: grid; place-items: center; width: 34px; height: calc(100% - 8px); padding: 0; border: 0; border-radius: 5px; color: #31574a; background: transparent; }
+.settlement-picker-toggle span { width: .5rem; height: .5rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform .15s ease; }
+.settlement-picker-toggle.is-open span { transform: translateY(2px) rotate(225deg); }
+.settlement-picker-toggle:focus-visible { outline: 2px solid #17825a; outline-offset: 1px; }
+.settlement-picker-results { position: absolute; z-index: 1500; top: calc(100% + 4px); left: 0; width: max(100%, 300px); max-width: min(430px, calc(100vw - 2rem)); max-height: min(420px, calc(100dvh - 120px)); overflow: auto; border: 1px solid #ccdcd1; border-radius: 8px; background: white; box-shadow: 0 8px 20px #18342e25; }
+.settlement-picker-results > button, .settlement-picker-results > span { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 45px; padding: 10px 12px; text-align: left; white-space: normal; border: 0; border-bottom: 1px solid #edf2ee; background: white; color: #18342e; }
+.settlement-picker-results > button:hover, .settlement-picker-results > button[aria-selected=true] { background: #eaf5ed; }
+.settlement-picker-results > strong { display: block; padding: 14px 12px 8px; color: #18342e; font-size: .78rem; }
 .settlement-picker-results small { display: block; color: #65796e; }
+.settlement-picker-results b { font-size: 1.25rem; font-weight: 400; color: #658176; }
+.settlement-picker-nationwide { color: #185c40 !important; font-size: .95rem; font-weight: 700; }
+.settlement-picker-nationwide span { margin-right: auto; }
+.settlement-picker-back { color: #31574a !important; font-size: .9rem; }
+.settlement-picker-region-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 12px 6px; }
+.settlement-picker-region-title strong { font-size: .95rem; }
+.settlement-picker-region-title button { padding: 0; border: 0; background: transparent; color: #176b47; font-size: .78rem; }

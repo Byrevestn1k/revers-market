@@ -7,7 +7,13 @@ export const normalizeSettlementName = (value: string) => value.trim().toLocaleL
 const rank = { city: 0, town: 1, village: 2 }
 const ordered = [...data.settlements].sort((a, b) => rank[a.type] - rank[b.type] || a.name.localeCompare(b.name, 'uk') || a.region.localeCompare(b.region, 'uk') || a.district.localeCompare(b.district, 'uk') || a.code.localeCompare(b.code))
 const searchable = ordered.map(item => ({ item, name: normalizeSettlementName(item.name) }))
+const regions = [...new Set(ordered.map(item => item.region))].sort((a, b) => a.localeCompare(b, 'uk'))
 export const getSettlement = (code: unknown): Settlement | null => typeof code === 'string' ? byCode.get(code) ?? null : null
+export function listSettlementRegions() { return { version: data.version, regions } }
+export function listSettlementsInRegion(region: string, offset = 0, limit = 100) {
+    const settlements = ordered.filter(item => item.region === region).sort((a, b) => a.name.localeCompare(b.name, 'uk') || a.district.localeCompare(b.district, 'uk') || a.code.localeCompare(b.code))
+    return { version: data.version, settlements: settlements.slice(offset, offset + limit), total: settlements.length }
+}
 export function searchSettlements(query: string) {
     const term = normalizeSettlementName(query)
     // Do not truncate: even common names must include every matching village.
