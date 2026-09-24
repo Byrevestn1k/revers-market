@@ -14,7 +14,16 @@ export const createNotification = async (queryable: Queryable, userId: string, t
 }
 
 export const listNotifications = async (user: AuthUser) => {
-    const result = await pool.query('SELECT id, type, title, body, order_id AS "orderId", conversation_id AS "conversationId", read_at AS "readAt", created_at AS "createdAt" FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100', [user.id])
+    const result = await pool.query(`SELECT n.id, n.type, n.title, n.body, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.read_at AS "readAt", n.created_at AS "createdAt",
+        CASE WHEN COALESCE(o.seller_id, ofr.seller_id) = $1 THEN 'selling'
+             WHEN COALESCE(o.buyer_id, r.buyer_id) = $1 THEN 'buying'
+             ELSE 'general' END AS "userRole"
+        FROM notifications n
+        LEFT JOIN orders o ON o.id = n.order_id
+        LEFT JOIN conversations c ON c.id = n.conversation_id
+        LEFT JOIN offers ofr ON ofr.id = c.offer_id
+        LEFT JOIN buy_requests r ON r.id = ofr.buy_request_id
+        WHERE n.user_id = $1 ORDER BY n.created_at DESC LIMIT 100`, [user.id])
     return { status: 200, body: { notifications: result.rows } }
 }
 
@@ -28,6 +37,7 @@ export const markNotificationsRead = async (user: AuthUser, notificationId?: str
 export const listConversations = async (user: AuthUser) => {
     const result = await pool.query(`SELECT c.id, c.order_id AS "orderId", c.offer_id AS "offerId", COALESCE(o.status, ofr.status) AS status,
         CASE WHEN COALESCE(o.buyer_id, r.buyer_id) = $1 THEN su.username ELSE bu.username END AS "otherUsername",
+        CASE WHEN COALESCE(o.seller_id, ofr.seller_id) = $1 THEN 'selling' ELSE 'buying' END AS "userRole",
         (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessage",
         (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageAt",
         cp.last_read_at AS "lastReadAt"
