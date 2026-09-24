@@ -135,7 +135,7 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
     const [searchIn, setSearchIn] = useState<'title' | 'all' | 'owner'>('title')
     const [searchRevision, setSearchRevision] = useState(0)
     const [focusRevision, setFocusRevision] = useState(0)
-    const [displayMode, setDisplayMode] = useState<'adaptive' | 'sellers' | 'products'>('adaptive')
+    const displayMode = 'sellers' as const
     const [viewport, setViewport] = useState<MapViewport | null>(null)
     const [expanded, setExpanded] = useState(false)
     const [selection, updateSelection] = useState<MapSelection | null>(null)
@@ -192,7 +192,7 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
         const timer = window.setTimeout(() => setMapSearch(mapQuery.trim()), 300)
         return () => window.clearTimeout(timer)
     }, [mapQuery])
-    useEffect(() => { setResultPage(1) }, [categoryId, mapSearch, displayMode, selection])
+    useEffect(() => { setResultPage(1) }, [categoryId, mapSearch, selection])
     useEffect(() => { setSelection(null); setResultPage(1) }, [categoryId, mapSearch, geoZone, geoSettlement?.code, showProducts, showBuyRequests, searchIn])
     useEffect(() => {
         if (!activeMarker) { setPreviewDetail(null); return }
@@ -421,14 +421,6 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
                 <p className="map-search-hint" role="status">{searchScope === 'nearby' ? `Поруч з будиночком у радіусі ${nearbyRadius} км.` : searchScope === 'city' ? `Пошук у ${searchCity?.name} і до ${radius} км за межами міста.` : searchScope === 'country' ? 'Місто не обрано — пошук по всій Україні.' : 'Пошук у видимій області та вибраному радіусі.'}{!loading && searchScope !== 'area' && ` Знайдено: ${markers.length}.`}{searchCity && !homeLocation && ' Для пошуку поруч оберіть адресу або поставте точку на мапі.'}</p>
                 <div className="map-filter-row">
                     <div className="map-toggles"><label><input type="checkbox" checked={showProducts} onChange={(event) => { setShowProducts(event.target.checked); setSelection(null) }} /> Продавці</label><label><input type="checkbox" checked={showBuyRequests} onChange={(event) => { setShowBuyRequests(event.target.checked); setSelection(null) }} /> Запити покупців</label></div>
-                    <details className="map-filter-details"><summary>Налаштування мапи</summary><div className="map-filter-content map-advanced">
-                        <label>Шукати за<select value={searchIn} onChange={(event) => { setSearchIn(event.target.value as 'title' | 'all' | 'owner'); setSelection(null) }}><option value="title">Назвою товару</option><option value="all">Усіма полями</option><option value="owner">Продавцем / покупцем</option></select></label>
-                        <label>Перегляд<select value={displayMode} onChange={(event) => setDisplayMode(event.target.value as 'adaptive' | 'sellers' | 'products')}><option value="adaptive">Автоматично</option><option value="sellers">Продавці та їхні товари</option><option value="products">Окремі товари</option></select></label>
-                        <label>Радіус у видимій області: {radius} км<input type="range" min="1" max="100" value={radius} onChange={(event) => { setRadius(Number(event.target.value)); setSearchScope('area') }} /></label>
-                        <SettlementPicker value={geoSettlement} onChange={setGeoSettlement} /><label>Область або інше місце<input value={geoZone} onChange={(event) => setGeoZone(event.target.value)} placeholder="Усі місця" /></label>
-                        <label>Масштаб: {zoom}<input type="range" min="3" max="19" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
-                        <button type="button" className="outline-button" onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}>Готово</button>
-                    </div></details>
                     {(filtered || geoZone || geoSettlement) && <button type="button" className="text-button" onClick={clearFilters}>Скинути фільтри</button>}
                 </div>
                 <div className="map-active-filters">
