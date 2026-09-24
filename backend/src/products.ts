@@ -91,6 +91,25 @@ export const listCategories = async () => {
     return { status: 200, body: { categories: result.rows } }
 }
 
+export const listPopularCategories = async () => {
+    const result = await pool.query<{ categoryId: string; count: string }>(`
+        WITH RECURSIVE roots AS (
+            SELECT id, id AS root_id FROM categories WHERE parent_id IS NULL
+            UNION ALL
+            SELECT child.id, roots.root_id FROM categories child JOIN roots ON child.parent_id = roots.id
+        ), listings AS (
+            SELECT category_id FROM products WHERE status = 'active'
+            UNION ALL
+            SELECT category_id FROM buy_requests WHERE status IN ('open', 'partially_fulfilled')
+        )
+        SELECT roots.root_id AS "categoryId", COUNT(*)::text AS count
+        FROM listings JOIN roots ON roots.id = listings.category_id
+        GROUP BY roots.root_id
+        ORDER BY COUNT(*) DESC
+    `)
+    return { status: 200, body: { categoryCounts: result.rows.map(item => ({ categoryId: item.categoryId, count: Number(item.count) })) } }
+}
+
 export const createProduct = async (user: AuthUser, input: Record<string, unknown>) => {
     const errors = validateProductInput(input)
     if (errors.length) return invalid(errors)

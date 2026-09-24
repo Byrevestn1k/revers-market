@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Product, User } from './App'
-import CategoryPicker from './CategoryPicker'
+import { CategoryImage } from './CategoryPicker'
 import ProductCard from './ProductCard'
 import type { MapResults } from './map-sellers'
+import { categoryChildren, categoryTrail } from './categories'
 import type { Category } from './categories'
 import './public-home.css'
 
@@ -29,10 +30,31 @@ type Props = {
 export default function PublicHome({ categories, request, user, onAccount, onCreate, openProduct, renderMap, locationReady = true }: Props) {
     const [categoryId, setCategoryId] = useState('')
     const [results, setResults] = useState<MapResults>({ markers: [], loading: true, error: '', query: '', scope: '' })
+    const [nationalCategoryCounts, setNationalCategoryCounts] = useState<Map<string, number>>(new Map())
     const [page, setPage] = useState(1)
     const [openError, setOpenError] = useState('')
     const openVersion = useRef(0)
+    const categoryRail = useRef<HTMLDivElement>(null)
     const products = useMemo(() => results.markers.filter((item) => item.kind === 'product'), [results.markers])
+    useEffect(() => {
+        let active = true
+        request('/api/categories/popular').then(result => {
+            if (active) setNationalCategoryCounts(new Map((result.categoryCounts ?? []).map((item: { categoryId: string; count: number }) => [item.categoryId, item.count])))
+        }).catch(() => { /* The category row still works alphabetically if statistics are temporarily unavailable. */ })
+        return () => { active = false }
+    }, [request])
+    const popularCategories = useMemo(() => {
+        const counts = new Map<string, number>()
+        if (results.markers.length) {
+            for (const marker of results.markers) {
+                const root = categoryTrail(categories, marker.category.id)[0]
+                if (root) counts.set(root.id, (counts.get(root.id) ?? 0) + 1)
+            }
+        } else {
+            for (const [categoryId, count] of nationalCategoryCounts) counts.set(categoryId, count)
+        }
+        return categoryChildren(categories, null).map(category => ({ category, count: counts.get(category.id) ?? 0 })).sort((a, b) => b.count - a.count || a.category.name.localeCompare(b.category.name, 'uk'))
+    }, [categories, nationalCategoryCounts, results.markers])
     const pages = Math.max(1, Math.ceil(products.length / 12))
     const activePage = Math.min(page, pages)
     useEffect(() => { setPage(1); setOpenError('') }, [results.markers])
@@ -53,7 +75,7 @@ export default function PublicHome({ categories, request, user, onAccount, onCre
         <main className="market-main">
             <section className="market-search-section" aria-labelledby="market-title"><span className="eyebrow">Поруч і для тебе</span><h1 id="market-title">Знайдіть те, що потрібно, поруч</h1></section>
             <section className="market-map" aria-label="Єдиний пошук на мапі">{renderMap({ userId: user?.id, locationReady, sharedCategoryId: categoryId, onCategoryChange: setCategoryId, onResultsChange: setResults })}</section>
-            <details className="market-categories"><summary>Усі категорії</summary><CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} allowAll className="market-category-picker" /></details>
+            <section className="market-categories" aria-label="Популярні категорії"><div className="market-category-heading"><h2>Популярні категорії</h2></div><div className="market-category-carousel"><button type="button" className="market-category-scroll market-category-scroll-prev" onClick={() => categoryRail.current?.scrollBy({ left: -Math.max(260, categoryRail.current.clientWidth - 120), behavior: 'smooth' })} aria-label="Попередні категорії"><span aria-hidden="true">‹</span></button><div className="market-category-rail" ref={categoryRail}>{popularCategories.map(({ category, count }) => <button type="button" className={categoryTrail(categories, categoryId)[0]?.id === category.id ? 'is-selected' : ''} key={category.id} onClick={() => setCategoryId(category.id)}><CategoryImage category={category} /><span>{category.name}</span>{count > 0 && <small>{count}</small>}</button>)}</div><button type="button" className="market-category-scroll market-category-scroll-next" onClick={() => categoryRail.current?.scrollBy({ left: Math.max(260, categoryRail.current.clientWidth - 120), behavior: 'smooth' })} aria-label="Наступні категорії"><span aria-hidden="true">›</span></button></div></section>
             <section className="market-results" aria-labelledby="results-title" aria-busy={results.loading}>
                 <div className="market-section-title"><h2 id="results-title">{results.query ? 'Результати для «' + results.query + '»' : 'Товари у видимій області'}{results.scope ? ' · ' + results.scope : ''}</h2><span>{products.length} товарів</span></div>
                 <p className="market-results-note">Ті самі товари, що й на мапі. Перемістіть мапу або змініть фільтри, щоб оновити список.</p>

@@ -7,7 +7,7 @@ import { confirmEmailCode, sendEmailCode } from './email-verification.js'
 import { requestPasswordReset, resetPassword, verifyPasswordResetCode } from './password-reset.js'
 import { changePassword } from './password-change.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
-import { createProduct, deleteProduct, getProduct, listCategories, listProducts, updateProduct } from './products.js'
+import { createProduct, deleteProduct, getProduct, listCategories, listPopularCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
 import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
@@ -79,6 +79,7 @@ export const createApp = () => {
     }))
 
     app.get('/api/categories', withResult(() => listCategories()))
+    app.get('/api/categories/popular', withResult(() => listPopularCategories()))
 
     app.get('/api/settlements', (request, response) => {
         if (request.query.mode === 'regions') { response.json(listSettlementRegions()); return }
