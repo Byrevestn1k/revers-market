@@ -9,7 +9,7 @@ import { changePassword } from './password-change.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listPopularCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
-import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus } from './order-service.js'
+import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus, confirmDeal, failDeal, markDealCompleted } from './order-service.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
@@ -187,6 +187,12 @@ export const createApp = () => {
     app.get('/api/orders/:id/delivery-address', requireAuth, withResult((request) => getOrderDeliveryAddress(request.authUser!, String(request.params.id))))
 
     app.patch('/api/orders/:id/status', requireAuth, withResult((request) => updateOrderStatus(request.authUser!, String(request.params.id), request.body?.status, request.body?.reason)))
+
+    app.post('/api/orders/:id/seller-confirm', requireAuth, withResult((request) => confirmDeal(request.authUser!, String(request.params.id))))
+
+    app.post('/api/orders/:id/complete', requireAuth, withResult((request) => markDealCompleted(request.authUser!, String(request.params.id))))
+
+    app.post('/api/orders/:id/fail', requireAuth, withResult((request) => failDeal(request.authUser!, String(request.params.id), request.body?.reason, request.body?.comment)))
 
     app.post('/api/orders/:id/dispute', requireAuth, withResult((request) => openDispute(request.authUser!, String(request.params.id), request.body?.reason)))
 

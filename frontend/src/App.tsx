@@ -38,7 +38,7 @@ export type Product = { publicAddress?: string; addressVisibility?: 'private' | 
 type View = 'home' | 'find' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
 type MapPoint = { latitude: number; longitude: number }
 type MapMarker = SellerProductPoint & { approximate: boolean }
-type BuyRequest = { id: string; title: string; description: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; geoArea: string; category: { name: string }; quantity: number; fulfilledQuantity: number; unit: string; status: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null }; deadline: string | null }
+type BuyRequest = { id: string; title: string; description: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; geoArea: string; category: { name: string }; quantity: number; fulfilledQuantity: number; selectedQuantity: number; completedQuantity: number; remainingQuantity: number; fulfillmentMode: 'single_seller' | 'multiple_sellers'; unit: string; status: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null }; deadline: string | null }
 type ApiError = Error & { fields?: string[]; status?: number }
 const API = import.meta.env.VITE_API_URL ?? ''
 const FALLBACK = 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=900&q=80'
@@ -547,11 +547,13 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
     const [locationBusy, setLocationBusy] = useState(false)
     const [error, setError] = useState('')
     const [errors, setErrors] = useState<Record<string, string>>({})
+    const [fulfillmentMode, setFulfillmentMode] = useState<'single_seller' | 'multiple_sellers' | ''>('')
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (busy || locationBusy) return
         setError(''); setErrors({})
         if (!categoryId) { setErrors({ categoryId: listingErrorMessages.categoryId }); return }
+        if (!fulfillmentMode) { setErrors({ fulfillmentMode: 'Оберіть спосіб виконання запиту.' }); return }
         if (!location.city.trim()) { setErrors({ location: 'Оберіть населений пункт.' }); return }
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
         if (Number(data.minPrice) > Number(data.maxPrice)) { setErrors({ priceRange: listingErrorMessages.priceRange }); return }
@@ -559,7 +561,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
             categoryId, title: title.trim(), description: data.description || '', quantity: Number(data.quantity), unit: data.unit,
             currency: data.currency, minPrice: Number(data.minPrice), maxPrice: Number(data.maxPrice),
             delivery: data.delivery, preferredDelivery: data.preferredDelivery || null, geoArea: location.city.trim(), ...addressFields(location),
-            deadline: data.deadline ? new Date(data.deadline + 'T23:59:59').toISOString() : null,
+            deadline: data.deadline ? new Date(data.deadline + 'T23:59:59').toISOString() : null, fulfillmentMode,
         }
         setBusy(true)
         try { await request('/api/buy-requests', { method: 'POST', body: JSON.stringify(payload) }); onSaved(location) }
@@ -572,6 +574,11 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
             <fieldset className="listing-section"><legend>Кількість і бюджет</legend><QuantityFields errors={errors} />
                 <div className="field-row"><label>Ціна від, за одиницю<input name="minPrice" type="number" min="0" step=".01" defaultValue="0" required /><FieldError message={errors.minPrice} /></label><label>Ціна до, за одиницю<input name="maxPrice" type="number" min="0" step=".01" defaultValue="0" required /><FieldError message={errors.maxPrice} /></label></div>
                 <FieldError message={errors.priceRange} /><CurrencyField error={errors.currency} />
+            </fieldset>
+            <fieldset className="listing-section"><legend>Як можна виконати запит?</legend>
+                <label><input type="radio" name="fulfillmentMode" value="single_seller" checked={fulfillmentMode === 'single_seller'} onChange={() => setFulfillmentMode('single_seller')} /> <b>Один продавець</b><small>Один продавець має запропонувати весь потрібний обсяг.</small></label>
+                <label><input type="radio" name="fulfillmentMode" value="multiple_sellers" checked={fulfillmentMode === 'multiple_sellers'} onChange={() => setFulfillmentMode('multiple_sellers')} /> <b>Можна кількома продавцями</b><small>Можна придбати потрібний обсяг частинами у різних продавців.</small></label>
+                <FieldError message={errors.fulfillmentMode} />
             </fieldset>
             <ListingLocationFields value={location} onChange={setLocation} request={request} onBusyChange={setLocationBusy} error={errors.location || errors.settlementCode || errors.geoArea || errors.address || errors.latitude || errors.longitude} />
             <fieldset className="listing-section"><legend>Умови запиту</legend>
@@ -623,7 +630,7 @@ function BuyRequestPage({ id, user, mine, notify, onAccount, onCreate }: { id: s
     const load = () => request('/api/buy-requests/' + encodeURIComponent(id)).then(result => setItem(result.buyRequest)).catch(error => setError(error.message))
     useEffect(() => { load() }, [id])
     useEffect(() => { if (item?.buyer?.username) request('/api/profiles/' + encodeURIComponent(item.buyer.username)).then(result => setBuyer(result.profile)).catch(() => setBuyer(null)) }, [item?.buyer?.username])
-    return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate}>{error ? <p className="form-error">{error}</p> : !item ? <p>Завантажуємо запит…</p> : <div className="listing-page-layout"><article className="listing-detail-page request-detail-page"><div className="detail-body"><span className="eyebrow">Запит покупця · {item.category.name}</span><h1>{item.title}</h1><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span><div className="detail-facts"><span>⌖ <b>{item.geoArea}</b><small>Приблизне місце</small></span><span>▧ <b>{item.quantity} {item.unit}</b><small>Потрібно</small></span><span>₴ <b>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</b><small>Бажана ціна</small></span></div><section className="listing-description"><h2>Що потрібно покупцеві</h2><p>{item.description || 'Покупець ще не додав опис.'}</p><p>{item.delivery.required ? 'Потрібна доставка' : 'Доставка не потрібна'}{item.delivery.preferred ? `: ${item.delivery.preferred}` : ''}</p></section>{user && item.buyer?.id !== user.id && (offerOpen ? <OfferForm buyRequest={item} products={mine} notify={notify} onDone={() => { setOfferOpen(false); load() }} /> : <button className="primary-button" onClick={() => setOfferOpen(true)}>Запропонувати товар</button>)}</div></article><CompactPersonCard profile={buyer} role="Покупець" /></div>}</PublicPage>
+    return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate}>{error ? <p className="form-error">{error}</p> : !item ? <p>Завантажуємо запит…</p> : <div className="listing-page-layout"><article className="listing-detail-page request-detail-page"><div className="detail-body"><span className="eyebrow">Запит покупця · {item.category.name}</span><h1>{item.title}</h1><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span><div className="detail-facts"><span>⌖ <b>{item.geoArea}</b><small>Приблизне місце</small></span><span>▧ <b>{item.quantity} {item.unit}</b><small>Потрібно</small></span><span>₴ <b>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</b><small>Бажана ціна</small></span></div><section className="listing-description"><h2>Що потрібно покупцеві</h2><p>{item.description || 'Покупець ще не додав опис.'}</p><p><b>Спосіб виконання:</b> {item.fulfillmentMode === 'single_seller' ? 'Один продавець' : 'Можна кількома продавцями'}</p><p>{item.delivery.required ? 'Потрібна доставка' : 'Доставка не потрібна'}{item.delivery.preferred ? `: ${item.delivery.preferred}` : ''}</p></section>{user && item.buyer?.id !== user.id && (offerOpen ? <OfferForm buyRequest={item} products={mine} notify={notify} onDone={() => { setOfferOpen(false); load() }} /> : <button className="primary-button" onClick={() => setOfferOpen(true)}>Запропонувати товар</button>)}</div></article><CompactPersonCard profile={buyer} role="Покупець" /></div>}</PublicPage>
 }
 
 function PublicProfilePage({ username, user, onAccount, onCreate }: { username: string; user: User | null; onAccount: () => void; onCreate: () => void }) {
@@ -704,8 +711,8 @@ type Notification = { id: string; type: string; title: string; body: string; use
 type PublicProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string | null; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number }; createdAt: string; lastSeenAt: string | null }
 type PrivateProfile = { mapLocation?: ProfileMapLocation; id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string; email: string | null; emailVerified: boolean; recoveryEmail: string | null; exactAddress: string | null; privacy: { phoneVisibility: 'private' | 'authenticated' | 'public'; phoneDisclosureConsent: boolean }; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number } }
 const OFFER_STATUS: Record<string, string> = { submitted: 'Очікує', accepted: 'Прийнято', partially_accepted: 'Частково прийнято', rejected: 'Відхилено', withdrawn: 'Відкликано', expired: 'Завершено' }
-const ORDER_STATUS: Record<string, string> = { accepted: 'Прийняте', in_progress: 'Виконується', completed: 'Завершене', cancelled: 'Скасоване', rejected: 'Відхилене', expired: 'Закінчене', disputed: 'Спір' }
-const REQUEST_STATUS: Record<string, string> = { open: 'Відкритий', partially_fulfilled: 'Частково виконаний', fulfilled: 'Виконаний', cancelled: 'Скасований', expired: 'Завершений' }
+const ORDER_STATUS: Record<string, string> = { accepted: 'Прийняте', selected: 'Очікує продавця', in_progress: 'У процесі', buyer_marked_completed: 'Очікує продавця', seller_marked_completed: 'Очікує покупця', completed: 'Завершене', failed: 'Не відбулося', cancelled: 'Скасоване', rejected: 'Відхілене', expired: 'Закінчене', disputed: 'Спір' }
+const REQUEST_STATUS: Record<string, string> = { open: 'Відкритий', partially_selected: 'Частину обрано', partially_completed: 'Частково виконаний', completed: 'Виконаний', partially_fulfilled: 'Частково виконаний', fulfilled: 'Виконаний', cancelled: 'Скасований', expired: 'Строк минув' }
 
 function OfferForm({ buyRequest, products, notify, onDone }: { buyRequest: BuyRequest; products: Product[]; notify: (message: string) => void; onDone: () => void }) {
     const [busy, setBusy] = useState(false)
@@ -814,13 +821,17 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
         try { const result = await request(`/api/buy-requests/${id}/offers`); setOffers((current) => ({ ...current, [id]: result.offers })) } catch (error) { notify((error as Error).message) }
     }
     const accept = async (offer: Offer) => {
-        const remaining = offer.quantity - offer.acceptedQuantity
-        const raw = window.prompt(`Кількість до прийняття (до ${remaining} ${offer.unit})`, String(remaining))
+        const buyRequest = requests.find((item) => item.id === offer.buyRequestId)
+        if (!buyRequest) return
+        const offerRemaining = offer.quantity - offer.acceptedQuantity
+        const remaining = Math.min(offerRemaining, buyRequest.remainingQuantity)
+        if (buyRequest.fulfillmentMode === 'single_seller' && offerRemaining < buyRequest.remainingQuantity) { notify(`Пропозиція покриває лише ${offerRemaining} із ${buyRequest.remainingQuantity} ${offer.unit}`); return }
+        const raw = buyRequest.fulfillmentMode === 'single_seller' ? String(buyRequest.remainingQuantity) : window.prompt(`Скільки бажаєте придбати? Доступно до ${remaining} ${offer.unit}`, String(remaining))
         if (raw === null) return
         const quantity = Number(raw)
         if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) { notify('Вкажіть коректну кількість'); return }
         if (!window.confirm(`Прийняти ${quantity} ${offer.unit} від ${offer.seller.username}?`)) return
-        try { await request(`/api/offers/${offer.id}/accept`, { method: 'POST', body: JSON.stringify({ quantity }) }); notify('Пропозицію прийнято — створено замовлення'); setExpanded(''); load() } catch (caught) { notify((caught as Error).message) }
+        try { await request(`/api/offers/${offer.id}/accept`, { method: 'POST', body: JSON.stringify({ quantity }) }); notify('Пропозицію обрано — очікуємо підтвердження продавця'); setExpanded(''); load() } catch (caught) { notify((caught as Error).message) }
     }
     const cancel = async (item: BuyRequest) => {
         if (!window.confirm('Скасувати цей запит?')) return
@@ -842,14 +853,14 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
     }
     return <section className="content"><div className="view-header"><div><span className="eyebrow">Мій попит</span><h1>Мої запити</h1><p className="view-subtitle">Переглядайте пропозиції продавців і приймайте їх повністю або частково.</p></div></div>
         <div className="request-list">{requests.map((item) => <article key={item.id} className="request-card"><header><div><span className="eyebrow">{item.category.name} · {item.geoArea}</span><h3><a href={'/buy-requests/' + encodeURIComponent(item.id)}>{item.title}</a></h3></div><span className="status status-active">{REQUEST_STATUS[item.status] ?? item.status}</span></header>
-            <div className="card-meta"><span>{item.fulfilledQuantity}/{item.quantity} {item.unit}</span><span>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</span><span>{item.deadline ? `до ${new Date(item.deadline).toLocaleDateString('uk-UA')}` : 'без дедлайну'}</span></div>
+            <div className="card-meta"><span>Спосіб: {item.fulfillmentMode === 'single_seller' ? 'один продавець' : 'кілька продавців'}</span><span>Потрібно: {item.quantity} {item.unit}</span>{item.fulfillmentMode === 'multiple_sellers' && <><span>Домовлено: {item.selectedQuantity} {item.unit}</span><span>Отримано: {item.completedQuantity} {item.unit}</span><span>Ще можна обрати: {item.remainingQuantity} {item.unit}</span></>}<span>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</span></div>
             <div className="request-actions"><button className="outline-button" onClick={() => toggle(item.id)}>Пропозиції{offers[item.id] ? ` (${offers[item.id].length})` : ''}</button>
-                {(item.status === 'open' || item.status === 'partially_fulfilled') && <button className="outline-button" onClick={() => saveRequest(item)}>Редагувати</button>}
-                {(item.status === 'open' || item.status === 'partially_fulfilled') && <button className="outline-button" onClick={() => cancel(item)}>Скасувати</button>}</div>
+                {['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(item.status) && <button className="outline-button" onClick={() => saveRequest(item)}>Редагувати</button>}
+                {['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(item.status) && <button className="outline-button" onClick={() => cancel(item)}>Закрити запит</button>}</div>
             {expanded === item.id && <div className="offer-list">{(offers[item.id] ?? []).map((offer) => <div key={offer.id} className="offer-row">
-                <div><strong>{offer.seller.username}{offer.existingProduct ? ` · ${offer.existingProduct.title}` : ''}</strong><small>{offer.quantity} {offer.unit} · {formatPrice(offer.price.amount, offer.price.currency)} / {offer.unit} · {offer.delivery}</small>{offer.note && <small>{offer.note}</small>}</div>
+                <div><strong>{offer.seller.username}{offer.existingProduct ? ` · ${offer.existingProduct.title}` : ''}</strong><small>{offer.quantity} {offer.unit} · {formatPrice(offer.price.amount, offer.price.currency)} / {offer.unit} · {offer.delivery}</small>{item.fulfillmentMode === 'multiple_sellers' && <small>Можна обрати до {Math.min(offer.quantity - offer.acceptedQuantity, item.remainingQuantity)} {offer.unit}</small>}{item.fulfillmentMode === 'single_seller' && <small>{offer.quantity - offer.acceptedQuantity >= item.remainingQuantity ? 'Пропозиція покриває весь запит' : `Продавець може запропонувати лише ${offer.quantity - offer.acceptedQuantity} із ${item.remainingQuantity} ${offer.unit}`}</small>}{offer.note && <small>{offer.note}</small>}</div>
                 <span className="status status-paused">{OFFER_STATUS[offer.status] ?? offer.status}</span>
-                {(offer.status === 'submitted' || offer.status === 'partially_accepted') && <button className="primary-button compact" onClick={() => accept(offer)}>Прийняти {offer.quantity - offer.acceptedQuantity} {offer.unit}</button>}
+                {(offer.status === 'submitted' || offer.status === 'partially_accepted') && (item.fulfillmentMode === 'single_seller' && offer.quantity - offer.acceptedQuantity < item.remainingQuantity ? <span className="form-hint">Не вистачає {item.remainingQuantity - (offer.quantity - offer.acceptedQuantity)} {offer.unit}</span> : <button className="primary-button compact" onClick={() => accept(offer)}>{item.fulfillmentMode === 'single_seller' ? 'Обрати продавця' : 'Обрати кількість'}</button>)}
                 <button className="outline-button compact" onClick={() => openOfferChat(offer)}>♧ Чат</button>
                 {(offer.status === 'submitted' || offer.status === 'partially_accepted') && <button className="outline-button compact" onClick={() => rejectOffer(offer)}>Відхилити</button>}
             </div>)}{!offers[item.id]?.length && <Empty text="Пропозицій ще немає" />}</div>}
@@ -914,10 +925,11 @@ function ReviewForm({ order, notify, onDone }: { order: Order; notify: (message:
 
 function OrdersView({ notify }: { notify: (message: string) => void }) {
     const [orders, setOrders] = useState<Order[]>([])
+    const [viewerId, setViewerId] = useState('')
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
     const [reviewing, setReviewing] = useState('')
     const load = async () => { try { setOrders((await request('/api/orders')).orders) } catch (error) { notify((error as Error).message) } }
-    useEffect(() => { load() }, [])
+    useEffect(() => { load(); request('/api/profile/me').then((result) => setViewerId(result.profile.id)).catch(() => undefined) }, [])
     const setStatus = async (order: Order, status: string) => {
         let reason: string | null = null
         if (status === 'cancelled') {
@@ -940,15 +952,26 @@ function OrdersView({ notify }: { notify: (message: string) => void }) {
     const openChat = async (order: Order) => {
         try { const result = await request(`/api/orders/${order.id}/conversation`); setChat({ conversationId: result.conversation.id, title: order.conditionsSnapshot?.productTitle || 'Замовлення' }) } catch (error) { notify((error as Error).message) }
     }
+    const confirmDeal = async (order: Order) => { try { await request(`/api/orders/${order.id}/seller-confirm`, { method: 'POST', body: '{}' }); notify('Пропозицію підтверджено'); load() } catch (error) { notify((error as Error).message) } }
+    const completeDeal = async (order: Order) => { try { await request(`/api/orders/${order.id}/complete`, { method: 'POST', body: '{}' }); notify('Результат угоди зафіксовано'); load() } catch (error) { notify((error as Error).message) } }
+    const failDeal = async (order: Order) => {
+        const reason = window.prompt('Причина: SELLER_CANCELLED, BUYER_CANCELLED, PRODUCT_UNAVAILABLE, PRICE_CHANGED, CONDITIONS_CHANGED, DELIVERY_PROBLEM, SELLER_NOT_RESPONDING, BUYER_NOT_RESPONDING, PRODUCT_NOT_AS_EXPECTED, FOUND_ANOTHER_OPTION або OTHER')
+        if (reason === null) return
+        const comment = reason === 'OTHER' ? window.prompt('Коротко опишіть причину:') : null
+        if (reason === 'OTHER' && comment === null) return
+        try { await request(`/api/orders/${order.id}/fail`, { method: 'POST', body: JSON.stringify({ reason, comment }) }); notify('Угоду позначено невдалою; кількість повернуто в залишок запиту'); load() } catch (error) { notify((error as Error).message) }
+    }
     return <section className="content"><div className="view-header"><div><span className="eyebrow">Угоди</span><h1>Замовлення</h1><p className="view-subtitle">Керуйте статусами і спілкуйтеся з другою стороною.</p></div><button className="outline-button" onClick={load}>↻ Оновити</button></div>
         <div className="order-list">{orders.map((order) => <article key={order.id} className="order-card"><header><div><span className="eyebrow">{order.buyer.username} ↔ {order.seller.username}</span><h3>{order.conditionsSnapshot?.productTitle || 'Замовлення'}</h3></div><span className="status status-active">{ORDER_STATUS[order.status] ?? order.status}</span></header>
             <div className="card-meta"><span>{order.quantity ?? '—'} {order.unit}</span><span>{formatPrice(order.price.unit ?? 0, order.price.currency)} / {order.unit}</span><span>{formatPrice(order.subtotal, order.price.currency)}</span></div>
             {order.cancelReason && <p className="form-hint">Причина скасування: {order.cancelReason}</p>}
             {order.dispute && <p className={order.dispute.status === 'open' ? 'form-error' : 'form-hint'}>Спір ({order.dispute.status}): {order.dispute.reason}{order.dispute.resolution ? ` — Рішення: ${order.dispute.resolution}` : ''}</p>}
             <div className="request-actions">
+                {order.status === 'selected' && order.seller.id === viewerId && <button className="primary-button compact" onClick={() => confirmDeal(order)}>Підтверджую актуальність</button>}
                 {order.status === 'accepted' && <button className="primary-button compact" onClick={() => setStatus(order, 'in_progress')}>▶ Розпочати</button>}
-                {order.status === 'in_progress' && <button className="primary-button compact" onClick={() => setStatus(order, 'completed')}>✔ Завершити</button>}
+                {['in_progress', 'buyer_marked_completed', 'seller_marked_completed'].includes(order.status) && <button className="primary-button compact" onClick={() => completeDeal(order)}>✔ Угода відбулася</button>}
                 {(order.status === 'accepted' || order.status === 'in_progress') && <button className="outline-button" onClick={() => setStatus(order, 'cancelled')}>✕ Скасувати</button>}
+                {['selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed'].includes(order.status) && <button className="outline-button" onClick={() => failDeal(order)}>Угода не відбулася</button>}
                 {['accepted', 'in_progress', 'completed'].includes(order.status) && !order.dispute && <button className="outline-button" onClick={() => openDispute(order)}>⚠ Спір</button>}
                 {order.dispute?.status === 'open' && <><button className="primary-button compact" onClick={() => resolveDispute(order, 'completed')}>Вирішити: виконано</button><button className="outline-button compact" onClick={() => resolveDispute(order, 'cancelled')}>Вирішити: скасувати</button></>}
                 <button className="outline-button" onClick={() => openChat(order)}>♧ Чат</button>

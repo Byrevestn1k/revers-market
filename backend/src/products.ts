@@ -100,7 +100,7 @@ export const listPopularCategories = async () => {
         ), listings AS (
             SELECT category_id FROM products WHERE status = 'active'
             UNION ALL
-            SELECT category_id FROM buy_requests WHERE status IN ('open', 'partially_fulfilled')
+            SELECT category_id FROM buy_requests WHERE status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')
         )
         SELECT roots.root_id AS "categoryId", COUNT(*)::text AS count
         FROM listings JOIN roots ON roots.id = listings.category_id

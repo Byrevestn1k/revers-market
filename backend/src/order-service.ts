@@ -2,9 +2,10 @@ import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 import { createNotification, audit as auditOrder, usersAreBlocked } from './community-service.js'
+import { refreshRequestQuantities } from './request-quantities.js'
 
 type Queryable = Pick<PoolClient, 'query'>
-export const orderStatuses = ['draft', 'active', 'offer_received', 'accepted', 'in_progress', 'completed', 'cancelled', 'rejected', 'expired'] as const
+export const orderStatuses = ['draft', 'active', 'offer_received', 'accepted', 'selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed', 'completed', 'failed', 'cancelled', 'rejected', 'expired'] as const
 export type OrderStatus = typeof orderStatuses[number]
 export const isOrderParticipant = (userId: string, buyerId: string, sellerId: string) => userId === buyerId || userId === sellerId
 
@@ -13,8 +14,10 @@ const transitions: Record<OrderStatus, readonly OrderStatus[]> = {
     active: ['offer_received', 'cancelled', 'expired'],
     offer_received: ['accepted', 'rejected', 'cancelled', 'expired'],
     accepted: ['in_progress', 'cancelled'],
+    selected: [],
     in_progress: ['completed', 'cancelled'],
-    completed: [], rejected: [], cancelled: [], expired: [],
+    buyer_marked_completed: [], seller_marked_completed: [],
+    completed: [], failed: [], rejected: [], cancelled: [], expired: [],
 }
 
 export const canTransitionOrder = (from: string, to: string) => orderStatuses.includes(from as OrderStatus) && transitions[from as OrderStatus].includes(to as OrderStatus)
@@ -45,12 +48,13 @@ const findOrder = async (queryable: Queryable, orderId: string, userId: string) 
     return result.rows[0]
 }
 
-export const createOrderConversation = async (queryable: Queryable, orderId: string, buyerId: string, sellerId: string) => {
-    const conversation = await queryable.query<{ id: string }>('INSERT INTO conversations (order_id) VALUES ($1) RETURNING id', [orderId])
-    await queryable.query('INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1, $2, $3), ($1, $4, $5)', [conversation.rows[0].id, buyerId, 'buyer', sellerId, 'seller'])
-    await createNotification(queryable, buyerId, 'order', 'Створено замовлення', 'Пропозицію прийнято, замовлення створено', orderId, conversation.rows[0].id)
-    await createNotification(queryable, sellerId, 'order', 'Вашу пропозицію прийнято', 'Створено замовлення і чат з покупцем', orderId, conversation.rows[0].id)
-    return conversation.rows[0].id
+export const createOrderConversation = async (queryable: Queryable, orderId: string, buyerId: string, sellerId: string, offerId?: string) => {
+    const existing = offerId ? await queryable.query<{ id: string }>('SELECT id FROM conversations WHERE offer_id = $1', [offerId]) : { rows: [] as { id: string }[] }
+    const conversation = existing.rows[0] ?? (await queryable.query<{ id: string }>('INSERT INTO conversations (order_id, offer_id) VALUES ($1, $2) RETURNING id', [orderId, offerId ?? null])).rows[0]
+    if (!existing.rows[0]) await queryable.query('INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1, $2, $3), ($1, $4, $5)', [conversation.id, buyerId, 'buyer', sellerId, 'seller'])
+    await createNotification(queryable, buyerId, 'order', 'Створено угоду', 'Пропозицію обрано, очікуємо підтвердження продавця', orderId, conversation.id)
+    await createNotification(queryable, sellerId, 'order', 'Вашу пропозицію обрали', 'Підтвердьте актуальність обраної кількості', orderId, conversation.id)
+    return conversation.id
 }
 
 export const listOrders = async (user: AuthUser) => {
@@ -83,6 +87,7 @@ export const updateOrderStatus = async (user: AuthUser, orderId: string, status:
             await client.query('UPDATE products p SET reserved_quantity = p.reserved_quantity - oi.quantity, updated_at = now() FROM order_items oi WHERE oi.order_id = $1 AND oi.product_id = p.id', [orderId])
         }
         await client.query("UPDATE orders SET status = $1, updated_at = now(), cancel_reason = $3, cancelled_by = CASE WHEN $1 = 'cancelled' THEN $4 ELSE cancelled_by END WHERE id = $2", [status, orderId, status === 'cancelled' ? String(reason).trim() : null, user.id])
+        await refreshRequestQuantities(client, current.buy_request_id)
         await client.query('COMMIT')
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
     const statusLabels: Record<string, string> = { accepted: 'прийнято', in_progress: 'у роботі', completed: 'завершено', cancelled: 'скасовано', rejected: 'відхилено', expired: 'закінчено' }
@@ -90,6 +95,84 @@ export const updateOrderStatus = async (user: AuthUser, orderId: string, status:
     const conversation = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE order_id = $1', [orderId])
     await createNotification(pool, counterpart, 'order', `Замовлення ${statusLabels[status] ?? status}`, `Контрагент змінив статус замовлення на «${statusLabels[status] ?? status}»`, orderId, conversation.rows[0]?.id ?? null)
     return getOrder(user, orderId)
+}
+
+const dealFailureReasons = ['SELLER_NOT_AVAILABLE', 'SELLER_CANCELLED', 'BUYER_CANCELLED', 'PRODUCT_UNAVAILABLE', 'PRICE_CHANGED', 'CONDITIONS_CHANGED', 'DELIVERY_PROBLEM', 'SELLER_NOT_RESPONDING', 'BUYER_NOT_RESPONDING', 'PRODUCT_NOT_AS_EXPECTED', 'FOUND_ANOTHER_OPTION', 'OTHER']
+
+const releaseDealReservation = async (client: PoolClient, orderId: string, offerId: string | null) => {
+    await client.query('UPDATE products p SET reserved_quantity = reserved_quantity - oi.quantity, updated_at = now() FROM order_items oi WHERE oi.order_id = $1 AND oi.product_id = p.id', [orderId])
+    if (offerId) await client.query(`UPDATE offers SET accepted_quantity = GREATEST(accepted_quantity - $1, 0),
+        status = CASE WHEN accepted_quantity - $1 <= 0 THEN 'submitted' ELSE 'partially_accepted' END, updated_at = now() WHERE id = $2`, [await client.query<{ quantity: string }>('SELECT quantity FROM orders WHERE id = $1', [orderId]).then((result) => Number(result.rows[0].quantity)), offerId])
+}
+
+const commitDealProducts = async (client: PoolClient, orderId: string) => {
+    await client.query(`UPDATE products p SET quantity = p.quantity - oi.quantity, reserved_quantity = p.reserved_quantity - oi.quantity,
+        status = CASE WHEN p.quantity - oi.quantity = 0 THEN 'sold' ELSE p.status END, updated_at = now()
+        FROM order_items oi WHERE oi.order_id = $1 AND oi.product_id = p.id`, [orderId])
+}
+
+export const confirmDeal = async (user: AuthUser, orderId: string) => {
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        const result = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
+        const order = result.rows[0]
+        if (!order || order.seller_id !== user.id) { await client.query('ROLLBACK'); return { status: order ? 403 : 404, body: { error: order ? 'FORBIDDEN' : 'ORDER_NOT_FOUND' } } }
+        if (order.status !== 'selected') { await client.query('ROLLBACK'); return { status: 409, body: { error: 'DEAL_NOT_WAITING_FOR_SELLER' } } }
+        await client.query("UPDATE orders SET status = 'in_progress', updated_at = now() WHERE id = $1", [orderId])
+        await refreshRequestQuantities(client, order.buy_request_id)
+        await client.query('COMMIT')
+        await createNotification(pool, order.buyer_id, 'order', 'Продавець підтвердив пропозицію', 'Можна домовлятися про обрану кількість', orderId)
+        return getOrder(user, orderId)
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+}
+
+export const failDeal = async (user: AuthUser, orderId: string, reason: unknown, comment: unknown) => {
+    if (typeof reason !== 'string' || !dealFailureReasons.includes(reason)) return { status: 400, body: { error: 'INVALID_FAILURE_REASON' } }
+    if (reason === 'OTHER' && (typeof comment !== 'string' || comment.trim().length < 3 || comment.trim().length > 1000)) return { status: 400, body: { error: 'FAILURE_COMMENT_REQUIRED' } }
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        const result = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
+        const order = result.rows[0]
+        if (!order || !isOrderParticipant(user.id, order.buyer_id, order.seller_id)) { await client.query('ROLLBACK'); return { status: order ? 403 : 404, body: { error: order ? 'FORBIDDEN' : 'ORDER_NOT_FOUND' } } }
+        if (!['selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed'].includes(order.status)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'DEAL_CANNOT_FAIL' } } }
+        const failureReason = reason === 'OTHER' ? `${reason}: ${String(comment).trim()}` : reason
+        await releaseDealReservation(client, orderId, order.offer_id)
+        await client.query("UPDATE orders SET status = 'failed', failure_reason = $2, cancelled_by = $3, updated_at = now() WHERE id = $1", [orderId, failureReason, user.id])
+        await refreshRequestQuantities(client, order.buy_request_id)
+        await client.query('COMMIT')
+        const counterpart = user.id === order.buyer_id ? order.seller_id : order.buyer_id
+        await createNotification(pool, counterpart, 'order', 'Угода не відбулася', 'Кількість знову доступна в запиті', orderId)
+        return getOrder(user, orderId)
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+}
+
+export const markDealCompleted = async (user: AuthUser, orderId: string) => {
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        const result = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
+        const order = result.rows[0]
+        if (!order || !isOrderParticipant(user.id, order.buyer_id, order.seller_id)) { await client.query('ROLLBACK'); return { status: order ? 403 : 404, body: { error: order ? 'FORBIDDEN' : 'ORDER_NOT_FOUND' } } }
+        if (!['in_progress', 'buyer_marked_completed', 'seller_marked_completed'].includes(order.status)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'DEAL_CANNOT_COMPLETE' } } }
+        const byBuyer = user.id === order.buyer_id
+        const counterpartMarked = byBuyer ? order.status === 'seller_marked_completed' : order.status === 'buyer_marked_completed'
+        if (counterpartMarked) {
+            await commitDealProducts(client, orderId)
+            await client.query("UPDATE orders SET status = 'completed', buyer_completed_at = COALESCE(buyer_completed_at, now()), seller_completed_at = COALESCE(seller_completed_at, now()), updated_at = now() WHERE id = $1", [orderId])
+            await refreshRequestQuantities(client, order.buy_request_id)
+        } else {
+            await client.query(`UPDATE orders SET status = $2,
+                buyer_completed_at = CASE WHEN $2 = 'buyer_marked_completed' THEN now() ELSE buyer_completed_at END,
+                seller_completed_at = CASE WHEN $2 = 'seller_marked_completed' THEN now() ELSE seller_completed_at END,
+                updated_at = now() WHERE id = $1`, [orderId, byBuyer ? 'buyer_marked_completed' : 'seller_marked_completed'])
+        }
+        await client.query('COMMIT')
+        const counterpart = byBuyer ? order.seller_id : order.buyer_id
+        await createNotification(pool, counterpart, 'order', counterpartMarked ? 'Угоду підтверджено' : 'Підтвердьте результат угоди', counterpartMarked ? 'Кількість зараховано до виконаного запиту' : 'Інша сторона повідомила, що угода відбулася', orderId)
+        return getOrder(user, orderId)
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
 
 export const openDispute = async (user: AuthUser, orderId: string, reason: unknown) => {
@@ -125,6 +208,7 @@ export const resolveDispute = async (user: AuthUser, orderId: string, outcome: u
             await client.query("UPDATE orders SET status = 'cancelled', cancel_reason = $2, cancelled_by = $3 WHERE id = $1", [orderId, `Спір вирішено: ${resolution.trim()}`, user.id])
         }
         await client.query("UPDATE orders SET dispute_status = 'resolved', dispute_resolution = $2, resolved_by = $3, resolved_at = now(), updated_at = now() WHERE id = $1", [orderId, resolution.trim(), user.id])
+        await refreshRequestQuantities(client, current.buy_request_id)
         await client.query('COMMIT')
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
     const counterpart = current.buyer_id === user.id ? current.seller_id : current.buyer_id
@@ -135,7 +219,10 @@ export const resolveDispute = async (user: AuthUser, orderId: string, outcome: u
 }
 
 export const getOrderConversation = async (user: AuthUser, orderId: string) => {
-    const result = await pool.query(`SELECT c.id, c.order_id, c.created_at, c.updated_at FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id WHERE c.order_id = $1 AND cp.user_id = $2`, [orderId, user.id])
+    const result = await pool.query(`SELECT c.id, c.order_id, c.created_at, c.updated_at FROM conversations c
+        JOIN conversation_participants cp ON cp.conversation_id = c.id
+        LEFT JOIN orders o ON o.id = $1
+        WHERE (c.order_id = $1 OR c.offer_id = o.offer_id) AND cp.user_id = $2`, [orderId, user.id])
     if (!result.rowCount) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
     return { status: 200, body: { conversation: result.rows[0] } }
 }
@@ -173,7 +260,7 @@ export const markConversationRead = async (user: AuthUser, conversationId: strin
 export const getOrderDeliveryAddress = async (user: AuthUser, orderId: string) => {
     const result = await pool.query<{ delivery_address: string | null }>(`SELECT r.delivery_address
         FROM orders o JOIN buy_requests r ON r.id = o.buy_request_id
-        WHERE o.id = $1 AND (o.buyer_id = $2 OR o.seller_id = $2) AND o.status IN ('accepted', 'in_progress', 'completed')`, [orderId, user.id])
+        WHERE o.id = $1 AND (o.buyer_id = $2 OR o.seller_id = $2) AND o.status IN ('accepted', 'selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed', 'completed')`, [orderId, user.id])
     if (!result.rowCount) return { status: 404, body: { error: 'DELIVERY_ADDRESS_NOT_AVAILABLE' } }
     return { status: 200, body: { deliveryAddress: result.rows[0].delivery_address } }
 }

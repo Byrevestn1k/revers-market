@@ -8,7 +8,7 @@ if (hasDatabase) {
     const { pool } = await import('./db/client.js')
 
     describe('buy requests and offers HTTP integration', () => {
-        it('keeps product terms unchanged and supports multiple partial acceptances', async () => {
+        it('keeps product terms unchanged and supports several partial deals', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const buyerPayload = { username: `buyer_${suffix}`, email: `buyer_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
             const sellerOnePayload = { username: `seller_one_${suffix}`, email: `seller_one_${suffix}@example.com`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
@@ -36,13 +36,29 @@ if (hasDatabase) {
                 expect(offerTwo.body.offer).toMatchObject({ quantity: 200, price: { amount: 245 }, note: 'Умова B' })
                 expect(offerOne.body.offer.price).not.toEqual(offerTwo.body.offer.price)
                 expect((await buyer.get(`/api/buy-requests/${requestId}/offers`)).body.offers).toHaveLength(2)
-                expect((await buyer.post(`/api/offers/${offerOne.body.offer.id}/accept`).send({ quantity: 300 })).status).toBe(201)
-                expect((await buyer.post(`/api/offers/${offerTwo.body.offer.id}/accept`).send({ quantity: 100 })).status).toBe(201)
-                expect((await buyer.get(`/api/buy-requests/${requestId}`)).body.buyRequest).toMatchObject({ quantity: 500, fulfilledQuantity: 400, status: 'partially_fulfilled' })
+                const dealOne = await buyer.post(`/api/offers/${offerOne.body.offer.id}/accept`).send({ quantity: 300 })
+                const dealTwo = await buyer.post(`/api/offers/${offerTwo.body.offer.id}/accept`).send({ quantity: 100 })
+                expect(dealOne.status).toBe(201)
+                expect(dealTwo.status).toBe(201)
+                expect((await buyer.get(`/api/buy-requests/${requestId}`)).body.buyRequest).toMatchObject({ quantity: 500, selectedQuantity: 400, completedQuantity: 0, remainingQuantity: 100, status: 'partially_selected' })
+                expect((await sellerOne.post(`/api/orders/${dealOne.body.order.id}/seller-confirm`)).status).toBe(200)
+                expect((await buyer.post(`/api/orders/${dealOne.body.order.id}/complete`)).status).toBe(200)
+                expect((await sellerOne.post(`/api/orders/${dealOne.body.order.id}/complete`)).status).toBe(200)
+                expect((await buyer.get(`/api/buy-requests/${requestId}`)).body.buyRequest).toMatchObject({ selectedQuantity: 100, completedQuantity: 300, remainingQuantity: 100, status: 'partially_selected' })
+                expect((await buyer.post(`/api/orders/${dealTwo.body.order.id}/fail`).send({ reason: 'SELLER_NOT_RESPONDING' })).status).toBe(200)
+                expect((await buyer.get(`/api/buy-requests/${requestId}`)).body.buyRequest).toMatchObject({ selectedQuantity: 0, completedQuantity: 300, remainingQuantity: 200, status: 'partially_completed' })
                 expect((await sellerOne.get(`/api/buy-requests/${requestId}/offers`)).body.offers[0].acceptedQuantity).toBe(300)
                 const unchangedProduct = (await sellerOne.get(`/api/products/${baseProduct.id}`)).body.product
-                expect(unchangedProduct).toMatchObject({ id: baseProduct.id, title: 'Базова пшениця', quantity: 1000, unit: 'kg', price: { amount: 250, currency: 'UAH' } })
+                expect(unchangedProduct).toMatchObject({ id: baseProduct.id, title: 'Базова пшениця', quantity: 700, unit: 'kg', price: { amount: 250, currency: 'UAH' } })
                 expect(unchangedProduct).toEqual(expect.objectContaining({ description: baseProduct.description, deliveryMode: baseProduct.deliveryMode, geoZone: baseProduct.geoZone }))
+                const singleRequest = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Потрібен один продавець', description: '', quantity: 100, unit: 'kg', currency: 'UAH', minPrice: 200, maxPrice: 260, delivery: 'no', geoArea: 'Київська область', fulfillmentMode: 'single_seller' })
+                expect(singleRequest.status).toBe(201)
+                const smallOffer = await sellerOne.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ quantity: 60, unit: 'kg', price: 240, currency: 'UAH', delivery: 'Самовивіз' })
+                const fullOffer = await sellerTwo.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ quantity: 100, unit: 'kg', price: 245, currency: 'UAH', delivery: 'Самовивіз' })
+                expect((await buyer.post(`/api/offers/${smallOffer.body.offer.id}/accept`).send({})).status).toBe(409)
+                const selectedSingle = await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({})
+                expect(selectedSingle.status).toBe(201)
+                expect(selectedSingle.body.order).toMatchObject({ quantity: 100, status: 'selected' })
             } finally {
                 await pool.query(
                     `DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))

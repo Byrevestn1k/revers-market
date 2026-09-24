@@ -1,6 +1,7 @@
 import { validateSettlement } from './settlements.js'
-export const BUY_REQUEST_STATUSES = ['open', 'partially_fulfilled', 'fulfilled', 'cancelled', 'expired'] as const
+export const BUY_REQUEST_STATUSES = ['open', 'partially_selected', 'partially_completed', 'completed', 'partially_fulfilled', 'fulfilled', 'cancelled', 'expired'] as const
 export const OFFER_STATUSES = ['draft', 'submitted', 'accepted', 'partially_accepted', 'rejected', 'withdrawn', 'expired'] as const
+export const FULFILLMENT_MODES = ['single_seller', 'multiple_sellers'] as const
 export const REQUEST_UNITS = ['kg', 'ton', 'litre', 'piece', 'box'] as const
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -42,6 +43,7 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
     if (!partial && input.exactPrice === undefined && input.minPrice === undefined && input.maxPrice === undefined) errors.push('price')
     if (input.deadline !== undefined && input.deadline !== null && !validDate(input.deadline)) errors.push('deadline')
     if (input.status !== undefined && !BUY_REQUEST_STATUSES.includes(input.status as typeof BUY_REQUEST_STATUSES[number])) errors.push('status')
+    if (input.fulfillmentMode !== undefined && !FULFILLMENT_MODES.includes(input.fulfillmentMode as typeof FULFILLMENT_MODES[number])) errors.push('fulfillmentMode')
     return [...new Set(errors)]
 }
 

@@ -148,7 +148,7 @@ export class MapService {
     private async buyRequests(center: MapPoint, filters: MapFilterState): Promise<MapMarker[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
         const distancePoint = filters.exactDistance ? 'r' : 'public_point'
-        const conditions = [`r.status IN ('open', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        const conditions = [`r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
         if (filters.cityName && !filters.cityBoundary) {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_area', filters, parameters)
             conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('public_point')} <= $3)` : match)
