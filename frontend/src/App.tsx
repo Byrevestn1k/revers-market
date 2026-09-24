@@ -241,8 +241,8 @@ function MapView({ categories, openProduct, notify, city, userId, locationReady 
             if (searchScope === 'nearby') params.set('nearby', 'true')
             const initialSearch = focusRevision === 0
             if (!initialSearch && searchScope !== 'nearby') for (const key of ['south', 'north', 'west', 'east'] as const) params.set(key, String(viewport[key]))
-            if (searchScope === 'country' || (searchScope === 'city' && !initialSearch)) params.set('nationwide', 'true')
-            if (searchScope === 'city' && initialSearch && searchCity) { params.set('cityName', searchCity.name); if (searchCity.settlement?.code) params.set('settlementCode', searchCity.settlement.code); params.set('cityOutsideKm', String(radius)) }
+            if (searchScope === 'country') params.set('nationwide', 'true')
+            if (searchScope === 'city' && searchCity) { params.set('cityName', searchCity.name); if (searchCity.settlement?.code) params.set('settlementCode', searchCity.settlement.code); params.set('cityOutsideKm', String(radius)) }
             if (geoZone.trim()) params.set('geoZone', geoZone.trim())
             if (geoSettlement) params.set('geoSettlementCode', geoSettlement.code)
             if (mapSearch) params.set('q', mapSearch)

@@ -88,6 +88,10 @@ if (hasDatabase) {
                 expect(publicPoint.body.markers.find((marker: { id: string }) => marker.id === publicProduct.body.product.id)).toMatchObject({ approximate: false, publicAddress: 'Київ, Публічна, 1', latitude: 50.452, longitude: 30.524 })
 
                 expect((await seller.patch('/api/profile/me').send({ mapLocation: { mode: 'pin', latitude: 49.84, longitude: 24.03, consent: true } })).status).toBe(200)
+                const remoteProfileProduct = await seller.post('/api/products').send({ categoryId: vegetables.id, title: 'Тестове оголошення в іншому місті', description: '', quantity: 10, unit: 'kg', price: 40, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Житомир', latitude: 50.2547, longitude: 28.6587, status: 'active' })
+                expect(remoteProfileProduct.status).toBe(201)
+                const atProfilePoint = await buyer.get('/api/map/markers').query({ latitude: 49.84, longitude: 24.03, radiusKm: .2, showBuyRequests: false })
+                expect(atProfilePoint.body.markers.map((marker: { id: string }) => marker.id)).not.toContain(remoteProfileProduct.body.product.id)
                 const ownPointProduct = await seller.post('/api/products').send({ categoryId: vegetables.id, title: 'Тестова власна точка товару', description: '', quantity: 10, unit: 'kg', price: 40, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київ', mapLocationMode: 'pin', latitude: 50.452, longitude: 30.524, status: 'active' })
                 expect(ownPointProduct.status).toBe(201)
                 const ownPoint = await buyer.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 10, categoryId: vegetables.id, showBuyRequests: false })
