@@ -97,6 +97,8 @@ function Auth({ onLogin, initialRegister = false }: { onLogin: (user: User) => v
 
 function Empty({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) { return <div className="empty-state"><span>✦</span><h3>{text}</h3>{action && <button className="primary-button compact" onClick={onAction}>{action}</button>}</div> }
 function Pagination({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) { return pages > 1 ? <div className="pagination"><button disabled={page === 1} onClick={() => onPage(page - 1)}>←</button><span>{page} / {pages}</span><button disabled={page === pages} onClick={() => onPage(page + 1)}>→</button></div> : null }
+const viewBreadcrumb: Partial<Record<View, string>> = { find: 'Знайти', messages: 'Мої повідомлення', create: 'Додати оголошення', mine: 'Мої оголошення', market: 'Відгуки на запити', orders: 'Мої угоди', notifications: 'Сповіщення', request: 'Подати запит', requests: 'Мої запити', profile: 'Мій профіль', products: 'Каталог', map: 'Мапа' }
+function ViewBreadcrumbs({ view }: { view: View }) { const label = viewBreadcrumb[view]; return label ? <nav className="breadcrumbs view-breadcrumbs" aria-label="Навігаційний шлях"><a href="/">Головна</a><span><i>›</i><b>{label}</b></span></nav> : null }
 
 function MapView({ categories, openProduct, openRequest, openProfile, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange }: { categories: Category[]; openProduct: (product: Product) => void; openRequest: (id: string) => void; openProfile: (username: string) => void; notify: (message: string) => void; city?: HomeCity } & Partial<HomeMapProps>) {
     const location = useSearchLocation(request, userId, city, locationReady)
@@ -590,8 +592,8 @@ function Sidebar({ user, profileAvatar, view, go, logout, unreadCount, onNotific
     return <aside className="sidebar">
         <button type="button" className="brand sidebar-logo" onClick={() => go('find')} aria-label="На сторінку пошуку"><img className="brand-logo" src="/brand/logo-full.png" alt="ДещоТреба" /></button>
         <button type="button" className="seller-badge" onClick={() => go('profile')}><div className="avatar">{profileAvatar ? <img src={profileAvatar} alt="Аватар профілю" /> : user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></button>
+        <ViewBreadcrumbs view={view} />
         <nav className="sidebar-primary">
-            {item('home', '⌂', 'Головна сторінка')}
             {item('find', '⌕', 'Знайти')}
             {item('messages', '♧', 'Мої повідомлення')}
         </nav>
@@ -603,7 +605,7 @@ function Sidebar({ user, profileAvatar, view, go, logout, unreadCount, onNotific
     </aside>
 }
 
-function PublicPage({ children, user, onAccount, onCreate }: { children: any; user: User | null; onAccount: () => void; onCreate: () => void }) { return <>{!user && <header className="market-header detail-market-header"><div className="market-header-inner"><a className="market-logo" href="/"><img className="market-logo-full" src="/brand/logo-full.png" alt="ДещоТреба" /></a><button className="market-account" onClick={onAccount}>♙ Увійти або зареєструватися</button><button className="market-add" onClick={onCreate}>＋ Додати пропозицію</button></div></header>}<main className="public-detail-page">{children}</main></> }
+function PublicPage({ children, user, onAccount, onCreate, crumbs }: { children: any; user: User | null; onAccount: () => void; onCreate: () => void; crumbs?: string[] }) { const trail = crumbs ?? [window.location.pathname.startsWith('/products/') ? 'Товари' : window.location.pathname.startsWith('/buy-requests/') ? 'Запити на покупку' : 'Профіль користувача']; return <>{!user && <header className="market-header detail-market-header"><div className="market-header-inner"><a className="market-logo" href="/"><img className="market-logo-full" src="/brand/logo-full.png" alt="ДещоТреба" /></a><button className="market-account" onClick={onAccount}>♙ Увійти або зареєструватися</button><button className="market-add" onClick={onCreate}>＋ Додати пропозицію</button></div></header>}<main className="public-detail-page"><nav className="breadcrumbs" aria-label="Навігаційний шлях"><a href="/">Головна</a>{trail.map((crumb, index) => <span key={crumb}><i>›</i>{index === trail.length - 1 ? <b>{crumb}</b> : <span>{crumb}</span>}</span>)}</nav>{children}</main></> }
 
 function CompactPersonCard({ profile, role }: { profile: PublicProfile | null; role: 'Продавець' | 'Покупець' }) { return <aside className="listing-person-card">{!profile ? <p>Завантажуємо дані {role.toLowerCase()}…</p> : <><div className="listing-person-heading"><div className="listing-person-avatar">{profile.avatarUrl ? <img src={imageUrl(profile.avatarUrl)} alt="" /> : avatarInitials(profile.nickname || profile.username)}</div><div><small>{role}</small><strong>{profile.nickname || profile.username}</strong><span>★ {profile.ratingSummary.average ?? '—'} · {profile.ratingSummary.count} відгуків</span></div></div><p>⌖ {profile.location || 'Місце не вказано'}</p><div className="listing-person-stats"><span><b>{profile.statistics.listingsCount}</b> оголошень</span><span><b>{profile.statistics.completedDealsCount}</b> угод</span></div><a className="outline-button compact" href={'/profiles/' + encodeURIComponent(profile.username)}>Переглянути профіль</a></>}</aside> }
 
