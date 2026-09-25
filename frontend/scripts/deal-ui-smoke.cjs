@@ -1,0 +1,35 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const ts = require('typescript')
+const React = require('react')
+const { renderToStaticMarkup } = require('react-dom/server')
+for (const extension of ['.ts','.tsx']) require.extensions[extension] = (module, filename) => {
+    module._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true,target:ts.ScriptTarget.ES2022}}).outputText, filename)
+}
+require.extensions['.css'] = () => {}
+global.crypto = require('node:crypto').webcrypto
+const { SelectOfferDialog, OrderResultDialog, dealStatusText } = require('../src/DealInteraction.tsx')
+const order = {id:'order',buyer:{id:'buyer'},seller:{id:'seller'},quantity:30,unit:'kg',subtotal:4200,price:{unit:140,currency:'UAH'},status:'buyer_marked_completed',buyerResult:{outcome:'completed',quantity:20,total:2700}}
+const shared = {http:async()=>{throw Error('SSR must not send requests')},onClose:()=>{},onDone:()=>{}}
+assert.match(dealStatusText(order,'buyer'),/Ви підтвердили результат.*Очікуємо продавця/)
+assert.match(dealStatusText(order,'seller'),/Покупець підтвердив результат.*Перевірте/)
+const completion = renderToStaticMarkup(React.createElement(OrderResultDialog,{...shared,order,viewerId:'seller',mode:'complete'}))
+assert.match(completion,/20 кг/)
+assert.match(completion,/2 700 UAH/)
+assert.match(completion,/Отримано лише частину/)
+assert.match(completion,/Фактич|вказаний результат/)
+assert.match(completion,/aria-label="Підтвердити результат угоди"/)
+const cancellation = renderToStaticMarkup(React.createElement(OrderResultDialog,{...shared,order,viewerId:'buyer',mode:'cancel'}))
+assert.match(cancellation,/Так, скасувати/)
+assert.match(cancellation,/Товар уже недоступний/)
+assert.match(cancellation,/кількість знову буде доступна/)
+const selection = renderToStaticMarkup(React.createElement(SelectOfferDialog,{...shared,item:{id:'request',title:'Мед',quantity:100,selectedQuantity:30,completedQuantity:40,remainingQuantity:30,unit:'kg',fulfillmentMode:'multiple_sellers',status:'partially_selected'},offer:{id:'offer',seller:{username:'Пасіка'},quantity:50,acceptedQuantity:0,unit:'kg',price:{amount:145,currency:'UAH'},delivery:'Самовивіз'}}))
+assert.match(selection,/max="30"/)
+assert.match(selection,/4 350 UAH/)
+assert.match(selection,/Оплата та передача товару відбуваються безпосередньо/)
+assert.match(selection,/Обрати і домовитися/)
+assert.doesNotMatch(selection,/>Купити</)
+const single = renderToStaticMarkup(React.createElement(SelectOfferDialog,{...shared,item:{id:'request',title:'Мед',quantity:100,selectedQuantity:0,completedQuantity:0,remainingQuantity:100,unit:'kg',fulfillmentMode:'single_seller',status:'open'},offer:{id:'offer',seller:{username:'Пасіка'},quantity:100,acceptedQuantity:0,unit:'kg',price:{amount:145,currency:'UAH'},delivery:'Самовивіз'}}))
+assert.match(single,/readOnly=""/)
+assert.match(single,/value="100"/)
+console.log('Deal UI: role-specific instructions, partial-result confirmation, cancellation, selection totals and single-seller quantity passed.')

@@ -17,8 +17,8 @@ export function ListingPicture({ product, className = '' }: { product: ProductCa
     useEffect(() => setFailed(false), [url])
     return <span className={'listing-picture ' + className}>{url && !failed ? <img src={url.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${url}` : url} alt={product.photos?.[0]?.alt || product.title} loading="lazy" onError={() => setFailed(true)} /> : <CategoryImage category={{ ...product.category, parentId: null }} />}</span>
 }
-export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatus }: {
-    product: ProductCardData; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: string) => void
+export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatus, onChat }: {
+    product: ProductCardData; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: string) => void; onChat?: () => void
 }) {
     const status = product.status ?? 'active'
     return <article className="product-card listing-card">
@@ -31,7 +31,8 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
                 {product.owner?.username && <small className="listing-owner">{product.owner.nickname || product.owner.username}</small>}
             </div>
         </button>
-        {(onEdit || onDelete || onStatus) && <div className="listing-card-actions">
+        {(onChat || onEdit || onDelete || onStatus) && <div className="listing-card-actions">
+            {onChat && <button type="button" className="primary-button compact" onClick={onChat}>♧ Написати продавцю</button>}
             {onEdit && <button type="button" className="outline-button compact" onClick={onEdit}>Редагувати</button>}
             {onDelete && <button type="button" className="outline-button compact" onClick={onDelete}>Видалити</button>}
             {onStatus && <label>Статус<select value={status} onChange={(event) => onStatus(event.target.value)}>{Object.entries(LISTING_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}

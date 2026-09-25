@@ -73,7 +73,7 @@ const profileSelect = `
            email, email_verified, pending_email,
            location_display, exact_address, settlement_code, address_settlement_code, address_latitude, address_longitude, phone_visibility, phone_disclosure_consent,
            map_location_mode, public_latitude, public_longitude,
-           listings_count, completed_deals_count, response_rate, rating_sum, rating_count, created_at, last_seen_at
+           listings_count, (SELECT count(*)::int FROM orders o WHERE (o.buyer_id = users.id OR o.seller_id = users.id) AND o.status = 'completed' AND o.buyer_completed_at IS NOT NULL AND o.seller_completed_at IS NOT NULL) AS completed_deals_count, response_rate, rating_sum, rating_count, created_at, last_seen_at
     FROM users`
 
 const toNumberOrNull = (value: string | number | null) => value === null ? null : Number(value)

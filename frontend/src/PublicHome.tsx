@@ -25,9 +25,10 @@ type Props = {
     onAccount: () => void
     onCreate: () => void
     openProduct: (product: Product) => void
+    onChat?: (product: { id: string }) => void
     renderMap: (props: HomeMapProps) => ReactNode
 }
-export default function PublicHome({ categories, request, user, onAccount, onCreate, openProduct, renderMap, locationReady = true }: Props) {
+export default function PublicHome({ categories, request, user, onAccount, onCreate, openProduct, onChat, renderMap, locationReady = true }: Props) {
     const [categoryId, setCategoryId] = useState('')
     const [results, setResults] = useState<MapResults>({ markers: [], loading: true, error: '', query: '', scope: '' })
     const [nationalCategoryCounts, setNationalCategoryCounts] = useState<Map<string, number>>(new Map())
@@ -80,7 +81,7 @@ export default function PublicHome({ categories, request, user, onAccount, onCre
                 <div className="market-section-title"><h2 id="results-title">{results.query ? 'Результати для «' + results.query + '»' : 'Товари у видимій області'}{results.scope ? ' · ' + results.scope : ''}</h2><span>{products.length} товарів</span></div>
                 <p className="market-results-note">Ті самі товари, що й на мапі. Перемістіть мапу або змініть фільтри, щоб оновити список.</p>
                 {openError && <p role="alert" className="form-error">{openError}</p>}
-                {results.loading ? <p role="status" className="market-empty">Шукаємо пропозиції…</p> : results.error ? <p role="alert" className="market-empty">{results.error}</p> : products.length ? <div className="product-grid">{products.slice((activePage - 1) * 12, activePage * 12).map((product) => <ProductCard key={product.id} product={product} onOpen={() => open(product.id)} />)}</div> : <p className="market-empty">{results.markers.length ? 'На мапі є запити покупців. Відкрийте їхні точки або увімкніть продавців.' : 'За цим пошуком у видимій області товарів немає. Змініть назву, категорію або перемістіть мапу.'}</p>}
+                {results.loading ? <p role="status" className="market-empty">Шукаємо пропозиції…</p> : results.error ? <p role="alert" className="market-empty">{results.error}</p> : products.length ? <div className="product-grid">{products.slice((activePage - 1) * 12, activePage * 12).map((product) => <ProductCard key={product.id} product={product} onOpen={() => open(product.id)} onChat={onChat ? () => onChat(product) : undefined} />)}</div> : <p className="market-empty">{results.markers.length ? 'На мапі є запити покупців. Відкрийте їхні точки або увімкніть продавців.' : 'За цим пошуком у видимій області товарів немає. Змініть назву, категорію або перемістіть мапу.'}</p>}
                 {pages > 1 && <nav className="pagination" aria-label="Сторінки пошуку"><button disabled={activePage === 1 || results.loading} onClick={() => setPage(activePage - 1)}>←</button><span>{activePage} / {pages}</span><button disabled={activePage === pages || results.loading} onClick={() => setPage(activePage + 1)}>→</button></nav>}
             </section>
         </main>

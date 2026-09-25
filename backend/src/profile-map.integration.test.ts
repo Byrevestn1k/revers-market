@@ -18,7 +18,8 @@ if (process.env.DATABASE_URL) {
                 const categoryId = (await agent.get('/api/categories')).body.categories[0].id
                 const ids: string[] = []
                 for (const position of [{ latitude: 49.84, longitude: 24.03 }, {}]) {
-                    const created = await agent.post('/api/products').send({ categoryId, title: `Мед ${suffix} ${ids.length}`, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Львів', address: 'Окрема адреса товару', status: 'active', ...position })
+                    // Profile coordinates apply only to listings in the same settlement.
+                    const created = await agent.post('/api/products').send({ categoryId, title: `Мед ${suffix} ${ids.length}`, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', address: 'Окрема адреса товару', status: 'active', ...position })
                     expect(created.status).toBe(201); ids.push(created.body.product.id)
                 }
                 expect((await agent.patch('/api/profile/me').send({ exactAddress: address, location: 'Рівне' })).status).toBe(200)

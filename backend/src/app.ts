@@ -9,7 +9,10 @@ import { changePassword } from './password-change.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listPopularCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
-import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus, confirmDeal, failDeal, markDealCompleted } from './order-service.js'
+import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateListingConversation, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus, confirmDeal, failDeal, markDealCompleted } from './order-service.js'
+import { getConversationContext, changeNegotiation } from './negotiation-service.js'
+import { getOrderContact } from './order-service.js'
+import { recordOfferView } from './buy-requests.js'
 import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
@@ -169,8 +172,11 @@ export const createApp = () => {
     app.post('/api/buy-requests/:id/offers', requireAuth, withResult((request) => createOffer(request.authUser!, String(request.params.id), request.body ?? {})))
 
     app.post('/api/offers/:id/accept', requireAuth, withResult((request) => acceptOffer(request.authUser!, String(request.params.id), request.body ?? {})))
+    app.post('/api/offers/:id/view', requireAuth, withResult((request) => recordOfferView(request.authUser!, String(request.params.id))))
 
     app.post('/api/offers/:id/conversation', requireAuth, withResult((request) => getOrCreateOfferConversation(request.authUser!, String(request.params.id))))
+    app.post('/api/products/:id/conversation', requireAuth, withResult((request) => getOrCreateListingConversation(request.authUser!, 'product', String(request.params.id))))
+    app.post('/api/buy-requests/:id/conversation', requireAuth, withResult((request) => getOrCreateListingConversation(request.authUser!, 'buy-request', String(request.params.id))))
 
     app.patch('/api/offers/:id', requireAuth, withResult((request) => updateOffer(request.authUser!, String(request.params.id), request.body ?? {})))
 
@@ -185,12 +191,13 @@ export const createApp = () => {
     app.get('/api/orders/:id', requireAuth, withResult((request) => getOrder(request.authUser!, String(request.params.id))))
 
     app.get('/api/orders/:id/delivery-address', requireAuth, withResult((request) => getOrderDeliveryAddress(request.authUser!, String(request.params.id))))
+    app.get('/api/orders/:id/contact', requireAuth, withResult((request) => getOrderContact(request.authUser!, String(request.params.id))))
 
     app.patch('/api/orders/:id/status', requireAuth, withResult((request) => updateOrderStatus(request.authUser!, String(request.params.id), request.body?.status, request.body?.reason)))
 
     app.post('/api/orders/:id/seller-confirm', requireAuth, withResult((request) => confirmDeal(request.authUser!, String(request.params.id))))
 
-    app.post('/api/orders/:id/complete', requireAuth, withResult((request) => markDealCompleted(request.authUser!, String(request.params.id))))
+    app.post('/api/orders/:id/complete', requireAuth, withResult((request) => markDealCompleted(request.authUser!, String(request.params.id), request.body ?? {})))
 
     app.post('/api/orders/:id/fail', requireAuth, withResult((request) => failDeal(request.authUser!, String(request.params.id), request.body?.reason, request.body?.comment)))
 
@@ -201,6 +208,8 @@ export const createApp = () => {
     app.get('/api/orders/:id/conversation', requireAuth, withResult((request) => getOrderConversation(request.authUser!, String(request.params.id))))
 
     app.get('/api/conversations/:id/messages', requireAuth, withResult((request) => listMessages(request.authUser!, String(request.params.id))))
+    app.get('/api/conversations/:id/context', requireAuth, withResult((request) => getConversationContext(request.authUser!, String(request.params.id))))
+    app.post('/api/conversations/:id/negotiations', requireAuth, withResult((request) => changeNegotiation(request.authUser!, String(request.params.id), request.body ?? {})))
 
     app.post('/api/conversations/:id/messages', requireAuth, withResult((request) => createMessage(request.authUser!, String(request.params.id), request.body?.body)))
 

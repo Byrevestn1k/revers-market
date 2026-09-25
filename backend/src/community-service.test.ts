@@ -9,12 +9,12 @@ afterEach(() => {
 })
 
 describe('review rating validation', () => {
-    it('accepts integer ratings 1-5', () => {
-        for (const rating of [1, 2, 3, 4, 5]) expect(validateRating(rating)).toBeNull()
+    it('accepts integer ratings 1-12', () => {
+        for (const rating of Array.from({length:12}, (_, i) => i + 1)) expect(validateRating(rating)).toBeNull()
     })
 
-    it.each([[0], [6], [12], [-1], [1.5], ['4'], [null], [undefined]])('rejects rating %p', (rating) => {
-        expect(validateRating(rating)).toBe('Оцінка має бути цілим числом від 1 до 5')
+    it.each([[0], [13], [NaN], [-1], [1.5], ['4'], [null], [undefined]])('rejects rating %p', (rating) => {
+        expect(validateRating(rating)).toBe('Оцінка має бути цілим числом від 1 до 12')
     })
 })
 

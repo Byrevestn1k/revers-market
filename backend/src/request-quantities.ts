@@ -7,8 +7,8 @@ type Queryable = Pick<PoolClient, 'query'>
 export const refreshRequestQuantities = async (queryable: Queryable, requestId: string) => {
     const totals = await queryable.query<{ selected_quantity: string; completed_quantity: string; requested_quantity: string; status: string }>(
         `SELECT r.requested_quantity, r.status,
-            COALESCE(SUM(o.quantity) FILTER (WHERE o.status IN ('accepted', 'selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed')), 0) AS selected_quantity,
-            COALESCE(SUM(o.quantity) FILTER (WHERE o.status = 'completed'), 0) AS completed_quantity
+            COALESCE(SUM(o.quantity) FILTER (WHERE o.status IN ('accepted', 'selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed', 'disputed')), 0) AS selected_quantity,
+            COALESCE(SUM(COALESCE(o.actual_quantity, o.quantity)) FILTER (WHERE o.status = 'completed'), 0) AS completed_quantity
          FROM buy_requests r LEFT JOIN orders o ON o.buy_request_id = r.id
          WHERE r.id = $1 GROUP BY r.id`, [requestId],
     )

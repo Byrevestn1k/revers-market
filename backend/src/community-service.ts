@@ -35,17 +35,31 @@ export const markNotificationsRead = async (user: AuthUser, notificationId?: str
 }
 
 export const listConversations = async (user: AuthUser) => {
-    const result = await pool.query(`SELECT c.id, c.order_id AS "orderId", c.offer_id AS "offerId", COALESCE(o.status, ofr.status) AS status,
-        CASE WHEN COALESCE(o.buyer_id, r.buyer_id) = $1 THEN su.username ELSE bu.username END AS "otherUsername",
-        CASE WHEN COALESCE(o.seller_id, ofr.seller_id) = $1 THEN 'selling' ELSE 'buying' END AS "userRole",
+    const result = await pool.query(`SELECT c.id, c.order_id AS "orderId", c.offer_id AS "offerId", c.product_id AS "productId", c.buy_request_id AS "buyRequestId",
+        COALESCE(o.status, ofr.status, p.status, direct_request.status) AS status,
+        CASE WHEN c.order_id IS NOT NULL THEN 'deal' WHEN c.offer_id IS NOT NULL THEN 'offer' ELSE 'direct' END AS "type",
+        COALESCE(o.conditions_snapshot->>'productTitle', p.title, offer_product.title, direct_request.title, offer_request.title, 'Обговорення') AS title,
+        COALESCE(o.unit_price, ofr.unit_price, p.price, offer_product.price, direct_request.max_unit_price, offer_request.max_unit_price) AS price,
+        COALESCE(o.currency, ofr.currency, p.currency, offer_product.currency, direct_request.currency, offer_request.currency) AS currency,
+        COALESCE((SELECT pp.url FROM product_photos pp WHERE pp.product_id = COALESCE(p.id, offer_product.id) ORDER BY pp.sort_order, pp.id LIMIT 1), ofr.additional_photo_url) AS "imageUrl",
+        other_user.id AS "otherUserId", other_user.username AS "otherUsername", other_user.avatar_url AS "otherAvatarUrl", mine.role AS "userRole",
         (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessage",
+        (SELECT sender_id FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageSenderId",
+        COALESCE((SELECT sender_id = $1 FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), false) AS "lastMessageIsMine",
         (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageAt",
-        cp.last_read_at AS "lastReadAt"
-        FROM conversations c LEFT JOIN orders o ON o.id = c.order_id
-        LEFT JOIN offers ofr ON ofr.id = c.offer_id LEFT JOIN buy_requests r ON r.id = ofr.buy_request_id
-        JOIN users bu ON bu.id = COALESCE(o.buyer_id, r.buyer_id) JOIN users su ON su.id = COALESCE(o.seller_id, ofr.seller_id)
-        JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1
-        WHERE COALESCE(o.buyer_id, r.buyer_id) = $1 OR COALESCE(o.seller_id, ofr.seller_id) = $1 ORDER BY COALESCE("lastMessageAt", c.created_at) DESC`, [user.id])
+        mine.last_read_at AS "lastReadAt", c.created_at AS "createdAt", c.updated_at AS "updatedAt",
+        (SELECT count(*)::integer FROM messages m WHERE m.conversation_id = c.id AND m.sender_id <> $1 AND m.created_at > COALESCE(mine.last_read_at, '-infinity'::timestamptz)) AS "unreadCount"
+        FROM conversations c
+        JOIN conversation_participants mine ON mine.conversation_id = c.id AND mine.user_id = $1
+        JOIN conversation_participants other ON other.conversation_id = c.id AND other.user_id <> $1
+        JOIN users other_user ON other_user.id = other.user_id
+        LEFT JOIN orders o ON o.id = c.order_id
+        LEFT JOIN offers ofr ON ofr.id = c.offer_id
+        LEFT JOIN products p ON p.id = c.product_id
+        LEFT JOIN products offer_product ON offer_product.id = ofr.product_id
+        LEFT JOIN buy_requests direct_request ON direct_request.id = c.buy_request_id
+        LEFT JOIN buy_requests offer_request ON offer_request.id = ofr.buy_request_id
+        ORDER BY COALESCE((SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), c.created_at) DESC`, [user.id])
     return { status: 200, body: { conversations: result.rows } }
 }
 
@@ -53,7 +67,7 @@ export type ReviewInput = { rating: number; body?: string }
 export type ReportInput = { targetType: string; targetId: string; reason: string; details?: string }
 
 export const validateRating = (rating: unknown): string | null => {
-    if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5) return 'Оцінка має бути цілим числом від 1 до 5'
+    if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 12) return 'Оцінка має бути цілим числом від 1 до 12'
     return null
 }
 
@@ -71,25 +85,47 @@ export const createReview = async (user: AuthUser, orderId: string, input: Recor
     if (bodyError) return invalid(bodyError)
     const rating = input.rating as number
     const body = input.body === undefined || input.body === null ? '' : (input.body as string).trim()
-    const order = await pool.query('SELECT buyer_id, seller_id, status FROM orders WHERE id = $1', [orderId])
-    if (!order.rowCount) return { status: 404, body: { error: 'ORDER_NOT_FOUND' } }
-    const row = order.rows[0]
-    if (row.status !== 'completed') return { status: 409, body: { error: 'ORDER_NOT_COMPLETED' } }
-    if (row.buyer_id !== user.id && row.seller_id !== user.id) return { status: 403, body: { error: 'FORBIDDEN' } }
-    const revieweeId = row.buyer_id === user.id ? row.seller_id : row.buyer_id
+    for (const field of ['communicationRating','complianceRating','descriptionRating']) if (input[field] !== undefined && validateRating(input[field])) return invalid('Оцінки за критеріями мають бути від 1 до 12')
+    const client = await pool.connect()
     try {
-        const result = await pool.query('INSERT INTO reviews (order_id, reviewer_id, reviewee_id, rating, body) VALUES ($1,$2,$3,$4,$5) RETURNING id, order_id AS "orderId", reviewer_id AS "reviewerId", reviewee_id AS "revieweeId", rating, body, created_at AS "createdAt"', [orderId, user.id, revieweeId, rating, body])
-        await audit(pool, user.id, 'review.created', 'review', result.rows[0].id, { orderId })
-        await createNotification(pool, revieweeId, 'review', 'Новий відгук', 'Після завершеної угоди залишено новий відгук')
+    await client.query('BEGIN')
+    const order = await client.query('SELECT buyer_id, seller_id, status, workflow_version, buyer_completed_at, seller_completed_at FROM orders WHERE id = $1 FOR UPDATE', [orderId])
+    if (!order.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'ORDER_NOT_FOUND' } } }
+    const row = order.rows[0]
+    if (row.buyer_id !== user.id && row.seller_id !== user.id) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'FORBIDDEN' } } }
+    if (row.status !== 'completed' || (row.workflow_version >= 2 && (!row.buyer_completed_at || !row.seller_completed_at))) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'ORDER_NOT_COMPLETED' } } }
+    const revieweeId = row.buyer_id === user.id ? row.seller_id : row.buyer_id
+        const days = Number(process.env.REVIEW_BLIND_DAYS ?? 14)
+        const result = await client.query(`INSERT INTO reviews (order_id, reviewer_id, reviewee_id, rating, body, communication_rating, compliance_rating, description_rating, publish_after)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now() + $9 * interval '1 day') RETURNING id, rating, body, published_at AS "publishedAt"`,
+            [orderId, user.id, revieweeId, rating, body, input.communicationRating ?? null, input.complianceRating ?? null, row.buyer_id === user.id ? input.descriptionRating ?? null : null, Number.isFinite(days) && days > 0 ? days : 14])
+        await audit(client, user.id, 'REVIEW_CREATED', 'review', result.rows[0].id, { orderId })
+        const count = (await client.query('SELECT count(*)::int AS count FROM reviews WHERE order_id = $1', [orderId])).rows[0].count
+        if (count >= 2) await publishReviews(client, orderId)
+        await createNotification(client, revieweeId, 'review', 'Учасник залишив відгук', count >= 2 ? 'Обидва відгуки тепер відкриті.' : 'Залиште свій відгук, щоб побачити обидві оцінки.', orderId)
+        await client.query('COMMIT')
         return { status: 201, body: { review: result.rows[0] } }
     } catch (error: unknown) {
+        await client.query('ROLLBACK')
         if ((error as { code?: string }).code === '23505') return { status: 409, body: { error: 'REVIEW_ALREADY_EXISTS' } }
         throw error
-    }
+    } finally { client.release() }
+}
+
+const publishReviews = async (queryable: Queryable, orderId?: string) => {
+    const published = await queryable.query(`UPDATE reviews SET published_at = now() WHERE published_at IS NULL AND ${orderId ? 'order_id = $1' : 'publish_after <= now()'} RETURNING id, order_id`, orderId ? [orderId] : [])
+    for (const row of published.rows) await audit(queryable, null, 'REVIEW_PUBLISHED', 'review', row.id, { orderId: row.order_id })
+}
+
+export const publishDueReviews = async () => {
+    const client = await pool.connect()
+    try { await client.query('BEGIN'); await publishReviews(client); await client.query('COMMIT') }
+    catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
 
 export const listReviews = async (username: string) => {
-    const result = await pool.query('SELECT r.id, r.order_id AS "orderId", r.rating, r.body, r.created_at AS "createdAt", u.username AS "reviewerUsername" FROM reviews r JOIN users u ON u.id = r.reviewer_id JOIN users target ON target.id = r.reviewee_id WHERE target.username_normalized = $1 ORDER BY r.created_at DESC LIMIT 100', [username.trim().toLowerCase()])
+    await publishDueReviews()
+    const result = await pool.query('SELECT r.id, r.order_id AS "orderId", r.rating, r.body, r.communication_rating AS "communicationRating", r.compliance_rating AS "complianceRating", r.description_rating AS "descriptionRating", r.created_at AS "createdAt", u.username AS "reviewerUsername" FROM reviews r JOIN users u ON u.id = r.reviewer_id JOIN users target ON target.id = r.reviewee_id WHERE target.username_normalized = $1 AND r.published_at IS NOT NULL ORDER BY r.created_at DESC LIMIT 100', [username.trim().toLowerCase()])
     return { status: 200, body: { reviews: result.rows } }
 }
 

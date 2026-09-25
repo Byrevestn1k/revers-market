@@ -56,6 +56,8 @@ export const validateOfferInput = (input: Record<string, unknown>, partial = fal
     if (required('price') && !validPrice(input.price)) errors.push('price')
     if (required('currency') && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) errors.push('currency')
     if (required('delivery') && (typeof input.delivery !== 'string' || input.delivery.trim().length < 1 || input.delivery.length > 160)) errors.push('delivery')
+    if (input.deliveryPrice !== undefined && !validPrice(input.deliveryPrice)) errors.push('deliveryPrice')
+    if (input.availableAt !== undefined && (typeof input.availableAt !== 'string' || input.availableAt.length > 160)) errors.push('availableAt')
     if (input.note !== undefined && (typeof input.note !== 'string' || input.note.length > 5000)) errors.push('note')
     if (input.additionalPhotoUrl !== undefined && input.additionalPhotoUrl !== null) {
         try { const url = new URL(String(input.additionalPhotoUrl)); if (!['http:', 'https:'].includes(url.protocol) || String(input.additionalPhotoUrl).length > 2048) errors.push('additionalPhotoUrl') } catch { errors.push('additionalPhotoUrl') }
