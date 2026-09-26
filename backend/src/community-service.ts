@@ -42,6 +42,9 @@ export const listConversations = async (user: AuthUser) => {
         COALESCE(o.unit_price, ofr.unit_price, p.price, offer_product.price, direct_request.max_unit_price, offer_request.max_unit_price) AS price,
         COALESCE(o.currency, ofr.currency, p.currency, offer_product.currency, direct_request.currency, offer_request.currency) AS currency,
         COALESCE((SELECT pp.url FROM product_photos pp WHERE pp.product_id = COALESCE(p.id, offer_product.id) ORDER BY pp.sort_order, pp.id LIMIT 1), ofr.additional_photo_url) AS "imageUrl",
+        COALESCE(direct_category.id, offer_request_category.id) AS "categoryId",
+        COALESCE(direct_category.name, offer_request_category.name) AS "categoryName",
+        COALESCE(direct_category.image_index, offer_request_category.image_index) AS "categoryImageIndex",
         other_user.id AS "otherUserId", other_user.username AS "otherUsername", other_user.avatar_url AS "otherAvatarUrl", mine.role AS "userRole",
         (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessage",
         (SELECT sender_id FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageSenderId",
@@ -59,6 +62,8 @@ export const listConversations = async (user: AuthUser) => {
         LEFT JOIN products offer_product ON offer_product.id = ofr.product_id
         LEFT JOIN buy_requests direct_request ON direct_request.id = c.buy_request_id
         LEFT JOIN buy_requests offer_request ON offer_request.id = ofr.buy_request_id
+        LEFT JOIN categories direct_category ON direct_category.id = direct_request.category_id
+        LEFT JOIN categories offer_request_category ON offer_request_category.id = offer_request.category_id
         ORDER BY COALESCE((SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), c.created_at) DESC`, [user.id])
     return { status: 200, body: { conversations: result.rows } }
 }

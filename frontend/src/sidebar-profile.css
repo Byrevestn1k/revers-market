@@ -6,7 +6,7 @@
 .sidebar-logo{width:100%;border:0;background:transparent;cursor:pointer;text-align:left}
 .main-area .market-header{display:none}
 .sidebar-primary{padding-bottom:.9rem;border-bottom:1px solid var(--line)}
-.sidebar-groups{display:grid!important;gap:.6rem!important;overflow:auto;margin-top:1rem}
+.sidebar-groups{display:grid!important;gap:.6rem!important;margin-top:1rem}
 .sidebar-group{display:grid;gap:.25rem}
 .sidebar-group-toggle{display:flex!important;justify-content:space-between;color:var(--ink)!important;font-weight:800!important}
 .sidebar-group>div{display:grid;gap:.2rem}
@@ -17,4 +17,5 @@
 .message-scope-tabs button.active{color:var(--green);background:var(--pale);border-color:#b9d9bf}
 .notification-display-setting{display:flex;align-items:center;gap:.5rem;margin:1rem 0;color:var(--muted);font-size:.8rem;font-weight:700}
 
+@media(min-width:761px){.sidebar{overflow-y:auto}.sidebar-groups{overflow:visible}}
 @media(max-width:760px){.sidebar-groups{overflow:visible}.message-scope-tabs{overflow:auto;white-space:nowrap}}

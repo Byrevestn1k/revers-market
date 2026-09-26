@@ -329,7 +329,7 @@ const conversationForUser = async (user: AuthUser, conversationId: string) => {
 
 export const listMessages = async (user: AuthUser, conversationId: string) => {
     if (!(await conversationForUser(user, conversationId))) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
-    const result = await pool.query('SELECT m.id, m.kind, m.conversation_id AS "conversationId", m.sender_id AS "senderId", u.username AS "senderUsername", m.body, m.created_at AS "createdAt" FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at, m.id', [conversationId])
+    const result = await pool.query('SELECT m.id, m.kind, m.conversation_id AS "conversationId", m.sender_id AS "senderId", u.username AS "senderUsername", u.avatar_url AS "senderAvatarUrl", m.body, m.created_at AS "createdAt" FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at, m.id', [conversationId])
     return { status: 200, body: { messages: result.rows } }
 }
 
