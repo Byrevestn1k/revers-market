@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, isValidElement, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import PasswordInput from './PasswordInput'
@@ -33,10 +34,11 @@ import type { MapViewport } from './map-clusters'
 import type { HomeCity, HomeMapProps } from './PublicHome'
 import './sidebar-profile.css'
 import { RequestOffers, DealChat, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
+import { conversationIdForPath, legacyDestination, viewForPath, viewRoutes, type AppView } from './navigation'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
 export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; address?: string | null; coordinates?: MapPoint | null; status: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
-type View = 'home' | 'find' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
+type View = AppView
 type MapPoint = { latitude: number; longitude: number }
 type MapMarker = SellerProductPoint & { approximate: boolean }
 type MapReturnState = { center: MapPoint; zoom: number; radius: number; nearbyRadius: number; geoZone: string; geoSettlement: Settlement | null; localCategoryId: string; showProducts: boolean; showBuyRequests: boolean; mapQuery: string; mapSearch: string; searchIn: 'title' | 'all' | 'owner'; searchScope: 'city' | 'nearby' | 'area' | 'country'; resultPage: number }
@@ -46,6 +48,7 @@ const API = import.meta.env.VITE_API_URL ?? ''
 const FALLBACK = 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=900&q=80'
 const STATUS: Record<string, string> = { draft: 'Чернетка', active: 'Активний', paused: 'Призупинений', sold: 'Проданий', expired: 'Завершений' }
 const PRODUCT_STATUSES = ['draft', 'active', 'paused', 'sold', 'expired'] as const
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const imageUrl = (url: string) => url.startsWith('/') ? `${API}${url}` : url
 
 async function request(path: string, options?: RequestInit) {
@@ -100,7 +103,7 @@ function Auth({ onLogin, initialRegister = false }: { onLogin: (user: User) => v
 function Empty({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) { return <div className="empty-state"><span>✦</span><h3>{text}</h3>{action && <button className="primary-button compact" onClick={onAction}>{action}</button>}</div> }
 function Pagination({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) { return pages > 1 ? <div className="pagination"><button disabled={page === 1} onClick={() => onPage(page - 1)}>←</button><span>{page} / {pages}</span><button disabled={page === pages} onClick={() => onPage(page + 1)}>→</button></div> : null }
 const viewBreadcrumb: Partial<Record<View, string>> = { find: 'Знайти', messages: 'Мої повідомлення', create: 'Додати оголошення', mine: 'Мої оголошення', market: 'Відгуки на запити', orders: 'Мої угоди', notifications: 'Сповіщення', request: 'Подати запит', requests: 'Мої запити', profile: 'Мій профіль', products: 'Каталог', map: 'Мапа' }
-function ViewBreadcrumbs({ view }: { view: View }) { const label = viewBreadcrumb[view]; return label ? <nav className="breadcrumbs view-breadcrumbs" aria-label="Навігаційний шлях"><a href="/">Головна</a><span><i>›</i><b>{label}</b></span></nav> : null }
+function ViewBreadcrumbs({ view }: { view: View }) { const label = viewBreadcrumb[view]; const conversationId = conversationIdForPath(window.location.pathname); return label ? <nav className="breadcrumbs view-breadcrumbs" aria-label="Навігаційний шлях"><a href="/dashboard">Головна</a>{conversationId && <span><i>›</i><a href="/messages">Мої повідомлення</a></span>}<span><i>›</i><b aria-current="page">{conversationId ? 'Розмова' : label}</b></span></nav> : null }
 
 function MapView({ categories, openProduct, openRequest, openProfile, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange }: { categories: Category[]; openProduct: (product: Product) => void; openRequest: (id: string, mapState?: MapReturnState) => void; openProfile: (username: string) => void; notify: (message: string) => void; city?: HomeCity } & Partial<HomeMapProps>) {
     const restored = useRef<MapReturnState | null>((window.history.state as { mapReturn?: MapReturnState } | null)?.mapReturn ?? null).current
@@ -599,11 +602,12 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
 function Sidebar({ user, profileAvatar, view, go, logout, unreadCount, onNotificationScope }: { user: User; profileAvatar: string | null; view: View; go: (view: View) => void; logout: () => void; unreadCount: number; onNotificationScope: (scope: 'selling' | 'buying') => void }) {
     const [sellingOpen, setSellingOpen] = useState(true)
     const [buyingOpen, setBuyingOpen] = useState(true)
+    const [mainArea, setMainArea] = useState<Element | null>(null)
+    useEffect(() => { setMainArea(document.querySelector('.main-area')) }, [])
     const item = (key: View, icon: string, text: string, notificationScope?: 'selling' | 'buying') => <button key={`${key}-${notificationScope ?? ''}`} className={view === key ? 'active' : ''} onClick={() => { if (notificationScope) onNotificationScope(notificationScope); go(key) }}><span>{icon}</span><span>{text}</span>{notificationScope && unreadCount > 0 && <b className="sidebar-notification-count" aria-label={`Непрочитані сповіщення: ${unreadCount}`}>{unreadCount}</b>}</button>
-    return <aside className="sidebar">
+    return <><aside className="sidebar">
         <button type="button" className="brand sidebar-logo" onClick={() => go('find')} aria-label="На сторінку пошуку"><img className="brand-logo" src="/brand/logo-full.png" alt="ДещоТреба" /></button>
         <button type="button" className="seller-badge" onClick={() => go('profile')}><div className="avatar">{profileAvatar ? <img src={profileAvatar} alt="Аватар профілю" /> : user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></button>
-        <ViewBreadcrumbs view={view} />
         <nav className="sidebar-primary">
             {item('find', '⌕', 'Знайти')}
             {item('messages', '♧', 'Мої повідомлення')}
@@ -613,16 +617,18 @@ function Sidebar({ user, profileAvatar, view, go, logout, unreadCount, onNotific
             <section className="sidebar-group"><button type="button" className="sidebar-group-toggle" onClick={() => setBuyingOpen(value => !value)} aria-expanded={buyingOpen}><span>Запити на покупку</span><span aria-hidden="true">{buyingOpen ? '⌃' : '⌄'}</span></button>{buyingOpen && <div>{item('request', '＋', 'Подати запит')}{item('requests', '⇅', 'Мої запити')}{item('orders', '▤', 'Мої домовленості')}{item('notifications', '•', 'Сповіщення', 'buying')}</div>}</section>
         </nav>
         <button className="sidebar-exit" onClick={logout}>↪ Вийти</button>
-    </aside>
+    </aside>{mainArea && viewForPath(window.location.pathname) && createPortal(<ViewBreadcrumbs view={view} />, mainArea)}</>
 }
 
-function PublicPage({ children, user, onAccount, onCreate, crumbs }: { children: any; user: User | null; onAccount: () => void; onCreate: () => void; crumbs?: string[] }) { const trail = crumbs ?? [window.location.pathname.startsWith('/products/') ? 'Товари' : window.location.pathname.startsWith('/buy-requests/') ? 'Запити на покупку' : 'Профіль користувача']; return <>{!user && <header className="market-header detail-market-header"><div className="market-header-inner"><a className="market-logo" href="/"><img className="market-logo-full" src="/brand/logo-full.png" alt="ДещоТреба" /></a><button className="market-account" onClick={onAccount}>♙ Увійти або зареєструватися</button><button className="market-add" onClick={onCreate}>＋ Додати пропозицію</button></div></header>}<main className="public-detail-page"><nav className="breadcrumbs" aria-label="Навігаційний шлях"><a href="/">Головна</a>{trail.map((crumb, index) => <span key={crumb}><i>›</i>{index === trail.length - 1 ? <b>{crumb}</b> : <span>{crumb}</span>}</span>)}</nav>{children}</main></> }
+type Breadcrumb = { label: string; href?: string }
+function findPageHeading(node: any): string | null { if (Array.isArray(node)) return node.map(findPageHeading).find(Boolean) ?? null; if (!isValidElement(node)) return null; if (node.type === 'h1' && typeof node.props.children === 'string') return node.props.children; return findPageHeading(node.props.children) }
+function PublicPage({ children, user, onAccount, onCreate, crumbs }: { children: any; user: User | null; onAccount: () => void; onCreate: () => void; crumbs?: Breadcrumb[] }) { const heading = findPageHeading(children); const trail = crumbs ?? (window.location.pathname.startsWith('/products/') ? [{ label: 'Товари', href: '/products' }, { label: heading ?? 'Товар' }] : window.location.pathname.startsWith('/buy-requests/') ? [{ label: 'Запити на покупку', href: '/requests' }, { label: heading ?? 'Запит' }] : [{ label: 'Профілі', href: '/discover' }, { label: heading ?? 'Профіль користувача' }]); return <>{!user && <header className="market-header detail-market-header"><div className="market-header-inner"><a className="market-logo" href="/discover"><img className="market-logo-full" src="/brand/logo-full.png" alt="ДещоТреба" /></a><button className="market-account" onClick={onAccount}>♙ Увійти або зареєструватися</button><button className="market-add" onClick={onCreate}>＋ Додати пропозицію</button></div></header>}<main className="public-detail-page"><nav className="breadcrumbs" aria-label="Навігаційний шлях"><a href={user ? '/dashboard' : '/discover'}>Головна</a>{trail.map((crumb, index) => <span key={`${crumb.label}-${index}`}><i>›</i>{crumb.href ? <a href={crumb.href}>{crumb.label}</a> : <b aria-current="page">{crumb.label}</b>}</span>)}</nav>{children}</main></> }
 
 function CompactPersonCard({ profile, role }: { profile: PublicProfile | null; role: 'Продавець' | 'Покупець' }) { return <aside className="listing-person-card">{!profile ? <p>Завантажуємо дані {role.toLowerCase()}…</p> : <><div className="listing-person-heading"><div className="listing-person-avatar">{profile.avatarUrl ? <img src={imageUrl(profile.avatarUrl)} alt="" /> : avatarInitials(profile.nickname || profile.username)}</div><div><small>{role}</small><strong>{profile.nickname || profile.username}</strong><span>★ {profile.ratingSummary.average ?? '—'} · {profile.ratingSummary.count} відгуків</span></div></div><p>⌖ {profile.location || 'Місце не вказано'}</p><div className="listing-person-stats"><span><b>{profile.statistics.listingsCount}</b> оголошень</span><span><b>{profile.statistics.completedDealsCount}</b> угод</span></div><a className="outline-button compact" href={'/profiles/' + encodeURIComponent(profile.username)}>Переглянути профіль</a></>}</aside> }
 
 function ProductPage({ id, user, onEdit, onAccount, onCreate, onChat }: { id: string; user: User | null; onEdit: (product: Product) => void; onAccount: () => void; onCreate: () => void; onChat: (product: Product) => void }) {
     const [product, setProduct] = useState<Product | null>(null), [error, setError] = useState('')
-    useEffect(() => { request('/api/products/' + encodeURIComponent(id)).then(result => setProduct(result.product)).catch(error => setError(error.message)) }, [id])
+    useEffect(() => { if (!UUID_PATTERN.test(id)) { setError('Товар не знайдено або він недоступний.'); return }; request('/api/products/' + encodeURIComponent(id)).then(result => setProduct(result.product)).catch((error: ApiError) => setError(error.status === 404 ? 'Товар не знайдено або він недоступний.' : error.message)) }, [id])
     const [seller, setSeller] = useState<PublicProfile | null>(null)
     useEffect(() => { if (product?.owner.username) request('/api/profiles/' + encodeURIComponent(product.owner.username)).then(result => setSeller(result.profile)).catch(() => setSeller(null)) }, [product?.owner.username])
     return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate}>{error ? <p className="form-error">{error}</p> : !product ? <p>Завантажуємо товар…</p> : <div className="listing-page-layout"><article className="listing-detail-page"><ListingPicture product={product} className="detail-image" /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h1>{product.title}</h1><strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {unitLabel(product.unit)}</small></strong><div className="detail-facts"><span>⌖ <b>{product.publicAddress || product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {unitLabel(product.unit)}</b><small>В наявності</small></span><span>♧ <b>{DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode}</b><small>Отримання</small></span></div><section className="listing-description"><h2>Опис товару</h2><p>{product.description || 'Продавець ще не додав опис.'}</p></section>{user?.id === product.owner.id ? <button className="primary-button" onClick={() => onEdit(product)}>Редагувати товар</button> : user && <button className="primary-button" onClick={() => onChat(product)}>♧ Написати продавцю</button>}</div></article><CompactPersonCard profile={seller} role="Продавець" /></div>}</PublicPage>
@@ -631,7 +637,7 @@ function ProductPage({ id, user, onEdit, onAccount, onCreate, onChat }: { id: st
 function BuyRequestPage({ id, user, mine, notify, onAccount, onCreate, onChat }: { id: string; user: User | null; mine: Product[]; notify: (message: string) => void; onAccount: () => void; onCreate: () => void; onChat: (item: BuyRequest) => void }) {
     const [item, setItem] = useState<BuyRequest | null>(null), [error, setError] = useState(''), [offerOpen, setOfferOpen] = useState(false)
     const [buyer, setBuyer] = useState<PublicProfile | null>(null)
-    const load = () => request('/api/buy-requests/' + encodeURIComponent(id)).then(result => setItem(result.buyRequest)).catch(error => setError(error.message))
+    const load = () => { if (!UUID_PATTERN.test(id)) { setError('Запит не знайдено або він недоступний.'); return Promise.resolve() }; return request('/api/buy-requests/' + encodeURIComponent(id)).then(result => setItem(result.buyRequest)).catch((error: ApiError) => setError(error.status === 404 ? 'Запит не знайдено або він недоступний.' : error.message)) }
     useEffect(() => { load() }, [id])
     useEffect(() => { if (item?.buyer?.username) request('/api/profiles/' + encodeURIComponent(item.buyer.username)).then(result => setBuyer(result.profile)).catch(() => setBuyer(null)) }, [item?.buyer?.username])
     return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate}>{error ? <p className="form-error">{error}</p> : !item ? <p>Завантажуємо запит…</p> : <div className="listing-page-layout"><article className="listing-detail-page request-detail-page"><div className="detail-body"><span className="eyebrow">Запит покупця · {item.category.name}</span><h1>{item.title}</h1><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span><div className="detail-facts"><span>⌖ <b>{item.geoArea}</b><small>Приблизне місце</small></span><span>▧ <b>{item.quantity} {item.unit}</b><small>Потрібно</small></span><span>₴ <b>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</b><small>Бажана ціна</small></span></div><section className="listing-description"><h2>Що потрібно покупцеві</h2><p>{item.description || 'Покупець ще не додав опис.'}</p><p><b>Спосіб виконання:</b> {item.fulfillmentMode === 'single_seller' ? 'Один продавець' : 'Можна кількома продавцями'}</p><p>{item.delivery.required ? 'Потрібна доставка' : 'Доставка не потрібна'}{item.delivery.preferred ? `: ${item.delivery.preferred}` : ''}</p></section>{user && item.buyer?.id === user.id && <RequestOffers item={item} http={request} notify={notify} onRefresh={load} />}{user && item.buyer?.id !== user.id && (offerOpen ? <OfferForm buyRequest={item} products={mine} notify={notify} onDone={() => { setOfferOpen(false); load() }} /> : <div className="deal-actions"><button className="primary-button" onClick={() => setOfferOpen(true)}>Запропонувати товар</button><button className="outline-button" onClick={() => onChat(item)}>♧ Написати покупцю</button></div>)}</div></article><CompactPersonCard profile={buyer} role="Покупець" /></div>}</PublicPage>
@@ -658,7 +664,7 @@ function App() {
     const [authOpen, setAuthOpen] = useState(false)
     const [authReady, setAuthReady] = useState(false)
     const [pendingCreate, setPendingCreate] = useState(false)
-    const [view, setView] = useState<View>(() => { const value = new URLSearchParams(window.location.search).get('view'); return ['orders','messages','requests','market'].includes(value ?? '') ? value as View : 'home' })
+    const [view, setView] = useState<View>(() => viewForPath(window.location.pathname) ?? (new URLSearchParams(window.location.search).get('view') as View) ?? 'home')
     const [products, setProducts] = useState<Product[]>([]) // This line is unchanged
     const [mine, setMine] = useState<Product[]>([])
     const [categories, setCategories] = useState<Category[]>([])
@@ -673,35 +679,43 @@ function App() {
     const [unreadNotifications, setUnreadNotifications] = useState(0)
     const [notificationScope, setNotificationScope] = useState<'selling' | 'buying'>('selling')
     const [path, setPath] = useState(() => window.location.pathname)
-    useEffect(() => { const sync = () => setPath(window.location.pathname); window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync) }, [])
-    const navigate = (next: string) => { window.history.pushState({}, '', next); setPath(next); window.scrollTo(0, 0) }
+    useEffect(() => { const sync = () => { setPath(window.location.pathname); const nextView = viewForPath(window.location.pathname); if (nextView) setView(nextView) }; window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync) }, [])
+    useEffect(() => { const destination = legacyDestination(window.location.search); if (destination) { window.history.replaceState(window.history.state, '', destination); setPath(window.location.pathname); setView(viewForPath(window.location.pathname) ?? 'home') } }, [])
+    const navigate = (next: string, replace = false) => { window.history[replace ? 'replaceState' : 'pushState']({}, '', next); setPath(window.location.pathname); const nextView = viewForPath(window.location.pathname); if (nextView) setView(nextView); window.scrollTo(0, 0) }
     const openProductPage = (product: Product) => navigate('/products/' + encodeURIComponent(product.id))
     const openRequestPage = (id: string, mapState?: MapReturnState) => { if (mapState) window.history.replaceState({ ...(window.history.state ?? {}), mapReturn: mapState }, '', window.location.href); navigate('/buy-requests/' + encodeURIComponent(id)) }
     const openProfilePage = (username: string) => navigate('/profiles/' + encodeURIComponent(username))
-    const notify = (message: string) => { if (message === 'Нових повідомлень немає') { setView('notifications'); return }; setToast(message); window.setTimeout(() => setToast(''), 3000) }
+    const notify = (message: string) => { if (message === 'Нових повідомлень немає') { go('notifications'); return }; setToast(message); window.setTimeout(() => setToast(''), 3000) }
     const loadProducts = async (nextPage = 1) => { setLoading(true); try { const params = new URLSearchParams({ page: String(nextPage), limit: '8' }); if (search) params.set('geoZone', search); const result = await request(`/api/products?${params}`); setProducts(result.products); setPage(result.pagination.page); setPages(result.pagination.pages) } catch (error) { notify((error as Error).message) } finally { setLoading(false) } }
     const loadMine = async () => { try { setMine((await request('/api/products/mine?limit=50')).products) } catch (error) { notify((error as Error).message) } }
-    const go = (next: View) => { setView(next); setEditing(undefined); if (path !== '/') navigate('/') }
-    const logout = async () => { await request('/api/auth/logout', { method: 'POST' }); setUser(null); setView('home'); setAuthOpen(false); setPendingCreate(false); setMine([]); setProfileAvatar(null) }
+    const go = (next: View) => { setView(next); setEditing(undefined); const destination = viewRoutes[next]; if (window.location.pathname !== destination) navigate(destination) }
+    const logout = async () => { await request('/api/auth/logout', { method: 'POST' }); setUser(null); setView('find'); setAuthOpen(false); setPendingCreate(false); setMine([]); setProfileAvatar(null); navigate('/discover', true) }
     const rememberLocation = (location?: AddressValue) => { if (validCoordinates(location?.coordinates)) setMapFocus({ name: location!.city, ...location!.coordinates!, settlement: location!.settlement }) }
-    const saved = (location?: AddressValue) => { rememberLocation(location); setView('mine'); setEditing(undefined); loadProducts(page); loadMine(); notify('Товар збережено') }
-    const requestSaved = (location?: AddressValue) => { rememberLocation(location); setView('map'); notify('Запит опубліковано на мапі') }
+    const saved = (location?: AddressValue) => { rememberLocation(location); setEditing(undefined); loadProducts(page); loadMine(); go('mine'); notify('Товар збережено') }
+    const requestSaved = (location?: AddressValue) => { rememberLocation(location); go('map'); notify('Запит опубліковано на мапі') }
     const removeProduct = async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; try { await request(`/api/products/${product.id}`, { method: 'DELETE' }); await loadProducts(page); await loadMine(); notify('Товар видалено') } catch (error) { notify((error as Error).message) } }
-    const startListingChat = async (kind: 'products' | 'buy-requests', item: { id: string }) => { try { const result = await request(`/api/${kind}/${item.id}/conversation`, { method: 'POST', body: '{}' }); window.location.assign(`/?view=messages&conversation=${encodeURIComponent(result.conversation.id)}`) } catch (error) { notify((error as Error).message) } }
+    const startListingChat = async (kind: 'products' | 'buy-requests', item: { id: string }) => { try { const result = await request(`/api/${kind}/${item.id}/conversation`, { method: 'POST', body: '{}' }); navigate(`/messages/${encodeURIComponent(result.conversation.id)}`) } catch (error) { notify((error as Error).message) } }
     useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined).finally(() => setAuthReady(true)); request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, [])
-    useEffect(() => { if (user) { loadProducts(); loadMine(); request('/api/profile/me').then((result) => setProfileAvatar(result.profile.avatarUrl ?? null)).catch(() => undefined); request('/api/notifications').then((result) => setUnreadNotifications(result.notifications.filter((item: Notification) => !item.readAt).length)).catch(() => undefined) } else setUnreadNotifications(0) }, [user])
+    useEffect(() => { if (user || view === 'products') loadProducts(); if (user) { loadMine(); request('/api/profile/me').then((result) => setProfileAvatar(result.profile.avatarUrl ?? null)).catch(() => undefined); request('/api/notifications').then((result) => setUnreadNotifications(result.notifications.filter((item: Notification) => !item.readAt).length)).catch(() => undefined) } else setUnreadNotifications(0) }, [user, view])
+    useEffect(() => { if (!authReady || path !== '/') return; navigate(user ? '/dashboard' : '/discover', true) }, [authReady, user, path])
     if (window.location.pathname === '/verify-email') return <VerifyEmail />
     const enter = (create = false) => { setPendingCreate(create); setAuthOpen(true) }
-    const loggedIn = (nextUser: User) => { setUser(nextUser); setAuthOpen(false); setView(pendingCreate ? 'create' : 'home'); setPendingCreate(false) }
+    const loggedIn = (nextUser: User) => { const destination = pendingCreate ? viewRoutes.create : window.location.pathname + window.location.search; setUser(nextUser); setAuthOpen(false); setView(viewForPath(window.location.pathname) ?? 'home'); setPendingCreate(false); if (window.location.pathname !== destination) navigate(destination) }
     if (new URLSearchParams(window.location.search).has('reset-password') || (!user && authOpen)) return <><button className="auth-home-back" onClick={() => { window.history.replaceState({}, '', window.location.pathname); setAuthOpen(false); setPendingCreate(false) }}>← На головну</button><Auth initialRegister={!new URLSearchParams(window.location.search).has('reset-password')} onLogin={loggedIn} /></>
     const productRoute = path.match(/^\/products\/([^/]+)$/)
     const buyRequestRoute = path.match(/^\/buy-requests\/([^/]+)$/)
     const profileRoute = path.match(/^\/profiles\/([^/]+)$/)
     const detailShell = (content: any) => !user ? content : <div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{content}</main></div>
-    if (productRoute) return detailShell(<ProductPage id={decodeURIComponent(productRoute[1])} user={user} onAccount={() => enter()} onCreate={() => enter(true)} onChat={(product) => startListingChat('products', product)} onEdit={(product) => { setEditing(product); setView('create'); navigate('/') }} />)
+    if (productRoute) return detailShell(<ProductPage id={decodeURIComponent(productRoute[1])} user={user} onAccount={() => enter()} onCreate={() => enter(true)} onChat={(product) => startListingChat('products', product)} onEdit={(product) => { setEditing(product); go('create') }} />)
     if (buyRequestRoute) return detailShell(<BuyRequestPage id={decodeURIComponent(buyRequestRoute[1])} user={user} mine={mine} notify={notify} onAccount={() => enter()} onCreate={() => enter(true)} onChat={(item) => startListingChat('buy-requests', item)} />)
     if (profileRoute) return detailShell(<PublicProfilePage username={decodeURIComponent(profileRoute[1])} user={user} onAccount={() => enter()} onCreate={() => enter(true)} />)
-    if (!user) return <><PublicHome locationReady={authReady} categories={categories} request={request} user={null} onAccount={() => enter()} onCreate={() => enter(true)} openProduct={openProductPage} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />{toast && <div className="toast">{toast}</div>}</>
+    const protectedView = viewForPath(path)
+    if (!user && authReady && protectedView && !['find', 'products', 'map'].includes(protectedView)) return <main className="public-detail-page"><nav className="breadcrumbs" aria-label="Навігаційний шлях"><a href="/discover">Головна</a><span><i>›</i><b aria-current="page">Потрібен вхід</b></span></nav><section className="empty-state" role="alert"><span>♙</span><h1>Увійдіть, щоб відкрити цю сторінку</h1><p>Після входу ви повернетеся до вибраного розділу.</p><button className="primary-button" onClick={() => enter()}>Увійти або зареєструватися</button></section></main>
+    if (!user) {
+        if (view === 'products') return <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={openProductPage} onChat={(product) => startListingChat('products', product)} />
+        if (view === 'map') return <MapView categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} locationReady={authReady} />
+        return <><PublicHome locationReady={authReady} categories={categories} request={request} user={null} onAccount={() => enter()} onCreate={() => enter(true)} openProduct={openProductPage} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />{toast && <div className="toast">{toast}</div>}</>
+    }
     return <div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{view === 'home' && <Home user={user} products={products} open={openProductPage} explore={() => go('find')} create={() => go('create')} onChat={(product) => startListingChat('products', product)} />}{view === 'find' && <PublicHome locationReady={authReady} categories={categories} request={request} user={user} onAccount={() => go('profile')} onCreate={() => go('create')} openProduct={openProductPage} onChat={(product) => startListingChat('products', product)} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />}{view === 'products' && <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={openProductPage} onChat={(product) => startListingChat('products', product)} />}{view === 'map' && <MapView userId={user.id} city={mapFocus} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />}{view === 'messages' && <MessagesView notify={notify} />}{view === 'notifications' && <NotificationsView notify={notify} scope={notificationScope} onRead={() => setUnreadNotifications(0)} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} open={openProductPage} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} setStatus={async (product, status) => { try { await request(`/api/products/${product.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadMine(); notify('Статус оновлено') } catch (error) { notify((error as Error).message) } }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'requests' && <MyRequests notify={notify} create={() => go('request')} />}{view === 'market' && <RequestsMarket mine={mine} notify={notify} />}{view === 'orders' && <OrdersView notify={notify} />}{view === 'profile' && <ProfileView logout={logout} notify={notify} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['find', '⌕', 'Знайти'], ['messages', '♧', 'Чати'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}</button>)}</nav>{toast && <div className="toast">{toast}</div>}</div>
 }
 
@@ -864,7 +878,7 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     const initialScope = params.get('filter')
     const [conversations, setConversations] = useState<Conversation[]>([])
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(() => {
-        const id = params.get('conversation')
+        const id = conversationIdForPath(window.location.pathname)
         return id ? { conversationId: id, title: 'Обговорення' } : null
     })
     const [scope, setScope] = useState<'all' | 'selling' | 'buying' | 'direct'>(['selling', 'buying', 'direct'].includes(initialScope ?? '') ? initialScope as 'selling' | 'buying' | 'direct' : 'all')
@@ -906,6 +920,15 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     }, [])
 
     useEffect(() => {
+        const syncConversation = () => {
+            const id = conversationIdForPath(window.location.pathname)
+            setChat(id ? { conversationId: id, title: conversations.find(item => item.id === id)?.title || 'Обговорення' } : null)
+        }
+        window.addEventListener('popstate', syncConversation)
+        return () => window.removeEventListener('popstate', syncConversation)
+    }, [conversations])
+
+    useEffect(() => {
         const media = window.matchMedia('(max-width: 700px)')
         const selectChatForDesktop = () => {
             if (!media.matches) setChat((current) => current ?? toChat(conversations[0]))
@@ -918,9 +941,16 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     const selectScope = (next: typeof scope) => {
         setScope(next)
         const url = new URL(window.location.href)
-        url.searchParams.set('view', 'messages')
         url.searchParams.set('filter', next)
         window.history.replaceState({}, '', url)
+    }
+    const openConversation = (conversation: Conversation) => {
+        window.history.pushState({}, '', `/messages/${encodeURIComponent(conversation.id)}`)
+        setChat(toChat(conversation))
+    }
+    const closeConversation = () => {
+        window.history.pushState({}, '', '/messages')
+        setChat(null)
     }
     const visible = conversations.filter((conversation) => (
         (scope === 'all' || scope === 'direct'
@@ -955,7 +985,7 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
         : loadError && !conversations.length
             ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити повідомлення</h3><p>{loadError}</p><button className="primary-button compact" onClick={() => void load(true)}>Спробувати ще раз</button></div>
             : visible.length
-                ? visible.map((conversation) => <button className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active' : '')} key={conversation.id} onClick={() => setChat(toChat(conversation))} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername)}>
+                ? visible.map((conversation) => <button className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active' : '')} key={conversation.id} onClick={() => openConversation(conversation)} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername)}>
                     <span className="conversation-thumb">{conversation.imageUrl ? <img src={imageUrl(conversation.imageUrl)} alt="" /> : conversation.categoryId ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} /> : conversation.otherAvatarUrl ? <img src={imageUrl(conversation.otherAvatarUrl)} alt="" /> : avatarInitials({ username: conversation.otherUsername })}</span>
                     <span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{contextLabel(conversation)}</em><small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
                     <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <i aria-label={'Непрочитаних: ' + conversation.unreadCount}>{conversation.unreadCount}</i>}</span>
@@ -975,7 +1005,7 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
                 <div className="conversation-list">{listContent}</div>
             </aside>
             <div className="messages-dialog">
-                {loading && !chat ? <div className="loading">Завантаження чату…</div> : chat ? <DealChat chat={{ conversationId: chat.conversationId, title: active?.title || chat.title }} embedded http={request} notify={notify} onClose={() => setChat(null)} /> : <Empty text="Оберіть чат зі списку" />}
+                {loading && !chat ? <div className="loading">Завантаження чату…</div> : chat ? <DealChat chat={{ conversationId: chat.conversationId, title: active?.title || chat.title }} embedded http={request} notify={notify} onClose={closeConversation} /> : <Empty text="Оберіть чат зі списку" />}
             </div>
         </div>
     </section>
@@ -988,7 +1018,7 @@ function NotificationsView({ notify, onRead, scope }: { notify: (message: string
     useEffect(() => { load() }, [])
     const markAllRead = async () => { try { await request('/api/notifications/read', { method: 'PATCH', body: '{}' }); onRead(); await load() } catch (error) { notify((error as Error).message) } }
     const visible = notifications.filter((item) => (item.userRole === scope || item.userRole === 'general') && (showRead || !item.readAt))
-    return <section className="content"><div className="view-header"><div><span className="eyebrow">Центр подій</span><h1>Сповіщення: {scope === 'selling' ? 'продажі' : 'покупки'}</h1></div><button className="outline-button" onClick={markAllRead}>Позначити прочитаними</button></div><label className="notification-display-setting"><input type="checkbox" checked={showRead} onChange={(event) => setShowRead(event.target.checked)} /> Показувати прочитані сповіщення</label><div className="notification-list">{visible.map((item) => <article className={`notification-row ${item.readAt ? '' : 'unread'}`} key={item.id}><strong>{item.title}</strong><p>{item.body}</p>{item.conversationId ? <a className="text-button" href={`/?view=messages&conversation=${encodeURIComponent(item.conversationId)}`}>Відкрити обговорення</a> : <a className="text-button" href={item.orderId ? "/?view=orders" : "/?view=requests"}>Переглянути</a>}<small>{new Date(item.createdAt).toLocaleString('uk-UA')}</small></article>)}{!visible.length && <Empty text="Нових сповіщень немає" />}</div></section>
+    return <section className="content"><div className="view-header"><div><span className="eyebrow">Центр подій</span><h1>Сповіщення: {scope === 'selling' ? 'продажі' : 'покупки'}</h1></div><button className="outline-button" onClick={markAllRead}>Позначити прочитаними</button></div><label className="notification-display-setting"><input type="checkbox" checked={showRead} onChange={(event) => setShowRead(event.target.checked)} /> Показувати прочитані сповіщення</label><div className="notification-list">{visible.map((item) => <article className={`notification-row ${item.readAt ? '' : 'unread'}`} key={item.id}><strong>{item.title}</strong><p>{item.body}</p>{item.conversationId ? <a className="text-button" href={`/messages/${encodeURIComponent(item.conversationId)}`}>Відкрити обговорення</a> : <a className="text-button" href={item.orderId ? '/orders' : '/my/requests'}>Переглянути</a>}<small>{new Date(item.createdAt).toLocaleString('uk-UA')}</small></article>)}{!visible.length && <Empty text="Нових сповіщень немає" />}</div></section>
 }
 
 function ReviewForm({ order, notify, onDone, viewerId }: { viewerId: string; order: Order; notify: (message: string) => void; onDone: () => void }) {

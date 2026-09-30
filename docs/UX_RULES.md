@@ -14,6 +14,21 @@ Desktop, tablet і mobile мають бути повноцінними режи�
 
 Користувач завжди розуміє поточний екран, відкритий об’єкт, шлях повернення та наступну основну дію. Вкладені mobile-екрани мають очевидне «Назад». `×` закриває modal/dialog і не є основною кнопкою повернення між логічними екранами.
 
+### Canonical URLs
+
+Навігаційний стан основних екранів зберігається у path, а не лише у React-state. Поточний canonical contract:
+
+| Destination | Route |
+| --- | --- |
+| Кабінет / пошук / каталог / мапа | `/dashboard`, `/discover`, `/products`, `/map` |
+| Власні товари / новий товар | `/my/products`, `/my/products/new` |
+| Discovery запитів / власні запити / новий запит | `/requests`, `/my/requests`, `/my/requests/new` |
+| Угоди / сповіщення / налаштування профілю | `/orders`, `/notifications`, `/settings/profile` |
+| Товар / запит / публічний профіль | `/products/:id`, `/buy-requests/:id`, `/profiles/:username` |
+| Повідомлення / конкретна розмова | `/messages`, `/messages/:conversationId` |
+
+Старі внутрішні `?view=...` links нормалізуються до canonical path. Detail view відновлює дані через чинний API після прямого відкриття або refresh. Breadcrumbs розміщуються в main content, parent є справжнім посиланням, а current item не є посиланням на себе. На mobile розмова зберігає list-first → active conversation flow і логічне повернення до `/messages`.
+
 ## Product і Buy Request
 
 Це різні сутності, але картки мають споріднену структуру й чіткий маркер типу.

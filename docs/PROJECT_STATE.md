@@ -1,0 +1,133 @@
+# Project state
+
+**Current step:** `STEP 1 — Canonical URLs / deep links / breadcrumbs — DONE`
+
+**Last updated:** 2026-09-30
+
+**Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
+
+## HOW TO USE THIS FILE
+
+1. Новий AI читає цей файл першим, але не завантажує автоматично всю документацію.
+2. Для поточного Step читає тільки `Required context` нижче.
+3. Historical ТЗ і historical analysis не входять у default context; відкривати їх можна лише за конкретної потреби.
+4. `LOCKED PRODUCT DECISIONS` не переосмислювати без прямого рішення користувача. `OPEN DECISIONS` і `FUTURE` не є дозволом на implementation.
+5. Verify CURRENT against code, migrations and automated tests only for claims materially relevant to the CURRENT Step. Do not re-audit unrelated previously verified areas of the project.
+6. Після значущого успішного Step мінімально оновити цей файл і відповідний authoritative document.
+
+## SOURCE OF TRUTH
+
+Для фактичної поведінки пріоритет такий: current code + migrations + automated tests → [PRODUCT.md](PRODUCT.md) → current feature docs → QA/testing docs → target/design docs → historical ТЗ. Якщо документ суперечить CURRENT code, production code не змінювати заради старого тексту; зафіксувати conflict у relevant current doc.
+
+## PRODUCT SUMMARY
+
+Marketplace має два паралельні flows:
+
+- **Supply-first:** `Seller Product → discovery/search/map → Buyer → direct communication`.
+- **Demand-first:** `Buyer Request → Seller Offer → comparison → Deal → completion → review`.
+
+Product — повноцінна частина продукту, не legacy. Деталі сутностей і flows: [PRODUCT.md](PRODUCT.md). Поточні gaps і ризики: [MVP_INVENTORY.md](MVP_INVENTORY.md).
+
+## CURRENT TECH STACK
+
+React 19 + Vite + TypeScript frontend; Express + TypeScript backend; PostgreSQL/PostGIS; Leaflet map; Vitest unit/integration tests; Playwright browser E2E; Docker Compose для локальної PostGIS. Деталі запуску: [SETUP.md](SETUP.md).
+
+## LOCKED PRODUCT DECISIONS
+
+- Supply-first Product flow і demand-first Request/Offer/Deal flow існують паралельно.
+- Product є current product concept, не legacy.
+- Partial fulfillment і multiple Sellers для одного Request — intended product behavior.
+- Offer може бути standalone або посилатися на Product; Offer terms не змінюють базовий Product автоматично.
+- Private location не треба розкривати для discovery або майбутнього matching; застосовується public/approximate location model.
+
+## CURRENT IMPLEMENTATION SNAPSHOT
+
+- Один hybrid account може купувати й продавати; профіль, location/privacy, Products, Requests, Offers, Deals, chats, reviews і in-app notifications реалізовані.
+- Product flow зараз завершується direct chat. Request flow створює Deal зі snapshot умов і quantity reservation.
+- Current rating scale: **1–12**. Підтверджено code, migration і automated tests.
+- Partial/multiple Seller accounting має locks, constraints та automated coverage. Деталі: [MVP_INVENTORY.md](MVP_INVENTORY.md).
+- Notifications мають DB history, unread state, order/conversation references, list/read API і current UI. Contract та gaps: [NOTIFICATIONS.md](NOTIFICATIONS.md).
+- Основні існуючі list/detail destinations мають canonical path URLs; Product, Buy Request і Conversation відновлюються з direct link/refresh. Breadcrumbs знаходяться в main content, а legacy `?view=...` links нормалізуються. Step 1 пройшов independent Reviewer PASS; manual Browser QA `map marker → entity` лишається UNVERIFIED.
+- Automated E2E №3: **PASS** у [e2e/e2e-3.spec.ts](../e2e/e2e-3.spec.ts). Manual Browser E2E №3: **PASS**, окремо зафіксований у локальному QA fixture; automated test не є доказом ручного проходження.
+
+## ACTIVITY ORGANISATION REQUIREMENT
+
+Future UX organizes a user's work in two contexts: **Купую** first shows own Buy Requests with related Offers/Deals/actions; **Продаю** first shows own Products, own Offers and related Deals/actions. It must not become one long mixed list.
+
+| Entity | Actual backend status | Business meaning | Possible user-facing group |
+| --- | --- | --- | --- |
+| Product | `draft`, `active`, `paused`, `sold`, `expired` | Prepared, discoverable, paused, sold out, expired | Inactive; active; completed; inactive/expired |
+| Buy Request | `open`, `partially_selected`, `partially_completed`, `partially_fulfilled`, `completed`, `fulfilled`, `cancelled`, `expired` | Looking, partially reserved/received, completed, cancelled, expired | Active/action; completed; cancelled; inactive/expired |
+| Offer | `draft`, `submitted`, `accepted`, `partially_accepted`, `rejected`, `withdrawn`, `expired` | Prepared, awaiting Buyer, selected fully/partly, rejected, withdrawn, expired | Active/action; completed selection; cancelled; inactive/expired |
+| Deal v2 | `selected`, `in_progress`, `buyer_marked_completed`, `seller_marked_completed`, `completed`, `failed`, `cancelled`, `rejected`, `disputed` | Seller confirmation, fulfilment, other participant confirmation, final result or dispute | Needs action; active; completed; cancelled; dispute/action |
+| Deal legacy compatibility | `draft`, `active`, `offer_received`, `accepted`, `expired` | Historical order states still accepted by backend compatibility code | Map only when historical data is present |
+
+These are UX groups, not a new backend state model. A future activity Step should add counters, filters, sorting, clear badges, required-action cues, contextual primary action and loading/empty/error states with responsive/mobile behavior.
+
+## OPEN DECISIONS
+
+- Чи потрібен майбутній `Product → Deal` lifecycle, або Product лишається lead/direct-chat flow.
+- Policy для conversation після completed/cancelled/rejected Deal.
+- Expiry policy для Product, Request та Offer.
+- Verification gate перед Offer/Deal.
+- Seller demand subscriptions: basic criteria — planned, але implementation не approved.
+- Route/corridor matching — `FUTURE`; не створювати engine, schema чи migrations без окремого Step.
+
+## KNOWN RELEVANT ISSUES
+
+- Product direct chat не створює Deal, completion чи review.
+- Notification API підтримує individual read, але current UI показує лише read-all action.
+- Current notification fallback navigation веде до списку Orders/Requests; structured canonical destinations ще не введені.
+- Offer conversation може повторно використовуватися для послідовних Deals, що робить історичний context менш однозначним.
+- Activity organisation у «Купую» / «Продаю», counters, filters, required-action indicators і consistent async states потребують окремого UX Step.
+
+## ROADMAP
+
+| Status | Area | Note |
+| --- | --- | --- |
+| `DONE` | Step 0: state and documentation contracts | Independent review passed. |
+| `DONE` | Canonical URLs / deep links / breadcrumbs | Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. |
+| `CANDIDATE` | Messages unread/sidebar UX | Candidate only; not started. |
+| `PLANNED` | Notification Center and existing event integration | Follow [NOTIFICATIONS.md](NOTIFICATIONS.md). |
+| `PLANNED` | Activity organisation | «Купую» / «Продаю», correct pages, filters and actions. |
+| `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
+| `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
+
+## CURRENT STEP
+
+**Step 1 — Canonical URLs / deep links / breadcrumbs — DONE.** Stable canonical paths now cover existing destinations; Product, Buy Request and Conversation deep links restore their data after direct load/refresh, History Back/Forward follows URL state, and breadcrumbs render in main content. Legacy query links normalize to the canonical path. Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. Product flows, authorization rules and entity lifecycles were not changed.
+
+## REQUIRED CONTEXT
+
+For Step 1: this file; [PRODUCT.md](PRODUCT.md); [UX_RULES.md](UX_RULES.md); [NOTIFICATIONS.md](NOTIFICATIONS.md); current frontend routing/navigation code; and task-relevant API contracts and tests only. Do not load historical documents by default.
+
+## AI WORKFLOW
+
+`ChatGPT → Step → Codex Implementer → validation → risk-based independent review → PASS → PROJECT_STATE update → next Step`
+
+- **Low:** implementer self-check; reviewer optional.
+- **Medium:** implementer plus targeted validation; short independent review appropriate to scope.
+- **High:** Deal lifecycle, permissions, migrations, notification business logic, matching, privacy/security, stock/reservation and transactional invariants require an independent Reviewer.
+- **Very high:** large cross-cutting, security or data changes require a strong implementer and independent strong review.
+
+Implementer and Reviewer assess work independently. A Reviewer does not assume the implementer PASS is correct and need not be a more expensive model. For every new Step ChatGPT records `Implementer: <model> — risk` and, when needed, `Reviewer: <model> — risk`; model choice depends on scope, risk, architecture, debugging and business/security impact, not a universal ranking. Available choices include GPT-5.6 Luna, Terra and Sol, GPT-6 variants and Astra; select them per Step rather than automatically choosing the most expensive option.
+
+## DOCUMENT ROUTING
+
+| Need | Authoritative home |
+| --- | --- |
+| Handoff, current Step, locked/open decisions, route to docs | This file |
+| Product concepts and current domain flows | [PRODUCT.md](PRODUCT.md) |
+| UI and responsive rules | [UX_RULES.md](UX_RULES.md) |
+| Notifications, unread, destinations and subscriptions contract | [NOTIFICATIONS.md](NOTIFICATIONS.md) |
+| Current MVP gaps and priorities | [MVP_INVENTORY.md](MVP_INVENTORY.md) |
+| Test/E2E commands and evidence boundaries | [QA_REPORT.md](QA_REPORT.md) |
+| Map/location behavior | [map-discovery.md](map-discovery.md), [location-search.md](location-search.md) |
+| Working-tree and commit rules | [GIT_COMMIT_RULES.md](GIT_COMMIT_RULES.md) |
+
+## AFTER EACH SUCCESSFUL STEP
+
+1. Update only the relevant CURRENT summary, roadmap entry and authoritative feature doc.
+2. Record validation and any remaining risk; do not create a changelog copy.
+3. Mark the Step `READY FOR REVIEW` until the required independent review passes.
+4. After Reviewer PASS, mark it `DONE` and set the next candidate without starting it automatically.
