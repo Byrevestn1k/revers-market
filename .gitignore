@@ -14,3 +14,9 @@ coverage/
 playwright-report/
 test-results/
 docs/TEST_ACCOUNTS.local.md
+
+# Runtime uploads are user data, not source files. Existing tracked fixtures stay tracked.
+backend/uploads/
+
+# Microsoft Office creates these short-lived lock files while a document is open.
+ТЗ/~$*.docx

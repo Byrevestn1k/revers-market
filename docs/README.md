@@ -19,6 +19,7 @@
 
 | Документ | Тип і призначення | Статус щодо current implementation |
 | --- | --- | --- |
+| [GIT_COMMIT_RULES.md](GIT_COMMIT_RULES.md) | **Workflow.** Що додавати або не додавати до commit/push, щоб source files не змішувалися з локальними даними. | Постійне правило для роботи з Git. |
 | [MVP_INVENTORY.md](MVP_INVENTORY.md) | **CURRENT PRODUCT AUDIT / PLANNING.** Snapshot стану продукту, перевірених можливостей, MVP gaps, рішень і рекомендованого порядку робіт станом на 2026-09-29. | Не є implementation source of truth: фактичну поведінку завжди звіряти з кодом, migrations і automated tests. |
 | [PRODUCT.md](PRODUCT.md) | **CURRENT.** Карта продукту, ролей, flows і меж. | Основний документ після коду. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **TARGET/design.** Цільові межі модульного моноліту та майбутні adapters. | Не є описом усіх реалізованих модулів. |
