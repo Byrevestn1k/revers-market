@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { MessagesContext } from './messages-state'
 import { unitLabel } from './listing-options'
 import './deal-interaction.css'
 
@@ -164,6 +165,7 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
 }
 
 export function DealChat({ chat, http, notify, onClose, embedded = false }: { chat: { conversationId: string; title: string }; http: Http; notify: Notify; onClose: () => void; embedded?: boolean }) {
+    const { refresh: refreshConversations } = useContext(MessagesContext)
     const [messages, setMessages] = useState<any[]>([])
     const [proposals, setProposals] = useState<Proposal[]>([])
     const [context, setContext] = useState<Context | null>(null)
@@ -174,13 +176,25 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const [selecting, setSelecting] = useState(false)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    const [readError, setReadError] = useState('')
     const sending = useRef(false)
+    const activeConversation = useRef<string | null>(chat.conversationId)
+    activeConversation.current = chat.conversationId
     const load = async () => {
+        const conversationId = chat.conversationId
         const [result, details] = await Promise.all([http(`/api/conversations/${chat.conversationId}/messages`), http(`/api/conversations/${chat.conversationId}/context`)])
+        if (activeConversation.current !== conversationId) return
         setMessages(result.messages); setContext(details.context); setProposals(details.proposals)
-        await http(`/api/conversations/${chat.conversationId}/read`, { method: 'PATCH' })
+        if (document.visibilityState === 'hidden') return
+        try {
+            await http(`/api/conversations/${chat.conversationId}/read`, { method: 'PATCH' })
+            await refreshConversations()
+            if (activeConversation.current === conversationId) setReadError('')
+        } catch {
+            if (activeConversation.current === conversationId) setReadError('Не вдалося оновити стан прочитання. Повторимо автоматично.')
+        }
     }
-    useEffect(() => { let alive = true; const refresh = () => { if (alive) void load().catch(caught => { if (alive) setError(caught.message) }) }; refresh(); http('/api/profile/me').then(result => { if (alive) setViewer(result.profile.id) }).catch(caught => setError(caught.message)); const timer = window.setInterval(refresh, 4000); return () => { alive = false; clearInterval(timer) } }, [chat.conversationId])
+    useEffect(() => { activeConversation.current = chat.conversationId; setReadError(''); let alive = true; const refresh = () => { if (alive) void load().catch(caught => { if (alive) setError(caught.message) }) }; refresh(); http('/api/profile/me').then(result => { if (alive) setViewer(result.profile.id) }).catch(caught => setError(caught.message)); const timer = window.setInterval(refresh, 4000); return () => { alive = false; activeConversation.current = null; clearInterval(timer) } }, [chat.conversationId])
     const act = async (path: string, body: unknown, done?: () => void) => {
         if (sending.current) return
         sending.current = true; setBusy(true); setError('')
@@ -192,6 +206,7 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const timeline = [...messages.map(m => ({ ...m, entryType: 'message' })), ...proposals.map(p => ({ ...p, entryType: 'proposal' }))].sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     return <DealDialog title={chat.title} onClose={onClose} busy={busy} embedded={embedded} mobileBackNavigation={!embedded}>
         {context && <div className="deal-chat-context"><a href={`/buy-requests/${context.requestId}`}>{context.title}</a><span>{amount(context.price, context.currency)} / {unitLabel(context.unit)} · Пропозиція: {context.offeredQuantity} {unitLabel(context.unit)}</span></div>}
+        {readError && <p className="form-error" role="status">{readError}</p>}
         <div className="deal-chat-history" aria-live="polite">{!timeline.length && <p>Ще немає повідомлень. Можете уточнити деталі пропозиції.</p>}{timeline.map(entry => entry.entryType === 'message' ? entry.kind === 'system' ? <article key={entry.id} className="deal-system-event"><p>{entry.body}</p></article> : <article key={entry.id} className={`chat-message ${entry.senderId === viewer ? 'chat-message-mine' : 'chat-message-theirs'}`}><span className="chat-message-avatar" aria-hidden="true">{entry.senderAvatarUrl ? <img src={entry.senderAvatarUrl} alt="" /> : entry.senderUsername?.[0]?.toUpperCase() ?? '?'}</span><div className="chat-message-bubble"><p>{entry.body}</p><small>{new Date(entry.createdAt).toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'})}</small></div></article> : <article key={entry.id} className="negotiation-card"><strong>{entry.createdBy === viewer ? 'Ви запропонували' : 'Інша сторона пропонує'}</strong><p>{amount(entry.price, context?.currency ?? '')} / {unitLabel(context?.unit ?? '')} · {entry.quantity} {unitLabel(context?.unit ?? '')}</p><p>Разом: {amount(entry.price * entry.quantity + entry.deliveryPrice, context?.currency ?? '')}</p><p>{entry.delivery}{entry.deliveryPrice > 0 ? ` · ${amount(entry.deliveryPrice, context?.currency ?? '')}` : ''}</p><p>{entry.comment}</p><b>{entry.id !== latest?.id ? 'Неактуально' : ({ pending: 'Актуальна пропозиція — очікуємо відповіді', accepted: 'Умови погоджено. Угода ще не створена.', rejected: 'Відхилено', withdrawn: 'Відкликано', expired: 'Строк дії минув', countered: 'Неактуально' } as Record<string,string>)[entry.status]}</b>{entry.status === 'pending' && entry.id === latest?.id && viewer && <div className="deal-actions">{entry.createdBy !== viewer ? <><button className="primary-button" disabled={busy} onClick={() => negotiate('accept', entry)}>Прийняти умови</button><button className="outline-button" disabled={busy} onClick={editTerms}>Запропонувати інші умови</button><button className="text-button" disabled={busy} onClick={() => negotiate('reject', entry)}>Відхилити</button></> : <button className="text-button" disabled={busy} onClick={() => negotiate('withdraw', entry)}>Відкликати умови</button>}</div>}</article>)}</div>
         {!messages.some(m => m.kind === 'text') && <div className="deal-quick-replies">{['Чи актуальна пропозиція?','Чи можете зробити дешевше?','Коли можна отримати?','Чи є доставка?','Хочу уточнити щодо товару'].map(value => <button key={value} className="outline-button compact" onClick={() => setText(value)}>{value}</button>)}</div>}
         {error && <p role="alert" className="form-error">{error}</p>}

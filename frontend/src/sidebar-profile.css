@@ -19,3 +19,6 @@
 
 @media(min-width:761px){.sidebar{overflow-y:auto}.sidebar-groups{overflow:visible}}
 @media(max-width:760px){.sidebar-groups{overflow:visible}.message-scope-tabs{overflow:auto;white-space:nowrap}}
+
+.message-unread-count{display:inline-grid;place-items:center;flex-shrink:0;min-width:1.3rem;height:1.3rem;padding:0 .3rem;color:#fff;background:var(--green);border-radius:999px;font-size:.65rem;font-style:normal;line-height:1;white-space:nowrap}.sidebar .message-unread-count{margin-left:auto}.mobile-nav button{position:relative}.mobile-nav .message-unread-count{position:absolute;top:2px;left:calc(50% + 7px)}.conversation-row.unread .conversation-main>small{font-weight:700;color:var(--ink)}
+.conversation-side .message-unread-count{color:#fff}

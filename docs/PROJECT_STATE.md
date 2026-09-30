@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 1 — Canonical URLs / deep links / breadcrumbs — DONE`
+**Current step:** `STEP 2 — Messages unread / sidebar UX — DONE`
 
 **Last updated:** 2026-09-30
 
@@ -87,19 +87,19 @@ These are UX groups, not a new backend state model. A future activity Step shoul
 | --- | --- | --- |
 | `DONE` | Step 0: state and documentation contracts | Independent review passed. |
 | `DONE` | Canonical URLs / deep links / breadcrumbs | Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. |
-| `CANDIDATE` | Messages unread/sidebar UX | Candidate only; not started. |
-| `PLANNED` | Notification Center and existing event integration | Follow [NOTIFICATIONS.md](NOTIFICATIONS.md). |
+| `DONE` | Messages unread/sidebar UX | Independent Reviewer PASS. |
+| `CANDIDATE` | Notification Center and existing event integration | Follow [NOTIFICATIONS.md](NOTIFICATIONS.md). |
 | `PLANNED` | Activity organisation | «Купую» / «Продаю», correct pages, filters and actions. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**Step 1 — Canonical URLs / deep links / breadcrumbs — DONE.** Stable canonical paths now cover existing destinations; Product, Buy Request and Conversation deep links restore their data after direct load/refresh, History Back/Forward follows URL state, and breadcrumbs render in main content. Legacy query links normalize to the canonical path. Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. Product flows, authorization rules and entity lifecycles were not changed.
+**Step 2 — Messages unread / sidebar UX — DONE.** Чати показують непрочитані розмови й загальну кількість непрочитаних повідомлень у навігації; відкриття розмови зберігає її як прочитану. Message unread і notification unread залишаються незалежними. Independent Reviewer PASS. Step 1 remains DONE.
 
 ## REQUIRED CONTEXT
 
-For Step 1: this file; [PRODUCT.md](PRODUCT.md); [UX_RULES.md](UX_RULES.md); [NOTIFICATIONS.md](NOTIFICATIONS.md); current frontend routing/navigation code; and task-relevant API contracts and tests only. Do not load historical documents by default.
+For Step 2: this file; [PRODUCT.md](PRODUCT.md) messaging sections; [UX_RULES.md](UX_RULES.md) navigation/chat/mobile sections; [NOTIFICATIONS.md](NOTIFICATIONS.md) unread boundary; current conversation/navigation state, DealChat polling/read flow, unread API contracts and messaging tests only. Do not load historical documents by default.
 
 ## AI WORKFLOW
 

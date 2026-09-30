@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { FormEvent, isValidElement, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -34,6 +34,8 @@ import type { MapViewport } from './map-clusters'
 import type { HomeCity, HomeMapProps } from './PublicHome'
 import './sidebar-profile.css'
 import { RequestOffers, DealChat, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
+import { MessagesContext, MessageUnreadBadge } from './messages-state'
+import type { Conversation } from './messages-state'
 import { conversationIdForPath, legacyDestination, viewForPath, viewRoutes, type AppView } from './navigation'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
@@ -599,18 +601,18 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
     </section>
 }
 
-function Sidebar({ user, profileAvatar, view, go, logout, unreadCount, onNotificationScope }: { user: User; profileAvatar: string | null; view: View; go: (view: View) => void; logout: () => void; unreadCount: number; onNotificationScope: (scope: 'selling' | 'buying') => void }) {
+function Sidebar({ user, profileAvatar, view, go, logout, unreadCount, onNotificationScope, messageUnreadCount }: { user: User; profileAvatar: string | null; view: View; go: (view: View) => void; logout: () => void; unreadCount: number; messageUnreadCount: number; onNotificationScope: (scope: 'selling' | 'buying') => void }) {
     const [sellingOpen, setSellingOpen] = useState(true)
     const [buyingOpen, setBuyingOpen] = useState(true)
     const [mainArea, setMainArea] = useState<Element | null>(null)
     useEffect(() => { setMainArea(document.querySelector('.main-area')) }, [])
-    const item = (key: View, icon: string, text: string, notificationScope?: 'selling' | 'buying') => <button key={`${key}-${notificationScope ?? ''}`} className={view === key ? 'active' : ''} onClick={() => { if (notificationScope) onNotificationScope(notificationScope); go(key) }}><span>{icon}</span><span>{text}</span>{notificationScope && unreadCount > 0 && <b className="sidebar-notification-count" aria-label={`Непрочитані сповіщення: ${unreadCount}`}>{unreadCount}</b>}</button>
+    const item = (key: View, icon: string, text: string, notificationScope?: 'selling' | 'buying') => <button key={`${key}-${notificationScope ?? ''}`} className={view === key ? 'active' : ''} onClick={() => { if (notificationScope) onNotificationScope(notificationScope); go(key) }}><span>{icon}</span><span>{text}</span>{key === 'messages' && <MessageUnreadBadge count={messageUnreadCount} />}{notificationScope && unreadCount > 0 && <b className="sidebar-notification-count" aria-label={`Непрочитані сповіщення: ${unreadCount}`}>{unreadCount}</b>}</button>
     return <><aside className="sidebar">
         <button type="button" className="brand sidebar-logo" onClick={() => go('find')} aria-label="На сторінку пошуку"><img className="brand-logo" src="/brand/logo-full.png" alt="ДещоТреба" /></button>
         <button type="button" className="seller-badge" onClick={() => go('profile')}><div className="avatar">{profileAvatar ? <img src={profileAvatar} alt="Аватар профілю" /> : user.username[0].toUpperCase()}</div><div><strong>{user.username}</strong><small>Мій кабінет</small></div></button>
         <nav className="sidebar-primary">
             {item('find', '⌕', 'Знайти')}
-            {item('messages', '♧', 'Мої повідомлення')}
+            {item('messages', '♧', 'Повідомлення')}
         </nav>
         <nav className="sidebar-groups" aria-label="Розділи кабінету">
             <section className="sidebar-group"><button type="button" className="sidebar-group-toggle" onClick={() => setSellingOpen(value => !value)} aria-expanded={sellingOpen}><span>Продаю</span><span aria-hidden="true">{sellingOpen ? '⌃' : '⌄'}</span></button>{sellingOpen && <div>{item('create', '＋', 'Додати оголошення')}{item('mine', '▣', 'Мої оголошення')}{item('market', '⇄', 'Відгуки на запити')}{item('orders', '▤', 'Мої угоди')}{item('notifications', '•', 'Сповіщення', 'selling')}</div>}</section>
@@ -677,6 +679,23 @@ function App() {
     const [loading, setLoading] = useState(false)
     const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
     const [unreadNotifications, setUnreadNotifications] = useState(0)
+    const [conversations, setConversations] = useState<Conversation[]>([])
+    const conversationRevision = useRef(0)
+    const refreshConversations = useCallback(async () => {
+        const revision = ++conversationRevision.current
+        const next = (await request('/api/conversations')).conversations as Conversation[]
+        if (revision === conversationRevision.current) setConversations(next)
+        return next
+    }, [])
+    useEffect(() => {
+        if (!user) { ++conversationRevision.current; setConversations([]); return }
+        void refreshConversations().catch(() => undefined)
+        const timer = window.setInterval(() => void refreshConversations().catch(() => undefined), 8000)
+        return () => { clearInterval(timer); ++conversationRevision.current }
+    }, [user?.id, view, refreshConversations])
+    const messageUnreadCount = conversations.reduce((total, item) => total + (item.unreadCount ?? 0), 0)
+    const messagesState = { conversations, refresh: refreshConversations }
+
     const [notificationScope, setNotificationScope] = useState<'selling' | 'buying'>('selling')
     const [path, setPath] = useState(() => window.location.pathname)
     useEffect(() => { const sync = () => { setPath(window.location.pathname); const nextView = viewForPath(window.location.pathname); if (nextView) setView(nextView) }; window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync) }, [])
@@ -705,7 +724,7 @@ function App() {
     const productRoute = path.match(/^\/products\/([^/]+)$/)
     const buyRequestRoute = path.match(/^\/buy-requests\/([^/]+)$/)
     const profileRoute = path.match(/^\/profiles\/([^/]+)$/)
-    const detailShell = (content: any) => !user ? content : <div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{content}</main></div>
+    const detailShell = (content: any) => !user ? content : <MessagesContext.Provider value={messagesState}><div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} messageUnreadCount={messageUnreadCount} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{content}</main></div></MessagesContext.Provider>
     if (productRoute) return detailShell(<ProductPage id={decodeURIComponent(productRoute[1])} user={user} onAccount={() => enter()} onCreate={() => enter(true)} onChat={(product) => startListingChat('products', product)} onEdit={(product) => { setEditing(product); go('create') }} />)
     if (buyRequestRoute) return detailShell(<BuyRequestPage id={decodeURIComponent(buyRequestRoute[1])} user={user} mine={mine} notify={notify} onAccount={() => enter()} onCreate={() => enter(true)} onChat={(item) => startListingChat('buy-requests', item)} />)
     if (profileRoute) return detailShell(<PublicProfilePage username={decodeURIComponent(profileRoute[1])} user={user} onAccount={() => enter()} onCreate={() => enter(true)} />)
@@ -716,7 +735,7 @@ function App() {
         if (view === 'map') return <MapView categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} locationReady={authReady} />
         return <><PublicHome locationReady={authReady} categories={categories} request={request} user={null} onAccount={() => enter()} onCreate={() => enter(true)} openProduct={openProductPage} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />{toast && <div className="toast">{toast}</div>}</>
     }
-    return <div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{view === 'home' && <Home user={user} products={products} open={openProductPage} explore={() => go('find')} create={() => go('create')} onChat={(product) => startListingChat('products', product)} />}{view === 'find' && <PublicHome locationReady={authReady} categories={categories} request={request} user={user} onAccount={() => go('profile')} onCreate={() => go('create')} openProduct={openProductPage} onChat={(product) => startListingChat('products', product)} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />}{view === 'products' && <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={openProductPage} onChat={(product) => startListingChat('products', product)} />}{view === 'map' && <MapView userId={user.id} city={mapFocus} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />}{view === 'messages' && <MessagesView notify={notify} />}{view === 'notifications' && <NotificationsView notify={notify} scope={notificationScope} onRead={() => setUnreadNotifications(0)} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} open={openProductPage} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} setStatus={async (product, status) => { try { await request(`/api/products/${product.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadMine(); notify('Статус оновлено') } catch (error) { notify((error as Error).message) } }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'requests' && <MyRequests notify={notify} create={() => go('request')} />}{view === 'market' && <RequestsMarket mine={mine} notify={notify} />}{view === 'orders' && <OrdersView notify={notify} />}{view === 'profile' && <ProfileView logout={logout} notify={notify} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['find', '⌕', 'Знайти'], ['messages', '♧', 'Чати'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}</button>)}</nav>{toast && <div className="toast">{toast}</div>}</div>
+    return <MessagesContext.Provider value={messagesState}><div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} messageUnreadCount={messageUnreadCount} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{view === 'home' && <Home user={user} products={products} open={openProductPage} explore={() => go('find')} create={() => go('create')} onChat={(product) => startListingChat('products', product)} />}{view === 'find' && <PublicHome locationReady={authReady} categories={categories} request={request} user={user} onAccount={() => go('profile')} onCreate={() => go('create')} openProduct={openProductPage} onChat={(product) => startListingChat('products', product)} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />}{view === 'products' && <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={openProductPage} onChat={(product) => startListingChat('products', product)} />}{view === 'map' && <MapView userId={user.id} city={mapFocus} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />}{view === 'messages' && <MessagesView notify={notify} />}{view === 'notifications' && <NotificationsView notify={notify} scope={notificationScope} onRead={() => setUnreadNotifications(0)} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} open={openProductPage} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} setStatus={async (product, status) => { try { await request(`/api/products/${product.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadMine(); notify('Статус оновлено') } catch (error) { notify((error as Error).message) } }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'requests' && <MyRequests notify={notify} create={() => go('request')} />}{view === 'market' && <RequestsMarket mine={mine} notify={notify} />}{view === 'orders' && <OrdersView notify={notify} />}{view === 'profile' && <ProfileView logout={logout} notify={notify} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['find', '⌕', 'Знайти'], ['messages', '♧', 'Чати'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}{key === 'messages' && <MessageUnreadBadge count={messageUnreadCount} />}</button>)}</nav>{toast && <div className="toast">{toast}</div>}</div></MessagesContext.Provider>
 }
 
 function Home({ user, products, open, explore, create, onChat }: { user: User; products: Product[]; open: (product: Product) => void; explore: () => void; create: () => void; onChat: (product: Product) => void }) { return <section className="content"><div className="welcome"><div><span className="eyebrow">Понеділок, гарного дня</span><h1>Привіт, {user.username} <span>✦</span></h1><p>Що шукаєте або продаєте сьогодні?</p></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="hero-strip"><div><span className="eyebrow">Локальний маркетплейс</span><h2>Ваш врожай<br /><em>має значення.</em></h2><button className="light-button" onClick={explore}>Переглянути товари <span>→</span></button></div><div className="hero-art">✦</div></div><div className="section-heading"><div><span className="eyebrow">Рекомендоване</span><h2>Товари поруч</h2></div><button className="text-button" onClick={explore}>Дивитись всі →</button></div><div className="product-grid">{products.slice(0, 4).map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} onChat={() => onChat(product)} />)}</div>{!products.length && <Empty text="Поки немає активних товарів" />}</section> }
@@ -725,7 +744,7 @@ function Mine({ products, open, create, edit, remove, setStatus }: { products: P
 type Offer = { id: string; seller: { id: string; username: string }; buyRequestId: string; existingProduct: { id: string; title: string } | null; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; status: string; createdAt: string }
 type Order = { id: string; buyRequestId: string; buyer: { id: string; username: string }; seller: { id: string; username: string }; quantity: number | null; unit: string; price: { unit: number | null; currency: string }; subtotal: number; status: string; conditionsSnapshot: { productTitle?: string } | null; cancelReason?: string | null; dispute?: { status: string; reason: string; resolution: string | null } | null }
 type ChatMessage = { id: string; senderId: string; senderUsername: string; body: string; createdAt: string }
-type Conversation = { id: string; orderId?: string | null; offerId?: string | null; productId?: string | null; buyRequestId?: string | null; type: 'direct' | 'offer' | 'deal'; status: string; title?: string; price?: number | null; currency?: string | null; imageUrl?: string | null; categoryId?: string | null; categoryName?: string | null; categoryImageIndex?: number | null; otherUserId?: string; otherUsername: string; otherAvatarUrl?: string | null; userRole?: 'selling' | 'buying'; lastMessage: string | null; lastMessageSenderId?: string | null; lastMessageIsMine?: boolean; lastMessageAt: string | null; lastReadAt: string | null; unreadCount?: number }
+
 type Notification = { id: string; type: string; title: string; body: string; userRole?: 'selling' | 'buying' | 'general'; orderId: string | null; conversationId: string | null; readAt: string | null; createdAt: string }
 type PublicProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string | null; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number }; createdAt: string; lastSeenAt: string | null }
 type PrivateProfile = { mapLocation?: ProfileMapLocation; id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string; email: string | null; emailVerified: boolean; recoveryEmail: string | null; exactAddress: string | null; privacy: { phoneVisibility: 'private' | 'authenticated' | 'public'; phoneDisclosureConsent: boolean }; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number } }
@@ -876,7 +895,7 @@ function ChatPanel({ chat, onClose, notify }: { chat: { conversationId: string; 
 function MessagesView({ notify }: { notify: (message: string) => void }) {
     const params = new URLSearchParams(window.location.search)
     const initialScope = params.get('filter')
-    const [conversations, setConversations] = useState<Conversation[]>([])
+    const { conversations, refresh } = useContext(MessagesContext)
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(() => {
         const id = conversationIdForPath(window.location.pathname)
         return id ? { conversationId: id, title: 'Обговорення' } : null
@@ -897,8 +916,7 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
             setLoadError('')
         }
         try {
-            const next = (await request('/api/conversations')).conversations as Conversation[]
-            setConversations(next)
+            const next = await refresh()
             setChat((current) => {
                 if (current) {
                     const matchingConversation = next.find((item) => item.id === current.conversationId)
@@ -915,8 +933,6 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
 
     useEffect(() => {
         void load(true)
-        const timer = window.setInterval(() => void load(), 8000)
-        return () => clearInterval(timer)
     }, [])
 
     useEffect(() => {
@@ -985,10 +1001,10 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
         : loadError && !conversations.length
             ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити повідомлення</h3><p>{loadError}</p><button className="primary-button compact" onClick={() => void load(true)}>Спробувати ще раз</button></div>
             : visible.length
-                ? visible.map((conversation) => <button className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active' : '')} key={conversation.id} onClick={() => openConversation(conversation)} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername)}>
+                ? visible.map((conversation) => <button className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active ' : '') + (conversation.unreadCount ? 'unread' : '')} key={conversation.id} onClick={() => openConversation(conversation)} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername) + (conversation.unreadCount ? `. Непрочитані повідомлення: ${conversation.unreadCount}` : '')}>
                     <span className="conversation-thumb">{conversation.imageUrl ? <img src={imageUrl(conversation.imageUrl)} alt="" /> : conversation.categoryId ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} /> : conversation.otherAvatarUrl ? <img src={imageUrl(conversation.otherAvatarUrl)} alt="" /> : avatarInitials({ username: conversation.otherUsername })}</span>
                     <span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{contextLabel(conversation)}</em><small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
-                    <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <i aria-label={'Непрочитаних: ' + conversation.unreadCount}>{conversation.unreadCount}</i>}</span>
+                    <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <MessageUnreadBadge count={conversation.unreadCount ?? 0} />}</span>
                 </button>)
                 : <Empty text={search ? 'Нічого не знайдено' : 'Повідомлень поки немає'} />
 
