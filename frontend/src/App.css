@@ -43,3 +43,59 @@
 /* Existing unread counts need a clear visual distinction in the conversation list. */
 .conversation-row:has(.conversation-side i){background:#f4fbf5;border-color:#c6e7ce}
 .conversation-row:has(.conversation-side i) .conversation-main strong,.conversation-row:has(.conversation-side i) .conversation-main small{font-weight:800;color:#173d25}
+
+/* Keep the chat split view usable after the application sidebar switches off. */
+@media (min-width:701px) and (max-width:900px){
+  .messages-workspace{display:grid!important;grid-template-columns:minmax(300px,.92fr) minmax(0,1.08fr)!important;height:clamp(560px,calc(100dvh - 180px),720px)!important;min-height:0!important}
+  .messages-sidebar{display:flex!important;flex-direction:column!important;margin-bottom:0!important}
+  .messages-sidebar .message-scope-tabs{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;overflow:hidden!important}
+  .messages-sidebar .message-scope-tabs button{justify-content:center!important;padding-inline:8px!important}
+  .conversation-list{flex:1!important;min-height:0!important;max-height:none!important;overflow-y:auto!important;align-content:start!important}
+  .messages-dialog{display:flex!important;min-height:0!important}
+  .messages-dialog .deal-chat-history{min-height:0!important}
+}
+
+/* A narrow screen shows either the list or one full-height chat, never both. */
+@media(max-width:700px){
+  .messages-view{width:100%;padding:0;min-width:0;overflow-x:clip}
+  .messages-view .view-header{display:grid;padding:1.25rem 1rem 0}
+  .messages-view .view-header h1{font-size:clamp(1.9rem,10vw,2.4rem)}
+  .message-search{width:100%;margin-top:.8rem}
+  .messages-workspace{display:block!important;min-height:0!important;border:0;border-radius:0;background:transparent}
+  .messages-sidebar,.messages-dialog{border:0;border-radius:0;box-shadow:none}
+  .messages-sidebar .message-scope-tabs{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px;overflow:hidden!important;padding:14px 1rem}
+  .messages-sidebar .message-scope-tabs button{justify-content:center!important;min-width:0;padding-inline:8px!important}
+  .conversation-list{max-height:none;padding:0 .75rem 1rem;overflow:visible}
+  .conversation-row{grid-template-columns:48px minmax(0,1fr);gap:10px;margin:0;padding:11px 7px}
+  .conversation-thumb{width:48px;height:48px}
+  .conversation-main{gap:3px}
+  .conversation-main strong{font-size:.88rem}
+  .conversation-main>span,.conversation-main em,.conversation-main small{font-size:.7rem}
+  .conversation-side{grid-column:2;grid-row:2;display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:0;font-size:.74rem}
+  .conversation-side b{max-width:none;font-size:.8rem;white-space:nowrap}
+  .conversation-side>small{display:none}
+  .conversation-side i{min-width:21px;height:21px}
+  .messages-workspace:has(.deal-chat-embedded) .messages-sidebar{display:none}
+  .messages-workspace:not(:has(.deal-chat-embedded)) .messages-dialog{display:none}
+  .messages-view:has(.deal-chat-embedded) .view-header{display:none}
+  .messages-dialog:has(.deal-chat-embedded){display:block;min-height:calc(100dvh - 132px);height:calc(100dvh - 132px);background:#fff}
+  .messages-dialog .deal-chat-embedded{padding:14px 14px 10px}
+  .messages-dialog .deal-chat-embedded>header{min-height:44px;padding-bottom:10px}
+  .messages-dialog .deal-chat-embedded>header .icon-button{order:-1;width:auto;min-width:76px;padding:0 10px;border-radius:9px;font-size:0}
+  .messages-dialog .deal-chat-embedded>header .icon-button::after{content:'← Назад';font-size:.8rem;font-weight:700}
+  .messages-dialog .deal-chat-embedded>header h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:1rem}
+  .messages-dialog .deal-chat-history{min-height:0!important;flex:1;padding:14px 0}
+  .messages-dialog .chat-input{display:flex;gap:8px;padding-top:10px}
+  .messages-dialog .chat-input input{min-width:0}
+  .messages-dialog .chat-input .primary-button{flex:0 0 auto;padding-inline:11px}
+}
+
+/* Let tab labels choose a new row before their text or counters collide. */
+.messages-sidebar .message-scope-tabs{grid-template-columns:repeat(auto-fit,minmax(132px,1fr))!important}
+
+@media (max-width:480px){
+  .content:has(.order-list) .view-header{align-items:flex-start;flex-wrap:wrap}
+  .content:has(.order-list) .view-header>.outline-button{width:100%}
+  .content:has(.order-list)>.message-scope-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:8px}
+  .content:has(.order-list)>.message-scope-tabs button{min-width:0;padding-inline:8px;white-space:normal}
+}

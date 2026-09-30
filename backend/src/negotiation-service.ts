@@ -20,7 +20,7 @@ export const getConversationContext = async (user: AuthUser, id: string) => {
         && (!row.valid_until || row.valid_until > new Date()) && (!row.deadline || row.deadline > new Date())
     return { status: 200, body: { context: {
         offerId: row.offer_id, requestId: row.buy_request_id, title: row.title, buyerId: row.buyer_id,
-        sellerId: row.seller_id, unit: row.unit, currency: row.currency, price: Number(row.unit_price),
+        sellerId: row.seller_id, unit: row.unit, currency: row.currency, price: Number(row.unit_price), offeredQuantity: Number(row.offered_quantity),
         quantity: Number(row.offered_quantity) - Number(row.accepted_quantity), remaining: Number(row.remaining),
         delivery: row.delivery, deliveryPrice: Number(row.delivery_terms?.price ?? 0), fulfillmentMode: row.fulfillment_mode, available,
     }, proposals: proposals.rows.map(proposal => negotiationDto(!available && proposal.status === 'pending' ? { ...proposal, status: 'expired' } : proposal)) } }

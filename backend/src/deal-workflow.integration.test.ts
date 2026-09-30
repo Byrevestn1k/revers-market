@@ -55,6 +55,7 @@ if (hasDatabase) {
             expect(chats.every(r => [200,201].includes(r.status))).toBe(true)
             const cid = chats[0].body.conversation.id
             expect(chats[1].body.conversation.id).toBe(cid)
+            expect((await buyer.get(`/api/conversations/${cid}/context`)).body.context).toMatchObject({ offeredQuantity: 100, quantity: 100 })
             expect((await pool.query('SELECT id FROM orders WHERE offer_id=$1',[oid])).rowCount).toBe(0)
             expect((await buyer.post(`/api/conversations/${cid}/messages`).send({body:'Чи можете зробити дешевше?'})).status).toBe(201)
             const first = await buyer.post(`/api/conversations/${cid}/negotiations`).send({price:135,quantity:30})

@@ -11,12 +11,30 @@ reviews, reporting, blocks, privacy and map search.
 - `npm run typecheck` — TypeScript for frontend and backend.
 - `npm run test --workspace backend` — unit tests and DB-backed integration
   tests when `DATABASE_URL` is set.
+- `npm run test:e2e:e2e3` — isolated Chromium regression for the complete
+  two-seller Request/Offer/Deal/Review lifecycle.
 - `backend/scripts/e2e-flow.test.ps1` — manual HTTP E2E flow against a running
   local API and migrated local database.
 
 Integration suites deliberately skip without `DATABASE_URL`; a green skipped
 suite is not database verification. Run migrations and set `DATABASE_URL`
 before declaring a pilot build ready.
+
+## E2E №3 — AUTOMATED
+
+- Test file: `e2e/e2e-3.spec.ts`.
+- Run only E2E №3: `npm run test:e2e:e2e3`.
+- Run the browser suite: `npm run test:e2e`.
+- Actors: Buyer A, Seller A and Seller B use three independent browser contexts.
+- Isolation: every test creates unique accounts, Request, Offers and Deals, then
+  removes only records connected to those generated user UUIDs. A migrated local
+  database and `.env` with `DATABASE_URL` are required.
+- Coverage: Request and two Offers, partial selection, both completion orders,
+  intermediate and final accounting, mutual reviews, ratings, notifications,
+  outsider permissions and 320/390/desktop responsive smoke.
+- Integration-level coverage remains responsible for repeated completion,
+  concurrent accounting, idempotent publication and review timeout publication.
+- Playwright retains a trace and screenshot in `test-results/` when a test fails.
 
 ## Required pre-pilot checks
 

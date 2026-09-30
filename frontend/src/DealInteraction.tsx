@@ -7,7 +7,7 @@ type Notify = (message: string) => void
 export type DealRequest = { id: string; title: string; quantity: number; selectedQuantity: number; completedQuantity: number; remainingQuantity: number; fulfillmentMode: string; unit: string; status: string; deadline?: string | null }
 export type DealOffer = { id: string; buyRequestId: string; seller: { id: string; username: string; rating?: number | null; completedDeals?: number; avatarUrl?: string }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; status: string; validUntil?: string | null; additionalPhotoUrl?: string; termsSnapshot?: {availableAt?: string}; deliverySnapshot?: {price?: number}; existingProduct?: { title: string }; photos?: { url: string }[] }
 type Proposal = { id: string; createdBy: string; price: number; quantity: number; delivery: string; deliveryPrice: number; status: string; comment: string; createdAt: string }
-type Context = { offerId: string; requestId: string; title: string; buyerId: string; sellerId: string; unit: string; currency: string; price: number; quantity: number; remaining: number; delivery: string; deliveryPrice: number; fulfillmentMode: string; available: boolean }
+type Context = { offerId: string; requestId: string; title: string; buyerId: string; sellerId: string; unit: string; currency: string; price: number; offeredQuantity: number; quantity: number; remaining: number; delivery: string; deliveryPrice: number; fulfillmentMode: string; available: boolean }
 const amount = (value: number, currency: string) => `${new Intl.NumberFormat('uk-UA').format(value)} ${currency}`
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 const activeRequest = (item: DealRequest) => ['open','partially_selected','partially_completed','partially_fulfilled'].includes(item.status) && (!item.deadline || new Date(item.deadline) > new Date())
@@ -22,24 +22,54 @@ export function OrderContact({ id, http }: { id: string; http: Http }) {
 export function ParticipantActions({ id, http, notify }: { id: string; http: Http; notify: Notify }) {
     const [busy, setBusy] = useState(false)
     const [blocked, setBlocked] = useState(false)
-    const act = async (block: boolean) => {
+    const [reporting, setReporting] = useState(false)
+    const [confirmingBlock, setConfirmingBlock] = useState(false)
+    const act = async (block: boolean, reason = '') => {
         if (busy) return
-        const reason = block ? '' : window.prompt('Коротко опишіть причину скарги:')
-        if (!block && !reason?.trim()) return
-        if (block && !window.confirm(blocked ? 'Розблокувати користувача?' : 'Заблокувати нові повідомлення та взаємодії з цим користувачем?')) return
         setBusy(true)
-        try { await http(block ? `/api/users/${id}/block` : '/api/reports', block && blocked ? {method:'DELETE'} : post(block ? {} : {targetType:'user',targetId:id,reason:reason!.slice(0,160)})); if (block) setBlocked(!blocked); notify(block ? blocked ? 'Користувача розблоковано' : 'Користувача заблоковано' : 'Скаргу надіслано') } catch(caught) {notify((caught as Error).message)} finally {setBusy(false)}
+        try {
+            await http(block ? `/api/users/${id}/block` : '/api/reports', block && blocked ? { method: 'DELETE' } : post(block ? {} : { targetType: 'user', targetId: id, reason: reason.slice(0, 160) }))
+            if (block) setBlocked(!blocked)
+            notify(block ? blocked ? 'Користувача розблоковано' : 'Користувача заблоковано' : 'Скаргу надіслано')
+            setReporting(false); setConfirmingBlock(false)
+        } catch (caught) { notify((caught as Error).message) } finally { setBusy(false) }
     }
-    return <div className="deal-actions"><button className="text-button" disabled={busy} onClick={() => act(false)}>Поскаржитися</button><button className="text-button" disabled={busy} onClick={() => act(true)}>{blocked ? 'Розблокувати' : 'Заблокувати користувача'}</button></div>
+    return <div className="deal-actions"><button className="text-button" disabled={busy} onClick={() => setReporting(true)}>Поскаржитися</button><button className="text-button" disabled={busy} onClick={() => setConfirmingBlock(true)}>{blocked ? 'Розблокувати' : 'Заблокувати користувача'}</button>
+        {reporting && <TextEntryDialog title="Поскаржитися на користувача" label="Причина скарги" minLength={1} maxLength={160} submitLabel="Надіслати скаргу" onClose={() => setReporting(false)} onSubmit={(reason) => act(false, reason)} busy={busy} />}
+        {confirmingBlock && <ConfirmationDialog title={blocked ? 'Розблокувати користувача?' : 'Заблокувати користувача?'} confirmLabel={blocked ? 'Розблокувати' : 'Заблокувати'} destructive={!blocked} busy={busy} onClose={() => setConfirmingBlock(false)} onConfirm={() => act(true)}><p>{blocked ? 'Ви знову зможете писати одне одному та взаємодіяти в межах правил сервісу.' : 'Нові повідомлення й взаємодії з цим користувачем буде заблоковано.'}</p></ConfirmationDialog>}
+    </div>
 }
 
-export function DealDialog({ title, onClose, children, busy = false, embedded = false }: { title: string; onClose: () => void; children: ReactNode; busy?: boolean; embedded?: boolean }) {
+export function DealDialog({ title, onClose, children, busy = false, embedded = false, mobileBackNavigation = false }: { title: string; onClose: () => void; children: ReactNode; busy?: boolean; embedded?: boolean; mobileBackNavigation?: boolean }) {
     const ref = useRef<HTMLDialogElement>(null)
     useEffect(() => { const element = ref.current; element?.showModal(); return () => element?.close() }, [])
-    if (embedded) return <section className="deal-dialog deal-chat-embedded" aria-label={title}><header><h2>{title}</h2><button type="button" className="icon-button" disabled={busy} aria-label="Закрити" onClick={onClose}>×</button></header>{children}</section>
-    return <dialog className="deal-dialog" ref={ref} onCancel={event => { event.preventDefault(); if (!busy) onClose() }} aria-label={title}>
-        <header><h2>{title}</h2><button type="button" className="icon-button" disabled={busy} aria-label="Закрити" onClick={onClose}>×</button></header>{children}
+    if (embedded) return <section className="deal-dialog deal-chat-embedded" aria-label={title}><header><h2>{title}</h2><button type="button" className="icon-button" disabled={busy} aria-label="Повернутися до списку чатів" onClick={onClose}>×</button></header>{children}</section>
+    return <dialog className={'deal-dialog' + (mobileBackNavigation ? ' deal-dialog-mobile-back' : '')} ref={ref} onCancel={event => { event.preventDefault(); if (!busy) onClose() }} aria-label={title}>
+        <header><h2>{title}</h2><button type="button" className="icon-button" disabled={busy} aria-label={mobileBackNavigation ? 'Назад' : 'Закрити'} onClick={onClose}>{mobileBackNavigation ? <><span className="dialog-close-icon">×</span><span className="dialog-back-label">← Назад</span></> : '×'}</button></header>{children}
     </dialog>
+}
+
+export function ConfirmationDialog({ title, children, confirmLabel, destructive = false, busy = false, onClose, onConfirm }: { title: string; children: ReactNode; confirmLabel: string; destructive?: boolean; busy?: boolean; onClose: () => void; onConfirm: () => void | Promise<void> }) {
+    const [submitting, setSubmitting] = useState(false)
+    const pending = busy || submitting
+    const submit = async () => { if (pending) return; setSubmitting(true); try { await onConfirm() } finally { setSubmitting(false) } }
+    return <DealDialog title={title} onClose={onClose} busy={pending}>{children}<div className="deal-actions"><button type="button" className="outline-button" disabled={pending} onClick={onClose}>Скасувати</button><button type="button" className={destructive ? 'danger-button' : 'primary-button'} disabled={pending} onClick={() => void submit()}>{pending ? 'Зачекайте…' : confirmLabel}</button></div></DealDialog>
+}
+
+export function TextEntryDialog({ title, label, initialValue = '', minLength = 0, maxLength, submitLabel, busy = false, onClose, onSubmit }: { title: string; label: string; initialValue?: string; minLength?: number; maxLength?: number; submitLabel: string; busy?: boolean; onClose: () => void; onSubmit: (value: string) => void | Promise<void> }) {
+    const [value, setValue] = useState(initialValue)
+    const [error, setError] = useState('')
+    const [submitting, setSubmitting] = useState(false)
+    const pending = busy || submitting
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        const trimmed = value.trim()
+        if (trimmed.length < minLength) { setError(`Введіть щонайменше ${minLength} символів.`); return }
+        if (pending) return
+        setSubmitting(true)
+        try { await onSubmit(trimmed) } finally { setSubmitting(false) }
+    }
+    return <DealDialog title={title} onClose={onClose} busy={pending}><form onSubmit={event => void submit(event)}><label>{label}<textarea autoFocus value={value} minLength={minLength || undefined} maxLength={maxLength} onChange={event => { setValue(event.target.value); setError('') }} required={minLength > 0} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="deal-actions"><button type="button" className="outline-button" disabled={pending} onClick={onClose}>Скасувати</button><button className="primary-button" disabled={pending}>{pending ? 'Зберігаємо…' : submitLabel}</button></div></form></DealDialog>
 }
 
 export function SelectOfferDialog({ offer, item, http, onClose, onDone }: { offer: DealOffer; item: DealRequest; http: Http; onClose: () => void; onDone: () => void }) {
@@ -103,6 +133,7 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
     const [selection, setSelection] = useState<DealOffer | null>(null)
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
     const [busy, setBusy] = useState(false)
+    const [rejecting, setRejecting] = useState<DealOffer | null>(null)
     const load = async () => {
         try { const [result, deals] = await Promise.all([http(`/api/buy-requests/${item.id}/offers`), http('/api/orders')]); setOffers(result.offers); setOrders(deals.orders.filter((o: any) => o.buyRequestId === item.id)); setError('') }
         catch (caught) { setError((caught as Error).message) } finally { setLoading(false) }
@@ -119,15 +150,16 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
         {!loading && !offers.length && <p>Пропозицій поки немає. Ми повідомимо, коли продавці відгукнуться.</p>}
         {sorted.map(offer => <article key={offer.id} className="deal-offer"><header><div><a href={`/profiles/${encodeURIComponent(offer.seller.username)}`}><strong>{offer.seller.username}</strong></a><small>★ {offer.seller.rating ?? '—'}/12 · {offer.seller.completedDeals ?? 0} підтверджених угод</small></div><strong>{amount(offer.price.amount, offer.price.currency)} / {unitLabel(offer.unit)}</strong></header>
             <h4>{offer.existingProduct?.title ?? item.title}</h4>{offer.additionalPhotoUrl && <img className="deal-offer-photo" src={offer.additionalPhotoUrl} alt="Фото пропозиції" />}
-            <p>Пропонує до {offer.quantity - offer.acceptedQuantity} {unitLabel(offer.unit)} · {offer.delivery}</p><p>{offer.note}</p>
+            <p>Пропонує {offer.quantity} {unitLabel(offer.unit)} · {offer.delivery}</p><p>{offer.note}</p>
             {item.fulfillmentMode === 'multiple_sellers' && <p>Ви можете обрати до {Math.max(0, Math.min(offer.quantity - offer.acceptedQuantity, item.remainingQuantity))} {unitLabel(offer.unit)}.</p>}
             {item.fulfillmentMode === 'single_seller' && offer.quantity - offer.acceptedQuantity < item.remainingQuantity && <p className="form-hint">Ця пропозиція не покриває весь потрібний обсяг. Для цього запиту ви обрали покупку в одного продавця.</p>}
             {!selectable(offer) && !(item.fulfillmentMode === 'single_seller' && offer.quantity - offer.acceptedQuantity < item.remainingQuantity) && <p className="form-hint">{item.remainingQuantity <= 0 ? 'Увесь обсяг уже погоджено.' : 'Зараз ця пропозиція недоступна для вибору.'}</p>}
             <div className="deal-actions"><button className="outline-button" disabled={busy} onClick={() => contact(offer)}>Написати продавцю</button><button className="primary-button" disabled={!selectable(offer)} onClick={() => setSelection(offer)}>Обрати пропозицію</button></div>
-            <details onToggle={e => {if (e.currentTarget.open) void http(`/api/offers/${offer.id}/view`, post({})).catch(() => undefined)}}><summary>Детальніше та інші дії</summary><p>Доставка: {offer.delivery}. {offer.validUntil ? `Актуальна до ${new Date(offer.validUntil).toLocaleDateString('uk-UA')}` : 'Строк не вказано.'}</p><button className="text-button" onClick={() => contact(offer)}>Запропонувати інші умови</button>{['submitted','partially_accepted'].includes(offer.status) && offer.acceptedQuantity === 0 && <button className="text-button" onClick={async () => { if (!confirm('Відхилити цю пропозицію?')) return; try { await http(`/api/offers/${offer.id}/reject`, post({})); void load() } catch (caught) { notify((caught as Error).message) } }}>Відхилити пропозицію</button>}<ParticipantActions id={offer.seller.id} http={http} notify={notify} /></details>
+            <details onToggle={e => {if (e.currentTarget.open) void http(`/api/offers/${offer.id}/view`, post({})).catch(() => undefined)}}><summary>Детальніше та інші дії</summary><p>Доставка: {offer.delivery}. {offer.validUntil ? `Актуальна до ${new Date(offer.validUntil).toLocaleDateString('uk-UA')}` : 'Строк не вказано.'}</p><button className="text-button" onClick={() => contact(offer)}>Запропонувати інші умови</button>{['submitted','partially_accepted'].includes(offer.status) && offer.acceptedQuantity === 0 && <button className="text-button" onClick={() => setRejecting(offer)}>Відхилити пропозицію</button>}<ParticipantActions id={offer.seller.id} http={http} notify={notify} /></details>
         </article>)}
         {selection && <SelectOfferDialog offer={selection} item={item} http={http} onClose={() => setSelection(null)} onDone={() => { setSelection(null); notify('Ви обрали пропозицію. Очікуємо підтвердження продавця.'); onRefresh(); void load() }} />}
         {chat && <DealChat chat={chat} http={http} notify={notify} onClose={() => { setChat(null); onRefresh(); void load() }} />}
+        {rejecting && <ConfirmationDialog title="Відхилити пропозицію?" confirmLabel="Відхилити" destructive busy={busy} onClose={() => setRejecting(null)} onConfirm={async () => { if (busy) return; setBusy(true); try { await http(`/api/offers/${rejecting.id}/reject`, post({})); setRejecting(null); void load() } catch (caught) { notify((caught as Error).message) } finally { setBusy(false) } }}><p>Пропозиція від {rejecting.seller.username} більше не буде доступна для вибору.</p></ConfirmationDialog>}
     </section>
 }
 
@@ -158,8 +190,8 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const editTerms = () => { editingParent.current = latest?.id ?? null; setEditing(true) }
     const negotiate = (action: string, proposal: Proposal) => act(`/api/conversations/${chat.conversationId}/negotiations`, { action, proposalId: proposal.id })
     const timeline = [...messages.map(m => ({ ...m, entryType: 'message' })), ...proposals.map(p => ({ ...p, entryType: 'proposal' }))].sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    return <DealDialog title={chat.title} onClose={onClose} busy={busy} embedded={embedded}>
-        {context && <div className="deal-chat-context"><a href={`/buy-requests/${context.requestId}`}>{context.title}</a><span>{amount(context.price, context.currency)} / {unitLabel(context.unit)} · до {context.quantity} {unitLabel(context.unit)}</span></div>}
+    return <DealDialog title={chat.title} onClose={onClose} busy={busy} embedded={embedded} mobileBackNavigation={!embedded}>
+        {context && <div className="deal-chat-context"><a href={`/buy-requests/${context.requestId}`}>{context.title}</a><span>{amount(context.price, context.currency)} / {unitLabel(context.unit)} · Пропозиція: {context.offeredQuantity} {unitLabel(context.unit)}</span></div>}
         <div className="deal-chat-history" aria-live="polite">{!timeline.length && <p>Ще немає повідомлень. Можете уточнити деталі пропозиції.</p>}{timeline.map(entry => entry.entryType === 'message' ? entry.kind === 'system' ? <article key={entry.id} className="deal-system-event"><p>{entry.body}</p></article> : <article key={entry.id} className={`chat-message ${entry.senderId === viewer ? 'chat-message-mine' : 'chat-message-theirs'}`}><span className="chat-message-avatar" aria-hidden="true">{entry.senderAvatarUrl ? <img src={entry.senderAvatarUrl} alt="" /> : entry.senderUsername?.[0]?.toUpperCase() ?? '?'}</span><div className="chat-message-bubble"><p>{entry.body}</p><small>{new Date(entry.createdAt).toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'})}</small></div></article> : <article key={entry.id} className="negotiation-card"><strong>{entry.createdBy === viewer ? 'Ви запропонували' : 'Інша сторона пропонує'}</strong><p>{amount(entry.price, context?.currency ?? '')} / {unitLabel(context?.unit ?? '')} · {entry.quantity} {unitLabel(context?.unit ?? '')}</p><p>Разом: {amount(entry.price * entry.quantity + entry.deliveryPrice, context?.currency ?? '')}</p><p>{entry.delivery}{entry.deliveryPrice > 0 ? ` · ${amount(entry.deliveryPrice, context?.currency ?? '')}` : ''}</p><p>{entry.comment}</p><b>{entry.id !== latest?.id ? 'Неактуально' : ({ pending: 'Актуальна пропозиція — очікуємо відповіді', accepted: 'Умови погоджено. Угода ще не створена.', rejected: 'Відхилено', withdrawn: 'Відкликано', expired: 'Строк дії минув', countered: 'Неактуально' } as Record<string,string>)[entry.status]}</b>{entry.status === 'pending' && entry.id === latest?.id && viewer && <div className="deal-actions">{entry.createdBy !== viewer ? <><button className="primary-button" disabled={busy} onClick={() => negotiate('accept', entry)}>Прийняти умови</button><button className="outline-button" disabled={busy} onClick={editTerms}>Запропонувати інші умови</button><button className="text-button" disabled={busy} onClick={() => negotiate('reject', entry)}>Відхилити</button></> : <button className="text-button" disabled={busy} onClick={() => negotiate('withdraw', entry)}>Відкликати умови</button>}</div>}</article>)}</div>
         {!messages.some(m => m.kind === 'text') && <div className="deal-quick-replies">{['Чи актуальна пропозиція?','Чи можете зробити дешевше?','Коли можна отримати?','Чи є доставка?','Хочу уточнити щодо товару'].map(value => <button key={value} className="outline-button compact" onClick={() => setText(value)}>{value}</button>)}</div>}
         {error && <p role="alert" className="form-error">{error}</p>}

@@ -16,9 +16,12 @@
         "build": "npm run build --workspace frontend && npm run build --workspace backend",
         "typecheck": "npm run typecheck --workspace frontend && npm run typecheck --workspace backend",
         "test": "npm run test --workspace backend",
+        "test:e2e": "node --env-file=.env node_modules/@playwright/test/cli.js test",
+        "test:e2e:e2e3": "node --env-file=.env node_modules/@playwright/test/cli.js test e2e/e2e-3.spec.ts",
         "start": "npm run start --workspace backend"
     },
     "devDependencies": {
+        "@playwright/test": "^1.63.0",
         "concurrently": "^9.1.2"
     }
 }

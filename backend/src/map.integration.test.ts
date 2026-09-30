@@ -35,6 +35,7 @@ if (hasDatabase) {
                 expect(nearby.body.markers.map((marker: { title: string }) => marker.title)).toEqual(expect.arrayContaining(['Тестова пшениця поруч', 'Тестовий запит поруч']))
                 expect(nearby.body.markers.map((marker: { title: string }) => marker.title)).not.toContain('Тестові овочі далеко')
                 expect(nearby.body.markers.every((marker: { approximate: boolean }) => marker.approximate)).toBe(true)
+                expect(nearby.body.markers.find((marker: { id: string }) => marker.id === requestId)).toMatchObject({ kind: 'buyRequest', quantity: 10, unit: 'kg' })
 
                 // Nearby uses the saved exact point on the server, even though the map returns the rounded point.
                 for (const zoom of [7, 12, 19]) {

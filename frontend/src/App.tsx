@@ -32,13 +32,14 @@ import { mapMarkerElement, mapMarkerLabel } from './map-marker-icons'
 import type { MapViewport } from './map-clusters'
 import type { HomeCity, HomeMapProps } from './PublicHome'
 import './sidebar-profile.css'
-import { RequestOffers, DealChat, OrderResultDialog, OrderContact, ParticipantActions, dealStatusText, failureReasons } from './DealInteraction'
+import { RequestOffers, DealChat, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
 export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; address?: string | null; coordinates?: MapPoint | null; status: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
 type View = 'home' | 'find' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
 type MapPoint = { latitude: number; longitude: number }
 type MapMarker = SellerProductPoint & { approximate: boolean }
+type MapReturnState = { center: MapPoint; zoom: number; radius: number; nearbyRadius: number; geoZone: string; geoSettlement: Settlement | null; localCategoryId: string; showProducts: boolean; showBuyRequests: boolean; mapQuery: string; mapSearch: string; searchIn: 'title' | 'all' | 'owner'; searchScope: 'city' | 'nearby' | 'area' | 'country'; resultPage: number }
 type BuyRequest = { id: string; title: string; description: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; geoArea: string; category: { name: string }; quantity: number; fulfilledQuantity: number; selectedQuantity: number; completedQuantity: number; remainingQuantity: number; fulfillmentMode: 'single_seller' | 'multiple_sellers'; unit: string; status: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null }; deadline: string | null }
 type ApiError = Error & { fields?: string[]; status?: number }
 const API = import.meta.env.VITE_API_URL ?? ''
@@ -101,35 +102,37 @@ function Pagination({ page, pages, onPage }: { page: number; pages: number; onPa
 const viewBreadcrumb: Partial<Record<View, string>> = { find: 'Знайти', messages: 'Мої повідомлення', create: 'Додати оголошення', mine: 'Мої оголошення', market: 'Відгуки на запити', orders: 'Мої угоди', notifications: 'Сповіщення', request: 'Подати запит', requests: 'Мої запити', profile: 'Мій профіль', products: 'Каталог', map: 'Мапа' }
 function ViewBreadcrumbs({ view }: { view: View }) { const label = viewBreadcrumb[view]; return label ? <nav className="breadcrumbs view-breadcrumbs" aria-label="Навігаційний шлях"><a href="/">Головна</a><span><i>›</i><b>{label}</b></span></nav> : null }
 
-function MapView({ categories, openProduct, openRequest, openProfile, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange }: { categories: Category[]; openProduct: (product: Product) => void; openRequest: (id: string) => void; openProfile: (username: string) => void; notify: (message: string) => void; city?: HomeCity } & Partial<HomeMapProps>) {
+function MapView({ categories, openProduct, openRequest, openProfile, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange }: { categories: Category[]; openProduct: (product: Product) => void; openRequest: (id: string, mapState?: MapReturnState) => void; openProfile: (username: string) => void; notify: (message: string) => void; city?: HomeCity } & Partial<HomeMapProps>) {
+    const restored = useRef<MapReturnState | null>((window.history.state as { mapReturn?: MapReturnState } | null)?.mapReturn ?? null).current
+    const restoringLocation = useRef(Boolean(restored))
     const location = useSearchLocation(request, userId, city, locationReady)
     const [pickingPoint, setPickingPoint] = useState(false)
     const searchCity = location.city
     const homeLocation = useMemo(() => validCoordinates(location.address.coordinates) ? { ...location.address.coordinates, city: location.address.city } : null, [location.address])
-    const [searchScope, setSearchScope] = useState<'city' | 'nearby' | 'area' | 'country'>('city')
+    const [searchScope, setSearchScope] = useState<'city' | 'nearby' | 'area' | 'country'>(() => restored?.searchScope ?? 'city')
     const mapElement = useRef<HTMLDivElement>(null)
     const mapInstance = useRef<L.Map | null>(null)
     const markerLayer = useRef<L.LayerGroup | null>(null)
     const markerElements = useRef(new Map<string, HTMLElement>())
     const summaryElement = useRef<HTMLElement>(null)
-    const [center, setCenter] = useState<MapPoint>(city ?? { latitude: 50.45, longitude: 30.52 })
-    const [radius, setRadius] = useState(2)
-    const [nearbyRadius, setNearbyRadius] = useState(5)
-    const [zoom, setZoom] = useState(city ? 12 : 10)
-    const [geoZone, setGeoZone] = useState('')
-    const [geoSettlement, setGeoSettlement] = useState<Settlement | null>(null)
-    const [localCategoryId, setLocalCategoryId] = useState('')
+    const [center, setCenter] = useState<MapPoint>(() => restored?.center ?? city ?? { latitude: 50.45, longitude: 30.52 })
+    const [radius, setRadius] = useState(() => restored?.radius ?? 2)
+    const [nearbyRadius, setNearbyRadius] = useState(() => restored?.nearbyRadius ?? 5)
+    const [zoom, setZoom] = useState(() => restored?.zoom ?? (city ? 12 : 10))
+    const [geoZone, setGeoZone] = useState(() => restored?.geoZone ?? '')
+    const [geoSettlement, setGeoSettlement] = useState<Settlement | null>(() => restored?.geoSettlement ?? null)
+    const [localCategoryId, setLocalCategoryId] = useState(() => restored?.localCategoryId ?? '')
     const categoryId = sharedCategoryId ?? localCategoryId
     const setCategoryId = (id: string) => { setLocalCategoryId(id); onCategoryChange?.(id) }
-    const [showProducts, setShowProducts] = useState(true)
-    const [showBuyRequests, setShowBuyRequests] = useState(true)
+    const [showProducts, setShowProducts] = useState(() => restored?.showProducts ?? true)
+    const [showBuyRequests, setShowBuyRequests] = useState(() => restored?.showBuyRequests ?? true)
     const [markers, setMarkers] = useState<MapMarker[]>([])
     const [fetching, setLoading] = useState(true)
     const [loadedKey, setLoadedKey] = useState('')
     const [error, setError] = useState('')
-    const [mapQuery, setMapQuery] = useState('')
-    const [mapSearch, setMapSearch] = useState('')
-    const [searchIn, setSearchIn] = useState<'title' | 'all' | 'owner'>('title')
+    const [mapQuery, setMapQuery] = useState(() => restored?.mapQuery ?? '')
+    const [mapSearch, setMapSearch] = useState(() => restored?.mapSearch ?? '')
+    const [searchIn, setSearchIn] = useState<'title' | 'all' | 'owner'>(() => restored?.searchIn ?? 'title')
     const [searchRevision, setSearchRevision] = useState(0)
     const [focusRevision, setFocusRevision] = useState(0)
     const displayMode = 'sellers' as const
@@ -139,10 +142,10 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [activeMarkerKey, setActiveMarkerKey] = useState<string | null>(null)
     const [previewDetail, setPreviewDetail] = useState<{ key: string; description?: string; loading: boolean; error?: string } | null>(null)
     const setSelection = (next: MapSelection | null) => { updateSelection(next); if (!next) setActiveMarkerKey(null) }
-    const [resultPage, setResultPage] = useState(1)
+    const [resultPage, setResultPage] = useState(() => restored?.resultPage ?? 1)
     const [sellerProfile, setSellerProfile] = useState<PublicProfile | null>(null)
     const [sellerProfileLoading, setSellerProfileLoading] = useState(false)
-    useEffect(() => { setSelection(null); setGeoZone(''); setGeoSettlement(null); setFocusRevision(0); setSearchScope(searchCity ? 'city' : 'country') }, [searchCity?.name, searchCity?.settlement?.code, searchCity?.latitude, searchCity?.longitude])
+    useEffect(() => { if (restoringLocation.current) { restoringLocation.current = false; return }; setSelection(null); setGeoZone(''); setGeoSettlement(null); setFocusRevision(0); setSearchScope(searchCity ? 'city' : 'country') }, [searchCity?.name, searchCity?.settlement?.code, searchCity?.latitude, searchCity?.longitude])
     const filtered = Boolean(categoryId || mapSearch)
     const searchOrigin = searchScope === 'nearby' ? homeLocation ?? searchCity ?? center : searchCity ?? center
     const requestKey = JSON.stringify([searchScope, searchCity?.name ?? '', searchCity?.settlement?.code ?? '', searchOrigin.latitude, searchOrigin.longitude, homeLocation?.latitude, homeLocation?.longitude, radius, nearbyRadius, location.busy, showProducts, showBuyRequests, categoryId, geoZone, geoSettlement?.code, mapSearch, searchIn, searchRevision, center.latitude, center.longitude, zoom, viewport?.south, viewport?.north, viewport?.west, viewport?.east])
@@ -319,7 +322,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const openMarker = async (marker: MapMarker) => {
         try {
             if (marker.kind === 'product') openProduct((await request('/api/products/' + marker.id)).product)
-            else openRequest(marker.id)
+            else openRequest(marker.id, { center, zoom, radius, nearbyRadius, geoZone, geoSettlement, localCategoryId, showProducts, showBuyRequests, mapQuery, mapSearch, searchIn, searchScope, resultPage })
         } catch (caught) { notify((caught as Error).message) }
     }
     const revealSummary = () => {
@@ -454,7 +457,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     return <div className={'map-listing-result ' + (markerKey(item) === activeMarkerKey ? 'map-listing-active' : '')} key={item.kind + '-' + item.id}>
                         <button type="button" className="map-result" aria-pressed={markerKey(item) === activeMarkerKey} onClick={() => showMarkerPreview(item, true)} onMouseEnter={() => highlight([item.id], true)} onMouseLeave={() => highlight([item.id], false)} onFocus={() => highlight([item.id], true)} onBlur={() => highlight([item.id], false)}>
                             <span className="map-result-picture">{category && <CategoryImage category={category} />}{item.photoUrl && <img src={imageUrl(item.photoUrl)} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true }} />}</span>
-                            <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{item.distanceBand} · {item.publicAddress || item.geoZone}</small>{item.approximate === false && <small>Публічне місце продавця</small>}</span>
+                            <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{item.distanceBand} · {item.publicAddress || item.geoZone}</small>{item.approximate === false && <small>{item.kind === 'buyRequest' ? 'Публічне місце покупця' : 'Публічне місце продавця'}</small>}</span>
                         </button>
                         <div className="map-listing-actions"><button type="button" onClick={() => openMarker(item)}>{item.kind === 'product' ? 'Відкрити товар' : 'Відкрити запит'} →</button>{item.owner && <button type="button" onClick={() => openProfile(item.owner.username)}>Профіль {item.kind === 'product' ? 'продавця' : 'покупця'} →</button>}</div>
                     </div>
@@ -673,7 +676,7 @@ function App() {
     useEffect(() => { const sync = () => setPath(window.location.pathname); window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync) }, [])
     const navigate = (next: string) => { window.history.pushState({}, '', next); setPath(next); window.scrollTo(0, 0) }
     const openProductPage = (product: Product) => navigate('/products/' + encodeURIComponent(product.id))
-    const openRequestPage = (id: string) => navigate('/buy-requests/' + encodeURIComponent(id))
+    const openRequestPage = (id: string, mapState?: MapReturnState) => { if (mapState) window.history.replaceState({ ...(window.history.state ?? {}), mapReturn: mapState }, '', window.location.href); navigate('/buy-requests/' + encodeURIComponent(id)) }
     const openProfilePage = (username: string) => navigate('/profiles/' + encodeURIComponent(username))
     const notify = (message: string) => { if (message === 'Нових повідомлень немає') { setView('notifications'); return }; setToast(message); window.setTimeout(() => setToast(''), 3000) }
     const loadProducts = async (nextPage = 1) => { setLoading(true); try { const params = new URLSearchParams({ page: String(nextPage), limit: '8' }); if (search) params.set('geoZone', search); const result = await request(`/api/products?${params}`); setProducts(result.products); setPage(result.pagination.page); setPages(result.pagination.pages) } catch (error) { notify((error as Error).message) } finally { setLoading(false) } }
@@ -719,13 +722,14 @@ const REQUEST_STATUS: Record<string, string> = { open: 'Відкритий', par
 function OfferForm({ buyRequest, products, notify, onDone }: { buyRequest: BuyRequest; products: Product[]; notify: (message: string) => void; onDone: () => void }) {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    const sending = useRef(false)
     const submit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault(); setBusy(true); setError('')
+        event.preventDefault(); if (sending.current) return; sending.current = true; setBusy(true); setError('')
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
         try {
             await request(`/api/buy-requests/${buyRequest.id}/offers`, { method: 'POST', body: JSON.stringify({ quantity: Number(data.quantity), unit: buyRequest.unit, price: Number(data.price), currency: buyRequest.price.currency, delivery: data.delivery, deliveryPrice: Number(data.deliveryPrice || 0), availableAt: data.availableAt || '', note: data.note || '', productId: data.productId || undefined }) })
             notify('Пропозицію надіслано'); onDone()
-        } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
+        } catch (caught) { setError((caught as Error).message) } finally { sending.current = false; setBusy(false) }
     }
     const remaining = buyRequest.quantity - buyRequest.fulfilledQuantity
     return <form className="offer-form" onSubmit={submit}>
@@ -748,27 +752,20 @@ function RequestsMarket({ mine, notify }: { mine: Product[]; notify: (message: s
     const [openForm, setOpenForm] = useState('')
     const [myOffers, setMyOffers] = useState<Offer[]>([])
     const [editingOffer, setEditingOffer] = useState('')
+    const [withdrawingOffer, setWithdrawingOffer] = useState<Offer | null>(null)
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
+    const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState('')
     const load = async () => {
+        setLoading(true)
+        setLoadError('')
         try {
             setRequests((await request('/api/buy-requests')).buyRequests)
             setMyOffers((await request('/api/offers/mine')).offers)
-        } catch (error) { notify((error as Error).message) }
+        } catch (error) { setLoadError((error as Error).message) } finally { setLoading(false) }
     }
     useEffect(() => { load() }, [])
-    const withdraw = async (offer: Offer) => {
-        if (!window.confirm('Відкликати цю пропозицію?')) return
-        try { await request(`/api/offers/${offer.id}`, { method: 'DELETE' }); notify('Пропозицію відкликано'); load() } catch (error) { notify((error as Error).message) }
-    }
-    const saveOffer = async (offer: Offer) => {
-        const priceRaw = window.prompt('Нова ціна за одиницю', String(offer.price.amount))
-        if (priceRaw === null) return
-        const note = window.prompt('Коментар до пропозиції', offer.note ?? '')
-        if (note === null) return
-        const price = Number(priceRaw)
-        if (!Number.isFinite(price) || price < 0) { notify('Некоректна ціна'); return }
-        try { await request(`/api/offers/${offer.id}`, { method: 'PATCH', body: JSON.stringify({ price, note }) }); notify('Пропозицію оновлено'); setEditingOffer(''); load() } catch (error) { notify((error as Error).message) }
-    }
+    const withdraw = (offer: Offer) => setWithdrawingOffer(offer)
     const openOfferChat = async (offer: Offer) => {
         try { const result = await request(`/api/offers/${offer.id}/conversation`, { method: 'POST', body: '{}' }); setChat({ conversationId: result.conversation.id, title: offer.seller.username }) } catch (error) { notify((error as Error).message) }
     }
@@ -776,7 +773,7 @@ function RequestsMarket({ mine, notify }: { mine: Product[]; notify: (message: s
         try { const result = await request(`/api/buy-requests/${item.id}/conversation`, { method: 'POST', body: '{}' }); setChat({ conversationId: result.conversation.id, title: item.buyer?.username || item.title }) } catch (error) { notify((error as Error).message) }
     }
     return <section className="content"><div className="view-header"><div><span className="eyebrow">Попит</span><h1>Запити покупців</h1><p className="view-subtitle">Відгукніться своєю пропозицією на запити поруч.</p></div><button className="outline-button" onClick={load}>↻ Оновити</button></div>
-        <div className="request-list">{requests.map((item) => <article key={item.id} className="request-card"><header><div><span className="eyebrow">{item.category.name} · {item.geoArea}</span><h3><a href={'/buy-requests/' + encodeURIComponent(item.id)}>{item.title}</a></h3></div><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span></header>
+        {loading ? <div className="loading">Завантаження запитів і пропозицій…</div> : loadError ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити запити</h3><p>{loadError}</p><button className="primary-button compact" onClick={load}>Спробувати ще раз</button></div> : <><div className="request-list">{requests.map((item) => <article key={item.id} className="request-card"><header><div><span className="eyebrow">{item.category.name} · {item.geoArea}</span><h3><a href={'/buy-requests/' + encodeURIComponent(item.id)}>{item.title}</a></h3></div><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span></header>
             <p>{item.description || 'Опис не додано.'}</p>
             <div className="card-meta"><span>{item.quantity} {item.unit}</span><span>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</span><span>{item.delivery.required ? 'Доставка потрібна' : 'Без доставки'}</span></div>
             {openForm === item.id ? <OfferForm buyRequest={item} products={mine} notify={notify} onDone={() => { setOpenForm(''); load() }} /> : <div className="request-actions"><button className="primary-button compact" onClick={() => setOpenForm(item.id)}>Запропонувати</button><button className="outline-button compact" onClick={() => openRequestChat(item)}>♧ Написати покупцю</button></div>}
@@ -790,8 +787,9 @@ function RequestsMarket({ mine, notify }: { mine: Product[]; notify: (message: s
                 {['submitted','partially_accepted','accepted'].includes(offer.status) && <button className="outline-button compact" onClick={() => withdraw(offer)}>Відкликати</button>}
             </div>
             {editingOffer === offer.id && <OfferEditForm offer={offer} notify={notify} onDone={() => { setEditingOffer(''); load() }} />}
-        </article>)}{!myOffers.length && <Empty text="Ви ще не надсилали пропозицій" />}</div>
+        </article>)}{!myOffers.length && <Empty text="Ви ще не надсилали пропозицій" />}</div></>}
         {chat && <ChatPanel chat={chat} onClose={() => setChat(null)} notify={notify} />}
+        {withdrawingOffer && <ConfirmationDialog title="Відкликати пропозицію?" confirmLabel="Відкликати пропозицію" destructive onClose={() => setWithdrawingOffer(null)} onConfirm={async () => { try { await request(`/api/offers/${withdrawingOffer.id}`, { method: 'DELETE' }); notify('Пропозицію відкликано'); setWithdrawingOffer(null); load() } catch (error) { notify((error as Error).message) } }}><p>Покупець більше не зможе обрати цю пропозицію. Її попередні домовленості не змінюються.</p></ConfirmationDialog>}
     </section>
 }
 
@@ -803,14 +801,14 @@ function OfferEditForm({ offer, notify, onDone }: { offer: Offer; notify: (messa
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
         try { await request(`/api/offers/${offer.id}`, { method: 'PATCH', body: JSON.stringify({ price: Number(data.price), note: data.note || '' }) }); notify('Пропозицію оновлено'); onDone() } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
     }
-    return <form className="offer-form" onSubmit={submit}>
+    return <DealDialog title="Редагувати пропозицію" onClose={onDone} busy={busy}><form className="offer-form" onSubmit={submit}>
         <div className="field-row">
             <label>Ціна за {offer.unit}<input name="price" type="number" min="0" step="0.01" defaultValue={offer.price.amount} required /></label>
             <label>Коментар<input name="note" defaultValue={offer.note} maxLength={500} /></label>
         </div>
         {error && <p className="form-error">{error}</p>}
-        <button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти пропозицію'}</button>
-    </form>
+        <div className="deal-actions"><button type="button" className="outline-button" disabled={busy} onClick={onDone}>Скасувати</button><button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти пропозицію'}</button></div>
+    </form></DealDialog>
 }
 
 function MyRequests({ notify, create }: { notify: (message: string) => void; create: () => void }) {
@@ -818,27 +816,14 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
     const [offers, setOffers] = useState<Record<string, Offer[]>>({})
     const [expanded, setExpanded] = useState('')
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
+    const [editingRequest, setEditingRequest] = useState<BuyRequest | null>(null)
+    const [cancellingRequest, setCancellingRequest] = useState<BuyRequest | null>(null)
     const load = async () => { try { setRequests((await request('/api/buy-requests?mine=true')).buyRequests) } catch (error) { notify((error as Error).message) } }
     useEffect(() => { load() }, [])
     const toggle = async (id: string) => {
         if (expanded === id) { setExpanded(''); return }
         setExpanded(id)
         try { const result = await request(`/api/buy-requests/${id}/offers`); setOffers((current) => ({ ...current, [id]: result.offers })) } catch (error) { notify((error as Error).message) }
-    }
-    const cancel = async (item: BuyRequest) => {
-        if (!window.confirm(`Вам ще потрібно ${item.remainingQuantity} ${unitLabel(item.unit)}. Ви більше не шукаєте продавців? Поточні домовленості залишаться активними.`)) return
-        try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) }); notify('Запит скасовано'); load() } catch (error) { notify((error as Error).message) }
-    }
-    const saveRequest = async (item: BuyRequest) => {
-        const title = window.prompt('Нова назва запиту', item.title)
-        if (title === null || !title.trim()) return
-        const description = window.prompt('Новий опис запиту', item.description ?? '')
-        if (description === null) return
-        try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify({ title: title.trim(), description }) }); notify('Запит оновлено'); load() } catch (error) { notify((error as Error).message) }
-    }
-    const rejectOffer = async (offer: Offer) => {
-        if (!window.confirm(`Відхилити пропозицію від ${offer.seller.username}?`)) return
-        try { await request(`/api/offers/${offer.id}/reject`, { method: 'POST', body: '{}' }); notify('Пропозицію відхилено'); load() } catch (error) { notify((error as Error).message) }
     }
     const openOfferChat = async (offer: Offer) => {
         try { const result = await request(`/api/offers/${offer.id}/conversation`, { method: 'POST', body: '{}' }); setChat({ conversationId: result.conversation.id, title: offer.seller.username }) } catch (error) { notify((error as Error).message) }
@@ -847,10 +832,27 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
         <div className="request-list">{requests.map((item) => <article key={item.id} className="request-card"><header><div><span className="eyebrow">{item.category.name} · {item.geoArea}</span><h3><a href={'/buy-requests/' + encodeURIComponent(item.id)}>{item.title}</a></h3></div><span className="status status-active">{REQUEST_STATUS[item.status] ?? item.status}</span></header>
             <div className="card-meta"><span>Спосіб: {item.fulfillmentMode === 'single_seller' ? 'один продавець' : 'кілька продавців'}</span><span>Потрібно: {item.quantity} {item.unit}</span>{item.fulfillmentMode === 'multiple_sellers' && <><span>Домовлено: {item.selectedQuantity} {item.unit}</span><span>Отримано: {item.completedQuantity} {item.unit}</span><span>Ще можна обрати: {item.remainingQuantity} {item.unit}</span></>}<span>{item.price.min ?? '—'}–{item.price.max ?? '—'} {item.price.currency}</span></div>
             <div className="request-actions"><button className="outline-button" onClick={() => toggle(item.id)}>Пропозиції{offers[item.id] ? ` (${offers[item.id].length})` : ''}</button>
-                {['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(item.status) && <button className="outline-button" onClick={() => saveRequest(item)}>Редагувати</button>}
-                {['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(item.status) && <button className="outline-button" onClick={() => cancel(item)}>Закрити запит</button>}</div>
+                {['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(item.status) && <button className="outline-button" onClick={() => setEditingRequest(item)}>Редагувати</button>}
+                {['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(item.status) && <button className="outline-button" onClick={() => setCancellingRequest(item)}>Закрити запит</button>}</div>
             {expanded === item.id && <RequestOffers item={item} http={request} notify={notify} onRefresh={load} />}
-        </article>)}{!requests.length && <Empty text="У вас ще немає запитів" action="Створити запит" onAction={create} />}</div></section>
+        </article>)}{!requests.length && <Empty text="У вас ще немає запитів" action="Створити запит" onAction={create} />}</div>
+        {chat && <ChatPanel chat={chat} onClose={() => setChat(null)} notify={notify} />}
+        {editingRequest && <RequestEditDialog item={editingRequest} notify={notify} onClose={() => setEditingRequest(null)} onDone={() => { setEditingRequest(null); load() }} />}
+        {cancellingRequest && <ConfirmationDialog title="Закрити запит?" confirmLabel="Закрити запит" destructive onClose={() => setCancellingRequest(null)} onConfirm={async () => { try { await request(`/api/buy-requests/${cancellingRequest.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) }); notify('Запит скасовано'); setCancellingRequest(null); load() } catch (error) { notify((error as Error).message) } }}><p>Ви припините пошук ще {cancellingRequest.remainingQuantity} {unitLabel(cancellingRequest.unit)}. Поточні домовленості залишаться активними.</p></ConfirmationDialog>}
+    </section>
+}
+
+function RequestEditDialog({ item, notify, onClose, onDone }: { item: BuyRequest; notify: (message: string) => void; onClose: () => void; onDone: () => void }) {
+    const [title, setTitle] = useState(item.title)
+    const [description, setDescription] = useState(item.description ?? '')
+    const [busy, setBusy] = useState(false)
+    const [error, setError] = useState('')
+    const sending = useRef(false)
+    const submit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault(); if (sending.current) return; if (!title.trim()) { setError('Вкажіть назву запиту.'); return }; sending.current = true; setBusy(true); setError('')
+        try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify({ title: title.trim(), description }) }); notify('Запит оновлено'); onDone() } catch (caught) { setError((caught as Error).message) } finally { sending.current = false; setBusy(false) }
+    }
+    return <DealDialog title="Редагувати запит" onClose={onClose} busy={busy}><form className="offer-form" onSubmit={submit}><label>Назва запиту<input autoFocus value={title} maxLength={160} required onChange={event => setTitle(event.target.value)} /></label><label>Опис<textarea value={description} maxLength={2000} onChange={event => setDescription(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="deal-actions"><button type="button" className="outline-button" disabled={busy} onClick={onClose}>Скасувати</button><button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти'}</button></div></form></DealDialog>
 }
 
 function ChatPanel({ chat, onClose, notify }: { chat: { conversationId: string; title: string }; onClose: () => void; notify: (message: string) => void }) {
@@ -861,17 +863,122 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     const params = new URLSearchParams(window.location.search)
     const initialScope = params.get('filter')
     const [conversations, setConversations] = useState<Conversation[]>([])
-    const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(() => { const id = params.get('conversation'); return id ? { conversationId: id, title: 'Обговорення' } : null })
-    const [scope, setScope] = useState<'all' | 'selling' | 'buying' | 'direct'>(['selling','buying','direct'].includes(initialScope ?? '') ? initialScope as 'selling' | 'buying' | 'direct' : 'all')
+    const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(() => {
+        const id = params.get('conversation')
+        return id ? { conversationId: id, title: 'Обговорення' } : null
+    })
+    const [scope, setScope] = useState<'all' | 'selling' | 'buying' | 'direct'>(['selling', 'buying', 'direct'].includes(initialScope ?? '') ? initialScope as 'selling' | 'buying' | 'direct' : 'all')
     const [search, setSearch] = useState('')
-    const load = async () => { try { const next = (await request('/api/conversations')).conversations as Conversation[]; setConversations(next); setChat(current => { if (current) return { ...current, title: next.find(item => item.id === current.conversationId)?.title ?? current.title }; const first = next[0]; return first ? { conversationId: first.id, title: first.title || first.otherUsername } : null }) } catch (error) { notify((error as Error).message) } }
-    useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 8000); return () => clearInterval(timer) }, [])
-    const selectScope = (next: typeof scope) => { setScope(next); const url = new URL(window.location.href); url.searchParams.set('view', 'messages'); url.searchParams.set('filter', next); window.history.replaceState({}, '', url); }
-    const visible = conversations.filter(conversation => (scope === 'all' || scope === 'direct' ? scope === 'all' || conversation.type === 'direct' : conversation.userRole === scope) && `${conversation.title ?? ''} ${conversation.otherUsername} ${conversation.lastMessage ?? ''}`.toLocaleLowerCase('uk-UA').includes(search.trim().toLocaleLowerCase('uk-UA')))
-    const time = (value: string | null) => { if (!value) return ''; const date = new Date(value), now = new Date(); if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }); const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1); if (date.toDateString() === yesterday.toDateString()) return 'Вчора'; return date.getFullYear() === now.getFullYear() ? date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' }) : date.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }) }
-    const contextLabel = (conversation: Conversation) => conversation.type === 'direct' ? 'Прямий чат' : conversation.type === 'deal' ? 'Угода' : conversation.userRole === 'selling' ? 'Ваша пропозиція' : 'Пропозиція продавця'
-    const active = conversations.find(conversation => conversation.id === chat?.conversationId)
-    return <section className="content messages-view"><div className="view-header"><div><span className="eyebrow">Спілкування</span><h1>Мої повідомлення</h1><p className="view-subtitle">Обговорюйте пропозиції та домовленості з покупцями й продавцями.</p></div><label className="message-search"><span>⌕</span><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Пошук у повідомленнях…" aria-label="Пошук у повідомленнях" /></label></div><div className="messages-workspace"><aside className="messages-sidebar"><div className="message-scope-tabs" role="tablist" aria-label="Тип чатів">{([['all','Усі чати'],['buying','Покупки'],['selling','Продажі'],['direct','Прямі чати']] as const).map(([value,label]) => <button key={value} className={scope === value ? 'active' : ''} onClick={() => selectScope(value)}>{label}<small>{value === 'all' ? conversations.length : conversations.filter(item => value === 'direct' ? item.type === 'direct' : item.userRole === value).length}</small></button>)}</div><div className="conversation-list">{visible.map(conversation => <button className={`conversation-row ${chat?.conversationId === conversation.id ? 'active' : ''}`} key={conversation.id} onClick={() => setChat({ conversationId: conversation.id, title: conversation.title || conversation.otherUsername })} aria-label={`Відкрити чат: ${conversation.title || conversation.otherUsername}`}><span className="conversation-thumb">{conversation.imageUrl ? <img src={imageUrl(conversation.imageUrl)} alt="" /> : conversation.categoryId ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} /> : conversation.otherAvatarUrl ? <img src={imageUrl(conversation.otherAvatarUrl)} alt="" /> : avatarInitials({ username: conversation.otherUsername })}</span><span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{contextLabel(conversation)}</em><small>{conversation.lastMessage ? `${conversation.lastMessageIsMine ? 'Ви: ' : ''}${conversation.lastMessage}` : 'Повідомлень ще немає'}</small></span><span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <i aria-label={`Непрочитаних: ${conversation.unreadCount}`}>{conversation.unreadCount}</i>}</span></button>)}{!visible.length && <Empty text={search ? 'Нічого не знайдено' : 'Повідомлень поки немає'} />}</div></aside><div className="messages-dialog">{chat ? <DealChat chat={{ conversationId: chat.conversationId, title: active?.title || chat.title }} embedded http={request} notify={notify} onClose={() => setChat(null)} /> : <Empty text="Оберіть чат зі списку" />}</div></div></section>
+    const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState('')
+
+    const toChat = (conversation?: Conversation) => conversation ? {
+        conversationId: conversation.id,
+        title: conversation.title || conversation.otherUsername,
+    } : null
+    const isMobileMessagesLayout = () => window.matchMedia('(max-width: 700px)').matches
+    const load = async (showLoading = false) => {
+        if (showLoading) {
+            setLoading(true)
+            setLoadError('')
+        }
+        try {
+            const next = (await request('/api/conversations')).conversations as Conversation[]
+            setConversations(next)
+            setChat((current) => {
+                if (current) {
+                    const matchingConversation = next.find((item) => item.id === current.conversationId)
+                    return matchingConversation ? toChat(matchingConversation) : current
+                }
+                return isMobileMessagesLayout() ? null : toChat(next[0])
+            })
+        } catch (error) {
+            setLoadError((error as Error).message)
+        } finally {
+            if (showLoading) setLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        void load(true)
+        const timer = window.setInterval(() => void load(), 8000)
+        return () => clearInterval(timer)
+    }, [])
+
+    useEffect(() => {
+        const media = window.matchMedia('(max-width: 700px)')
+        const selectChatForDesktop = () => {
+            if (!media.matches) setChat((current) => current ?? toChat(conversations[0]))
+        }
+        selectChatForDesktop()
+        media.addEventListener('change', selectChatForDesktop)
+        return () => media.removeEventListener('change', selectChatForDesktop)
+    }, [conversations])
+
+    const selectScope = (next: typeof scope) => {
+        setScope(next)
+        const url = new URL(window.location.href)
+        url.searchParams.set('view', 'messages')
+        url.searchParams.set('filter', next)
+        window.history.replaceState({}, '', url)
+    }
+    const visible = conversations.filter((conversation) => (
+        (scope === 'all' || scope === 'direct'
+            ? scope === 'all' || conversation.type === 'direct'
+            : conversation.userRole === scope)
+        && (String(conversation.title ?? '') + ' ' + conversation.otherUsername + ' ' + String(conversation.lastMessage ?? ''))
+            .toLocaleLowerCase('uk-UA')
+            .includes(search.trim().toLocaleLowerCase('uk-UA'))
+    ))
+    const time = (value: string | null) => {
+        if (!value) return ''
+        const date = new Date(value)
+        const now = new Date()
+        if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })
+        const yesterday = new Date(now)
+        yesterday.setDate(now.getDate() - 1)
+        if (date.toDateString() === yesterday.toDateString()) return 'Вчора'
+        return date.getFullYear() === now.getFullYear()
+            ? date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' })
+            : date.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    }
+    const contextLabel = (conversation: Conversation) => conversation.type === 'direct'
+        ? 'Прямий чат'
+        : conversation.type === 'deal'
+            ? 'Угода'
+            : conversation.userRole === 'selling'
+                ? 'Ваша пропозиція'
+                : 'Пропозиція продавця'
+    const active = conversations.find((conversation) => conversation.id === chat?.conversationId)
+    const listContent = loading
+        ? <div className="loading">Завантаження повідомлень…</div>
+        : loadError && !conversations.length
+            ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити повідомлення</h3><p>{loadError}</p><button className="primary-button compact" onClick={() => void load(true)}>Спробувати ще раз</button></div>
+            : visible.length
+                ? visible.map((conversation) => <button className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active' : '')} key={conversation.id} onClick={() => setChat(toChat(conversation))} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername)}>
+                    <span className="conversation-thumb">{conversation.imageUrl ? <img src={imageUrl(conversation.imageUrl)} alt="" /> : conversation.categoryId ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} /> : conversation.otherAvatarUrl ? <img src={imageUrl(conversation.otherAvatarUrl)} alt="" /> : avatarInitials({ username: conversation.otherUsername })}</span>
+                    <span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{contextLabel(conversation)}</em><small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
+                    <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <i aria-label={'Непрочитаних: ' + conversation.unreadCount}>{conversation.unreadCount}</i>}</span>
+                </button>)
+                : <Empty text={search ? 'Нічого не знайдено' : 'Повідомлень поки немає'} />
+
+    return <section className="content messages-view">
+        <div className="view-header">
+            <div><span className="eyebrow">Спілкування</span><h1>Мої повідомлення</h1><p className="view-subtitle">Обговорюйте пропозиції та домовленості з покупцями й продавцями.</p></div>
+            <label className="message-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Пошук у повідомленнях…" aria-label="Пошук у повідомленнях" /></label>
+        </div>
+        <div className="messages-workspace">
+            <aside className="messages-sidebar">
+                <div className="message-scope-tabs" role="tablist" aria-label="Тип чатів">
+                    {([['all', 'Усі чати'], ['buying', 'Покупки'], ['selling', 'Продажі'], ['direct', 'Прямі чати']] as const).map(([value, label]) => <button key={value} className={scope === value ? 'active' : ''} onClick={() => selectScope(value)}>{label}<small>{value === 'all' ? conversations.length : conversations.filter((item) => value === 'direct' ? item.type === 'direct' : item.userRole === value).length}</small></button>)}
+                </div>
+                <div className="conversation-list">{listContent}</div>
+            </aside>
+            <div className="messages-dialog">
+                {loading && !chat ? <div className="loading">Завантаження чату…</div> : chat ? <DealChat chat={{ conversationId: chat.conversationId, title: active?.title || chat.title }} embedded http={request} notify={notify} onClose={() => setChat(null)} /> : <Empty text="Оберіть чат зі списку" />}
+            </div>
+        </div>
+    </section>
 }
 
 function NotificationsView({ notify, onRead, scope }: { notify: (message: string) => void; onRead: () => void; scope: 'selling' | 'buying' }) {
@@ -910,28 +1017,14 @@ function OrdersView({ notify }: { notify: (message: string) => void }) {
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
     const [reviewing, setReviewing] = useState('')
     const [resultDialog, setResultDialog] = useState(null)
+    const [disputeOrder, setDisputeOrder] = useState<Order | null>(null)
+    const [resolutionDialog, setResolutionDialog] = useState<{ order: Order; outcome: string } | null>(null)
     const [scope, setScope] = useState('active')
     const [busy, setBusy] = useState(false)
     const load = async () => { try { setOrders((await request('/api/orders')).orders) } catch (error) { notify((error as Error).message) } }
     useEffect(() => { load(); request('/api/profile/me').then((result) => setViewerId(result.profile.id)).catch(() => undefined) }, [])
     const setStatus = async (order: Order, status: string) => {
-        let reason: string | null = null
-        if (status === 'cancelled') {
-            reason = window.prompt('Причина скасування (обов’язково):')
-            if (reason === null) return
-            if (reason.trim().length < 3) { notify('Причина занадто коротка'); return }
-        }
-        try { await request(`/api/orders/${order.id}/status`, { method: 'PATCH', body: JSON.stringify({ status, ...(reason ? { reason } : {}) }) }); notify('Статус оновлено'); load() } catch (error) { notify((error as Error).message) }
-    }
-    const openDispute = async (order: Order) => {
-        const reason = window.prompt('Опишіть проблему для відкриття спору:')
-        if (reason === null) return
-        try { await request(`/api/orders/${order.id}/dispute`, { method: 'POST', body: JSON.stringify({ reason }) }); notify('Спір відкрито'); load() } catch (error) { notify((error as Error).message) }
-    }
-    const resolveDispute = async (order: Order, outcome: string) => {
-        const resolution = window.prompt(outcome === 'completed' ? 'Рішення по спору — замовлення виконано. Опишіть умови:' : 'Рішення по спору — замовлення скасовано. Опишіть умови:')
-        if (resolution === null) return
-        try { await request(`/api/orders/${order.id}/dispute/resolve`, { method: 'POST', body: JSON.stringify({ outcome, resolution }) }); notify('Вашу відповідь щодо результату збережено'); load() } catch (error) { notify((error as Error).message) }
+        try { await request(`/api/orders/${order.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }); notify('Статус оновлено'); load() } catch (error) { notify((error as Error).message) }
     }
     const openChat = async (order: Order) => {
         try { const result = await request(`/api/orders/${order.id}/conversation`); setChat({ conversationId: result.conversation.id, title: order.conditionsSnapshot?.productTitle || 'Замовлення' }) } catch (error) { notify((error as Error).message) }
@@ -952,8 +1045,8 @@ function OrdersView({ notify }: { notify: (message: string) => void }) {
                 {['in_progress', 'buyer_marked_completed', 'seller_marked_completed'].includes(order.status) && !(order.buyer.id === viewerId ? order.buyerResult : order.sellerResult) && <button className="primary-button compact" onClick={() => setResultDialog({ order, mode: 'complete' })}>✔ Угода відбулася</button>}
                 {['selected','accepted','in_progress'].includes(order.status) && <details><summary>Інші дії</summary><button className="text-button" onClick={() => setResultDialog({ order, mode: 'cancel' })}>Скасувати домовленість</button></details>}
                 {['selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed'].includes(order.status) && <button className="outline-button" onClick={() => setResultDialog({ order, mode: 'fail' })}>{order.status === 'selected' && order.seller.id === viewerId ? 'Відмовитися' : 'Угода не відбулася'}</button>}
-                {['accepted', 'in_progress', 'completed'].includes(order.status) && !order.dispute && <button className="outline-button" onClick={() => openDispute(order)}>⚠ Спір</button>}
-                {order.dispute?.status === 'open' && <><button className="primary-button compact" onClick={() => resolveDispute(order, 'completed')}>Вирішити: виконано</button><button className="outline-button compact" onClick={() => resolveDispute(order, 'cancelled')}>Вирішити: скасувати</button></>}
+                {['accepted', 'in_progress', 'completed'].includes(order.status) && !order.dispute && <button className="outline-button" onClick={() => setDisputeOrder(order)}>⚠ Спір</button>}
+                {order.dispute?.status === 'open' && <><button className="primary-button compact" onClick={() => setResolutionDialog({ order, outcome: 'completed' })}>Вирішити: виконано</button><button className="outline-button compact" onClick={() => setResolutionDialog({ order, outcome: 'cancelled' })}>Вирішити: скасувати</button></>}
                 <button className="outline-button" onClick={() => openChat(order)}>{order.buyer.id === viewerId ? 'Написати продавцю' : 'Написати покупцю'}</button>
                 {['in_progress','buyer_marked_completed','seller_marked_completed','completed','disputed'].includes(order.status) && <OrderContact id={order.id} http={request} />}
                 {order.status === 'completed' && !order.myReviewCreated && <button className="outline-button" onClick={() => setReviewing(reviewing === order.id ? '' : order.id)}>Залишити відгук</button>}
@@ -962,6 +1055,8 @@ function OrdersView({ notify }: { notify: (message: string) => void }) {
             {reviewing === order.id && <ReviewForm viewerId={viewerId} order={order} notify={notify} onDone={() => { setReviewing(''); load() }} />}
         </article>)}{!orders.length && <Empty text="Домовленостей поки немає" />}</div>
         {resultDialog && <OrderResultDialog {...resultDialog} viewerId={viewerId} http={request} onClose={() => setResultDialog(null)} onDone={() => { setResultDialog(null); notify('Вашу відповідь збережено'); load() }} />}
+        {disputeOrder && <TextEntryDialog title="Відкрити спір" label="Опишіть проблему" minLength={5} maxLength={2000} submitLabel="Відкрити спір" onClose={() => setDisputeOrder(null)} onSubmit={async (reason) => { try { await request(`/api/orders/${disputeOrder.id}/dispute`, { method: 'POST', body: JSON.stringify({ reason }) }); notify('Спір відкрито'); setDisputeOrder(null); load() } catch (error) { notify((error as Error).message) } }} />}
+        {resolutionDialog && <TextEntryDialog title={resolutionDialog.outcome === 'completed' ? 'Підтвердити виконання угоди' : 'Скасувати угоду за результатом спору'} label="Опишіть рішення" minLength={1} maxLength={2000} submitLabel="Зберегти рішення" onClose={() => setResolutionDialog(null)} onSubmit={async (resolution) => { try { await request(`/api/orders/${resolutionDialog.order.id}/dispute/resolve`, { method: 'POST', body: JSON.stringify({ outcome: resolutionDialog.outcome, resolution }) }); notify('Вашу відповідь щодо результату збережено'); setResolutionDialog(null); load() } catch (error) { notify((error as Error).message) } }} />}
         {chat && <ChatPanel chat={chat} onClose={() => setChat(null)} notify={notify} />}
     </section>
 }

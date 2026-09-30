@@ -11,3 +11,6 @@ dist/
 !.vscode/extensions.json
 !.vscode/settings.json
 coverage/
+playwright-report/
+test-results/
+docs/TEST_ACCOUNTS.local.md
