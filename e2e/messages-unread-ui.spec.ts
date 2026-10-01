@@ -18,7 +18,7 @@ test('unread UI uses one list for navigation, successful read, retry and deep li
     else if (path === '/api/categories') json = { categories: [] };
     else if (path === '/api/profile/me') json = { profile: { id: 'viewer', avatarUrl: null } };
     else if (path.startsWith('/api/products')) json = { products: [], pagination: { page: 1, pages: 1 } };
-    else if (path === '/api/notifications') json = { notifications: [{ id: 'notification', readAt: null }] };
+    else if (path === '/api/notifications') json = { notifications: [{ id: 'notification', readAt: null }], unreadCounts: { total: 1, buying: 0, selling: 0 } };
     else if (path.startsWith('/api/notifications') && method === 'PATCH') notificationReads++;
     else if (path === '/api/conversations') json = { conversations };
     else if (path.endsWith('/context')) json = { context: null, proposals: [] };

@@ -59,8 +59,9 @@ export const createOrderConversation = async (queryable: Queryable, orderId: str
     const conversation = existing.rows[0] ?? (await queryable.query<{ id: string }>('INSERT INTO conversations (order_id, offer_id) VALUES ($1, $2) RETURNING id', [orderId, offerId ?? null])).rows[0]
     if (!existing.rows[0]) await queryable.query('INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1, $2, $3), ($1, $4, $5)', [conversation.id, buyerId, 'buyer', sellerId, 'seller'])
     await queryable.query("INSERT INTO messages (conversation_id, sender_id, body, kind) VALUES ($1,$2,'Пропозицію обрано. Очікуємо підтвердження продавця.','system')", [conversation.id, buyerId])
-    await createNotification(queryable, buyerId, 'order', 'Створено угоду', 'Пропозицію обрано, очікуємо підтвердження продавця', orderId, conversation.id)
-    await createNotification(queryable, sellerId, 'order', 'Вашу пропозицію обрали', 'Підтвердьте актуальність обраної кількості', orderId, conversation.id)
+    const request = await queryable.query<{ buy_request_id: string }>('SELECT buy_request_id FROM orders WHERE id = $1', [orderId])
+    await createNotification(queryable, buyerId, 'order', 'Створено угоду', 'Пропозицію обрано, очікуємо підтвердження продавця', 'buying', { orderId, conversationId: conversation.id, buyRequestId: request.rows[0]?.buy_request_id })
+    await createNotification(queryable, sellerId, 'order', 'Вашу пропозицію обрали', 'Підтвердьте актуальність обраної кількості', 'selling', { orderId, conversationId: conversation.id, buyRequestId: request.rows[0]?.buy_request_id })
     return conversation.id
 }
 
@@ -111,7 +112,7 @@ export const updateOrderStatus = async (user: AuthUser, orderId: string, status:
     const statusLabels: Record<string, string> = { accepted: 'прийнято', in_progress: 'у роботі', completed: 'завершено', cancelled: 'скасовано', rejected: 'відхилено', expired: 'закінчено' }
     const counterpart = current.buyer_id === user.id ? current.seller_id : current.buyer_id
     const conversation = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE order_id = $1', [orderId])
-    await createNotification(pool, counterpart, 'order', `Замовлення ${statusLabels[status] ?? status}`, `Контрагент змінив статус замовлення на «${statusLabels[status] ?? status}»`, orderId, conversation.rows[0]?.id ?? null)
+    await createNotification(pool, counterpart, 'order', `Замовлення ${statusLabels[status] ?? status}`, `Контрагент змінив статус замовлення на «${statusLabels[status] ?? status}»`, current.buyer_id === user.id ? 'selling' : 'buying', { orderId, conversationId: conversation.rows[0]?.id ?? null, buyRequestId: current.buy_request_id })
     return getOrder(user, orderId)
 }
 
@@ -213,7 +214,7 @@ export const markDealCompleted = async (user: AuthUser, orderId: string, input: 
         await dealEvent(client, order, user.id, disagreement ? 'RESULT_DISAGREEMENT' : counterpartMarked ? 'ORDER_COMPLETED_CONFIRMED' : 'ORDER_MARKED_COMPLETED',
             disagreement ? 'Результати сторін відрізняються' : counterpartMarked ? 'Угоду підтверджено обома сторонами' : 'Підтвердьте результат угоди',
             disagreement ? 'Обговоріть фактичну кількість та суму в чаті.' : `${quantity} ${order.unit}, ${total} ${order.currency}. ${counterpartMarked ? 'Тепер можна залишити відгук.' : 'Інша сторона повідомила про отримання товару.'}`)
-        if (status === 'completed') await createNotification(client, user.id, 'review', 'Можна залишити відгук', 'Оцініть спілкування та виконання домовленості', orderId)
+        if (status === 'completed') await createNotification(client, user.id, 'review', 'Можна залишити відгук', 'Оцініть спілкування та виконання домовленості', byBuyer ? 'buying' : 'selling', { orderId, buyRequestId: order.buy_request_id })
         await client.query('COMMIT')
         return getOrder(user, orderId)
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
@@ -229,7 +230,7 @@ export const openDispute = async (user: AuthUser, orderId: string, reason: unkno
     if (!changed.rowCount) return { status: 409, body: { error: 'DISPUTE_NOT_ALLOWED' } }
     const counterpart = current.buyer_id === user.id ? current.seller_id : current.buyer_id
     const conversation = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE order_id = $1', [orderId])
-    await createNotification(pool, counterpart, 'order', 'Відкрито спір', `Контрагент відкрив спір по замовленню: ${reason.trim().slice(0, 160)}`, orderId, conversation.rows[0]?.id ?? null)
+    await createNotification(pool, counterpart, 'order', 'Відкрито спір', `Контрагент відкрив спір по замовленню: ${reason.trim().slice(0, 160)}`, current.buyer_id === user.id ? 'selling' : 'buying', { orderId, conversationId: conversation.rows[0]?.id ?? null, buyRequestId: current.buy_request_id })
     await auditOrder(pool, user.id, 'order.dispute_opened', 'order', orderId, { status: current.status })
     return getOrder(user, orderId)
 }
@@ -263,7 +264,7 @@ export const resolveDispute = async (user: AuthUser, orderId: string, outcome: u
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
     const counterpart = current.buyer_id === user.id ? current.seller_id : current.buyer_id
     const conversation = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE order_id = $1', [orderId])
-    await createNotification(pool, counterpart, 'order', 'Спір вирішено', `Рішення: ${resolution.trim().slice(0, 160)}`, orderId, conversation.rows[0]?.id ?? null)
+    await createNotification(pool, counterpart, 'order', 'Спір вирішено', `Рішення: ${resolution.trim().slice(0, 160)}`, current.buyer_id === user.id ? 'selling' : 'buying', { orderId, conversationId: conversation.rows[0]?.id ?? null, buyRequestId: current.buy_request_id })
     await auditOrder(pool, user.id, 'order.dispute_resolved', 'order', orderId, { outcome })
     return getOrder(user, orderId)
 }
@@ -339,8 +340,8 @@ export const createMessage = async (user: AuthUser, conversationId: string, body
     const counterpart = await pool.query<{ user_id: string }>('SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
     for (const participant of counterpart.rows) if (await usersAreBlocked(pool, user.id, participant.user_id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
     const result = await pool.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim()])
-    const participants = await pool.query<{ user_id: string }>('SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
-    for (const participant of participants.rows) await createNotification(pool, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), null, conversationId)
+    const participants = await pool.query<{ user_id: string; role: 'buyer' | 'seller' }>('SELECT user_id, role FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
+    for (const participant of participants.rows) await createNotification(pool, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), participant.role === 'buyer' ? 'buying' : 'selling', { conversationId })
     await pool.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversationId])
     return { status: 201, body: { message: result.rows[0] } }
 }
@@ -408,7 +409,7 @@ export const getOrCreateListingConversation = async (user: AuthUser, listingType
         const sellerId = isProduct ? owner.owner_id : user.id
         await client.query("INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1,$2,'buyer'),($1,$3,'seller')", [conversation.rows[0].id, buyerId, sellerId])
         await auditOrder(client, user.id, 'CONVERSATION_STARTED', listingType, listingId)
-        await createNotification(client, owner.owner_id, 'message', 'Розпочато обговорення', `Користувач відкрив чат щодо «${owner.title.slice(0, 120)}»`, null, conversation.rows[0].id)
+        await createNotification(client, owner.owner_id, 'message', 'Розпочато обговорення', `Користувач відкрив чат щодо «${owner.title.slice(0, 120)}»`, isProduct ? 'selling' : 'buying', { conversationId: conversation.rows[0].id, buyRequestId: isProduct ? null : listingId })
         await client.query('COMMIT')
         return { status: 201, body: { conversation: conversation.rows[0] } }
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }

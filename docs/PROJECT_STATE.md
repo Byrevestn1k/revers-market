@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 2 — Messages unread / sidebar UX — DONE`
+**Current step:** `STEP 3 — Notification Center & Existing Event Integration — DONE`
 
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-01
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -46,9 +46,9 @@ React 19 + Vite + TypeScript frontend; Express + TypeScript backend; PostgreSQL/
 - Product flow зараз завершується direct chat. Request flow створює Deal зі snapshot умов і quantity reservation.
 - Current rating scale: **1–12**. Підтверджено code, migration і automated tests.
 - Partial/multiple Seller accounting має locks, constraints та automated coverage. Деталі: [MVP_INVENTORY.md](MVP_INVENTORY.md).
-- Notifications мають DB history, unread state, order/conversation references, list/read API і current UI. Contract та gaps: [NOTIFICATIONS.md](NOTIFICATIONS.md).
+- Notifications мають structured recipient contexts `buying | selling`, а legacy/unclassified rows — `context = NULL`. Центр «Купівля» / «Продаж» / «Усі» має exact aggregate unread counters для всієї історії незалежно від latest-100 newest-first list, individual read, context-specific read-all і structured canonical destinations. Notification unread незалежний від message unread. Contract: [NOTIFICATIONS.md](NOTIFICATIONS.md).
 - Основні існуючі list/detail destinations мають canonical path URLs; Product, Buy Request і Conversation відновлюються з direct link/refresh. Breadcrumbs знаходяться в main content, а legacy `?view=...` links нормалізуються. Step 1 пройшов independent Reviewer PASS; manual Browser QA `map marker → entity` лишається UNVERIFIED.
-- Automated E2E №3: **PASS** у [e2e/e2e-3.spec.ts](../e2e/e2e-3.spec.ts). Manual Browser E2E №3: **PASS**, окремо зафіксований у локальному QA fixture; automated test не є доказом ручного проходження.
+- Step 3 independent Reviewer PASS. Manual Browser legacy `NULL → Усі` та message unread ↔ notification unread — UNVERIFIED. Final execution results Playwright E2E №3 і mutation-error scenario — UNVERIFIED.
 
 ## ACTIVITY ORGANISATION REQUIREMENT
 
@@ -76,8 +76,6 @@ These are UX groups, not a new backend state model. A future activity Step shoul
 ## KNOWN RELEVANT ISSUES
 
 - Product direct chat не створює Deal, completion чи review.
-- Notification API підтримує individual read, але current UI показує лише read-all action.
-- Current notification fallback navigation веде до списку Orders/Requests; structured canonical destinations ще не введені.
 - Offer conversation може повторно використовуватися для послідовних Deals, що робить історичний context менш однозначним.
 - Activity organisation у «Купую» / «Продаю», counters, filters, required-action indicators і consistent async states потребують окремого UX Step.
 
@@ -88,18 +86,19 @@ These are UX groups, not a new backend state model. A future activity Step shoul
 | `DONE` | Step 0: state and documentation contracts | Independent review passed. |
 | `DONE` | Canonical URLs / deep links / breadcrumbs | Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. |
 | `DONE` | Messages unread/sidebar UX | Independent Reviewer PASS. |
-| `CANDIDATE` | Notification Center and existing event integration | Follow [NOTIFICATIONS.md](NOTIFICATIONS.md). |
-| `PLANNED` | Activity organisation | «Купую» / «Продаю», correct pages, filters and actions. |
+| `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
+| `CANDIDATE` | STEP 4 — Messages/Chats UX completion | Separate Step; do not start automatically. |
+| `PLANNED` | Activity organisation | After Step 4. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**Step 2 — Messages unread / sidebar UX — DONE.** Чати показують непрочитані розмови й загальну кількість непрочитаних повідомлень у навігації; відкриття розмови зберігає її як прочитану. Message unread і notification unread залишаються незалежними. Independent Reviewer PASS. Step 1 remains DONE.
+**Step 3 — Notification Center & Existing Event Integration — DONE.** Сповіщення мають contexts «Купівля» / «Продаж» / «Усі», exact aggregate unread counters для всієї історії при latest-100 newest-first list, individual read, context read-all і structured destinations. Legacy rows без context доступні в «Усі». Message unread і notification unread залишаються незалежними. Independent Reviewer PASS. Step 1 and Step 2 remain DONE; Step 4 is CANDIDATE.
 
 ## REQUIRED CONTEXT
 
-For Step 2: this file; [PRODUCT.md](PRODUCT.md) messaging sections; [UX_RULES.md](UX_RULES.md) navigation/chat/mobile sections; [NOTIFICATIONS.md](NOTIFICATIONS.md) unread boundary; current conversation/navigation state, DealChat polling/read flow, unread API contracts and messaging tests only. Do not load historical documents by default.
+For Step 3: this file; [PRODUCT.md](PRODUCT.md) notification sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; [NOTIFICATIONS.md](NOTIFICATIONS.md); current notification API/schema/producers/UI/navigation helpers and notification tests only. Do not load historical documents by default.
 
 ## AI WORKFLOW
 

@@ -219,7 +219,7 @@ export const createApp = () => {
 
     app.get('/api/notifications', requireAuth, withResult((request) => listNotifications(request.authUser!)))
 
-    app.patch('/api/notifications/read', requireAuth, withResult((request) => markNotificationsRead(request.authUser!, typeof request.body?.notificationId === 'string' ? request.body.notificationId : undefined)))
+    app.patch('/api/notifications/read', requireAuth, withResult((request) => markNotificationsRead(request.authUser!, typeof request.body?.notificationId === 'string' ? request.body.notificationId : undefined, request.body?.context === 'buying' || request.body?.context === 'selling' ? request.body.context : undefined)))
 
     app.post('/api/orders/:id/reviews', requireAuth, withResult((request) => createReview(request.authUser!, String(request.params.id), request.body ?? {})))
 

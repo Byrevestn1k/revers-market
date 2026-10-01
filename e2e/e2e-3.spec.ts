@@ -354,8 +354,12 @@ test('E2E №3: two partial Deals complete, publish reviews and preserve account
     await buyer.page.goto('/');
     await buyer.page.getByRole('button', { name: /Сповіщення/ }).last().click();
     const dealBConversationId = buyerNotifications.find(item => item.orderId === scenario!.orderB && item.conversationId)?.conversationId;
+    const dealBNotification = buyerNotifications.find(item => item.orderId === scenario!.orderB && item.conversationId);
     expect(dealBConversationId).toBeTruthy();
-    await expect(buyer.page.locator(`a[href*="conversation=${dealBConversationId}"]`).first()).toBeVisible();
+    expect(dealBNotification).toBeTruthy();
+    await buyer.page.getByRole('tab', { name: /Купівля/ }).click();
+    await buyer.page.getByRole('article').filter({ hasText: dealBNotification?.title ?? '' }).getByRole('button', { name: 'Переглянути' }).first().click();
+    await expect(buyer.page).toHaveURL(`/messages/${dealBConversationId}`);
   } finally {
     await cleanupScenario(scenario);
   }

@@ -17,5 +17,5 @@ export const dealEvent = async (client: PoolClient, order: any, actorId: string,
         await client.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversation.id])
     }
     await audit(client, actorId, action, 'order', order.id, { requestId: order.buy_request_id, offerId: order.offer_id })
-    await createNotification(client, actorId === order.buyer_id ? order.seller_id : order.buyer_id, 'order', title, body, order.id, conversation?.id ?? null)
+    await createNotification(client, actorId === order.buyer_id ? order.seller_id : order.buyer_id, 'order', title, body, actorId === order.buyer_id ? 'selling' : 'buying', { orderId: order.id, conversationId: conversation?.id ?? null, buyRequestId: order.buy_request_id })
 }

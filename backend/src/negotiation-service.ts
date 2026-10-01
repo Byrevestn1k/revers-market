@@ -71,7 +71,7 @@ export const changeNegotiation = async (user: AuthUser, conversationId: string, 
             title = action === 'accept' ? 'Умови погоджено. Покупець може обрати пропозицію' : action === 'reject' ? 'Умови відхилено' : 'Умови відкликано'
         }
         await audit(client, user.id, event, 'offer', offer.id, { proposalId: proposal.id, requestId: request.id })
-        await createNotification(client, user.id === request.buyer_id ? offer.seller_id : request.buyer_id, 'order', title, 'Перегляньте умови в чаті', null, conversationId)
+        await createNotification(client, user.id === request.buyer_id ? offer.seller_id : request.buyer_id, 'order', title, 'Перегляньте умови в чаті', user.id === request.buyer_id ? 'selling' : 'buying', { conversationId, buyRequestId: request.id })
         await client.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversationId])
         await client.query('COMMIT')
         return { status: 200, body: { proposal: negotiationDto(proposal) } }

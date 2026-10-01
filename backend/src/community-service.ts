@@ -3,33 +3,34 @@ import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 
 type Queryable = Pick<PoolClient, 'query'>
+export type NotificationContext = 'buying' | 'selling'
+export type NotificationReferences = { orderId?: string | null; conversationId?: string | null; buyRequestId?: string | null }
 const invalid = (message: string) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message } })
 
 export const audit = async (queryable: Queryable, actorId: string | null, action: string, entityType: string, entityId: string | null, metadata: Record<string, unknown> = {}) => {
     await queryable.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [actorId, action, entityType, entityId, JSON.stringify(metadata)])
 }
 
-export const createNotification = async (queryable: Queryable, userId: string, type: string, title: string, body: string, orderId: string | null = null, conversationId: string | null = null) => {
-    await queryable.query('INSERT INTO notifications (user_id, type, title, body, order_id, conversation_id) VALUES ($1,$2,$3,$4,$5,$6)', [userId, type, title, body, orderId, conversationId])
+export const createNotification = async (queryable: Queryable, userId: string, type: string, title: string, body: string, context: NotificationContext, references: NotificationReferences = {}) => {
+    await queryable.query('INSERT INTO notifications (user_id, type, title, body, context, order_id, conversation_id, buy_request_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [userId, type, title, body, context, references.orderId ?? null, references.conversationId ?? null, references.buyRequestId ?? null])
 }
 
 export const listNotifications = async (user: AuthUser) => {
-    const result = await pool.query(`SELECT n.id, n.type, n.title, n.body, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.read_at AS "readAt", n.created_at AS "createdAt",
-        CASE WHEN COALESCE(o.seller_id, ofr.seller_id) = $1 THEN 'selling'
-             WHEN COALESCE(o.buyer_id, r.buyer_id) = $1 THEN 'buying'
-             ELSE 'general' END AS "userRole"
+    const [result, unreadResult] = await Promise.all([
+        pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.read_at AS "readAt", n.created_at AS "createdAt"
         FROM notifications n
-        LEFT JOIN orders o ON o.id = n.order_id
-        LEFT JOIN conversations c ON c.id = n.conversation_id
-        LEFT JOIN offers ofr ON ofr.id = c.offer_id
-        LEFT JOIN buy_requests r ON r.id = ofr.buy_request_id
-        WHERE n.user_id = $1 ORDER BY n.created_at DESC LIMIT 100`, [user.id])
-    return { status: 200, body: { notifications: result.rows } }
+        WHERE n.user_id = $1 ORDER BY n.created_at DESC LIMIT 100`, [user.id]),
+        pool.query(`SELECT COUNT(*) FILTER (WHERE read_at IS NULL)::int AS total,
+            COUNT(*) FILTER (WHERE read_at IS NULL AND context = 'buying')::int AS buying,
+            COUNT(*) FILTER (WHERE read_at IS NULL AND context = 'selling')::int AS selling
+            FROM notifications WHERE user_id = $1`, [user.id])
+    ])
+    return { status: 200, body: { notifications: result.rows, unreadCounts: unreadResult.rows[0] } }
 }
 
-export const markNotificationsRead = async (user: AuthUser, notificationId?: string) => {
-    const condition = notificationId ? 'id = $1 AND user_id = $2' : 'user_id = $1 AND read_at IS NULL'
-    const values = notificationId ? [notificationId, user.id] : [user.id]
+export const markNotificationsRead = async (user: AuthUser, notificationId?: string, context?: NotificationContext) => {
+    const condition = notificationId ? 'id = $1 AND user_id = $2' : context ? 'user_id = $1 AND context = $2 AND read_at IS NULL' : 'user_id = $1 AND read_at IS NULL'
+    const values = notificationId ? [notificationId, user.id] : context ? [user.id, context] : [user.id]
     await pool.query(`UPDATE notifications SET read_at = now() WHERE ${condition}`, values)
     return { status: 200, body: { ok: true } }
 }
@@ -107,7 +108,7 @@ export const createReview = async (user: AuthUser, orderId: string, input: Recor
         await audit(client, user.id, 'REVIEW_CREATED', 'review', result.rows[0].id, { orderId })
         const count = (await client.query('SELECT count(*)::int AS count FROM reviews WHERE order_id = $1', [orderId])).rows[0].count
         if (count >= 2) await publishReviews(client, orderId)
-        await createNotification(client, revieweeId, 'review', 'Учасник залишив відгук', count >= 2 ? 'Обидва відгуки тепер відкриті.' : 'Залиште свій відгук, щоб побачити обидві оцінки.', orderId)
+        await createNotification(client, revieweeId, 'review', 'Учасник залишив відгук', count >= 2 ? 'Обидва відгуки тепер відкриті.' : 'Залиште свій відгук, щоб побачити обидві оцінки.', row.buyer_id === revieweeId ? 'buying' : 'selling', { orderId })
         await client.query('COMMIT')
         return { status: 201, body: { review: result.rows[0] } }
     } catch (error: unknown) {
