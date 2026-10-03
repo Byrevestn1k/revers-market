@@ -324,14 +324,17 @@ export const getOrderContact = async (user: AuthUser, orderId: string) => {
 }
 
 const conversationForUser = async (user: AuthUser, conversationId: string) => {
-    const result = await pool.query('SELECT c.id FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id WHERE c.id = $1 AND cp.user_id = $2', [conversationId, user.id])
+    const result = await pool.query('SELECT c.id FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id WHERE c.id = $1 AND cp.user_id = $2 AND cp.deleted_at IS NULL', [conversationId, user.id])
     return Boolean(result.rowCount)
 }
 
 export const listMessages = async (user: AuthUser, conversationId: string) => {
     if (!(await conversationForUser(user, conversationId))) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
-    const result = await pool.query('SELECT m.id, m.kind, m.conversation_id AS "conversationId", m.sender_id AS "senderId", u.username AS "senderUsername", u.avatar_url AS "senderAvatarUrl", m.body, m.created_at AS "createdAt" FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at, m.id', [conversationId])
-    return { status: 200, body: { messages: result.rows } }
+    const [result, counterpart] = await Promise.all([
+        pool.query('SELECT m.id, m.kind, m.conversation_id AS "conversationId", m.sender_id AS "senderId", u.username AS "senderUsername", u.avatar_url AS "senderAvatarUrl", m.body, m.created_at AS "createdAt" FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at, m.id', [conversationId]),
+        pool.query('SELECT last_read_at AS "lastReadAt" FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id]),
+    ])
+    return { status: 200, body: { messages: result.rows, counterpartLastReadAt: counterpart.rows[0]?.lastReadAt ?? null } }
 }
 
 export const createMessage = async (user: AuthUser, conversationId: string, body: unknown) => {
@@ -340,6 +343,9 @@ export const createMessage = async (user: AuthUser, conversationId: string, body
     const counterpart = await pool.query<{ user_id: string }>('SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
     for (const participant of counterpart.rows) if (await usersAreBlocked(pool, user.id, participant.user_id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
     const result = await pool.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim()])
+    await pool.query(`UPDATE conversation_participants
+        SET deleted_at = NULL, archived_at = NULL, pinned_at = NULL
+        WHERE conversation_id = $1 AND user_id <> $2 AND deleted_at IS NOT NULL`, [conversationId, user.id])
     const participants = await pool.query<{ user_id: string; role: 'buyer' | 'seller' }>('SELECT user_id, role FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
     for (const participant of participants.rows) await createNotification(pool, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), participant.role === 'buyer' ? 'buying' : 'selling', { conversationId })
     await pool.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversationId])
@@ -347,7 +353,7 @@ export const createMessage = async (user: AuthUser, conversationId: string, body
 }
 
 export const markConversationRead = async (user: AuthUser, conversationId: string) => {
-    const result = await pool.query('UPDATE conversation_participants SET last_read_at = now() WHERE conversation_id = $1 AND user_id = $2 RETURNING last_read_at', [conversationId, user.id])
+    const result = await pool.query('UPDATE conversation_participants SET last_read_at = now() WHERE conversation_id = $1 AND user_id = $2 AND deleted_at IS NULL RETURNING last_read_at', [conversationId, user.id])
     return result.rowCount ? { status: 200, body: { readAt: result.rows[0].last_read_at } } : { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
 }
 

@@ -11,7 +11,7 @@ export const getConversationContext = async (user: AuthUser, id: string) => {
     const row = (await pool.query(`SELECT c.offer_id, o.*, r.title, r.buyer_id, r.status AS request_status,
         r.requested_quantity - r.selected_quantity - r.completed_quantity AS remaining,
         r.fulfillment_mode, r.deadline, r.selected_quantity
-        FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2
+        FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.deleted_at IS NULL
         LEFT JOIN offers o ON o.id = c.offer_id LEFT JOIN buy_requests r ON r.id = o.buy_request_id WHERE c.id = $1`, [id, user.id])).rows[0]
     if (!row) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
     if (!row.offer_id) return { status: 200, body: { context: null, proposals: [] } }
@@ -33,7 +33,7 @@ export const changeNegotiation = async (user: AuthUser, conversationId: string, 
     try {
         await client.query('BEGIN')
         const linked = (await client.query(`SELECT o.id, o.buy_request_id FROM conversations c
-            JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2
+            JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.deleted_at IS NULL
             JOIN offers o ON o.id = c.offer_id WHERE c.id = $1`, [conversationId, user.id])).rows[0]
         if (!linked) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } } }
         const request = (await client.query('SELECT * FROM buy_requests WHERE id = $1 FOR UPDATE', [linked.buy_request_id])).rows[0]

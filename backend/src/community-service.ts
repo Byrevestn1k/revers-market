@@ -46,15 +46,17 @@ export const listConversations = async (user: AuthUser) => {
         COALESCE(direct_category.id, offer_request_category.id) AS "categoryId",
         COALESCE(direct_category.name, offer_request_category.name) AS "categoryName",
         COALESCE(direct_category.image_index, offer_request_category.image_index) AS "categoryImageIndex",
-        other_user.id AS "otherUserId", other_user.username AS "otherUsername", other_user.avatar_url AS "otherAvatarUrl", mine.role AS "userRole",
+        other_user.id AS "otherUserId", other_user.username AS "otherUsername", other_user.avatar_url AS "otherAvatarUrl",
+        CASE mine.role WHEN 'buyer' THEN 'buying' WHEN 'seller' THEN 'selling' END AS "userRole",
         (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessage",
         (SELECT sender_id FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageSenderId",
         COALESCE((SELECT sender_id = $1 FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), false) AS "lastMessageIsMine",
         (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageAt",
-        mine.last_read_at AS "lastReadAt", c.created_at AS "createdAt", c.updated_at AS "updatedAt",
+        mine.last_read_at AS "lastReadAt", other.last_read_at AS "counterpartLastReadAt",
+        mine.pinned_at AS "pinnedAt", mine.archived_at AS "archivedAt", c.created_at AS "createdAt", c.updated_at AS "updatedAt",
         (SELECT count(*)::integer FROM messages m WHERE m.conversation_id = c.id AND m.sender_id <> $1 AND m.created_at > COALESCE(mine.last_read_at, '-infinity'::timestamptz)) AS "unreadCount"
         FROM conversations c
-        JOIN conversation_participants mine ON mine.conversation_id = c.id AND mine.user_id = $1
+        JOIN conversation_participants mine ON mine.conversation_id = c.id AND mine.user_id = $1 AND mine.deleted_at IS NULL
         JOIN conversation_participants other ON other.conversation_id = c.id AND other.user_id <> $1
         JOIN users other_user ON other_user.id = other.user_id
         LEFT JOIN orders o ON o.id = c.order_id
@@ -65,8 +67,28 @@ export const listConversations = async (user: AuthUser) => {
         LEFT JOIN buy_requests offer_request ON offer_request.id = ofr.buy_request_id
         LEFT JOIN categories direct_category ON direct_category.id = direct_request.category_id
         LEFT JOIN categories offer_request_category ON offer_request_category.id = offer_request.category_id
-        ORDER BY COALESCE((SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), c.created_at) DESC`, [user.id])
+        ORDER BY COALESCE((SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), c.created_at) DESC, c.id DESC`, [user.id])
     return { status: 200, body: { conversations: result.rows } }
+}
+
+const updateConversationPersonalState = async (user: AuthUser, conversationId: string, column: 'pinned_at' | 'archived_at', enabled: unknown) => {
+    if (typeof enabled !== 'boolean') return invalid('Некоректний стан розмови')
+    const result = await pool.query(`UPDATE conversation_participants SET ${column} = CASE WHEN $3 THEN now() ELSE NULL END
+        WHERE conversation_id = $1 AND user_id = $2 AND deleted_at IS NULL RETURNING ${column} AS "value"`, [conversationId, user.id, enabled])
+    if (!result.rowCount) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
+    return { status: 200, body: { [column === 'pinned_at' ? 'pinnedAt' : 'archivedAt']: result.rows[0].value } }
+}
+
+export const updateConversationPinned = (user: AuthUser, conversationId: string, enabled: unknown) => updateConversationPersonalState(user, conversationId, 'pinned_at', enabled)
+export const updateConversationArchived = (user: AuthUser, conversationId: string, enabled: unknown) => updateConversationPersonalState(user, conversationId, 'archived_at', enabled)
+
+export const deleteConversationForParticipant = async (user: AuthUser, conversationId: string) => {
+    const result = await pool.query(`UPDATE conversation_participants
+        SET deleted_at = now(), pinned_at = NULL, archived_at = NULL
+        WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NOT NULL AND deleted_at IS NULL
+        RETURNING deleted_at AS "deletedAt"`, [conversationId, user.id])
+    if (!result.rowCount) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
+    return { status: 200, body: { deletedAt: result.rows[0].deletedAt } }
 }
 
 export type ReviewInput = { rating: number; body?: string }
@@ -167,6 +189,16 @@ export const unblockUser = async (user: AuthUser, blockedId: string) => {
     await pool.query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [user.id, blockedId])
     await audit(pool, user.id, 'user.unblocked', 'user', blockedId)
     return { status: 204, body: null }
+}
+
+export const getBlockStatus = async (user: AuthUser, otherUserId: string) => {
+    if (otherUserId === user.id) return { status: 400, body: { error: 'CANNOT_BLOCK_SELF' } }
+    const result = await pool.query(`SELECT blocker_id FROM user_blocks
+        WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`, [user.id, otherUserId])
+    return { status: 200, body: {
+        blockedByMe: result.rows.some(row => row.blocker_id === user.id),
+        blockedByOther: result.rows.some(row => row.blocker_id === otherUserId),
+    } }
 }
 
 export const listModerationReports = async (user: AuthUser) => {

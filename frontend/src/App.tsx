@@ -33,7 +33,7 @@ import { mapMarkerElement, mapMarkerLabel } from './map-marker-icons'
 import type { MapViewport } from './map-clusters'
 import type { HomeCity, HomeMapProps } from './PublicHome'
 import './sidebar-profile.css'
-import { RequestOffers, DealChat, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
+import { RequestOffers, DealChat, ChatActions, closeChatActionMenus, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
 import { MessagesContext, MessageUnreadBadge } from './messages-state'
 import type { Conversation } from './messages-state'
 import { conversationIdForPath, legacyDestination, viewForPath, viewRoutes, type AppView } from './navigation'
@@ -693,7 +693,7 @@ function App() {
         const timer = window.setInterval(() => void refreshConversations().catch(() => undefined), 8000)
         return () => { clearInterval(timer); ++conversationRevision.current }
     }, [user?.id, view, refreshConversations])
-    const messageUnreadCount = conversations.reduce((total, item) => total + (item.unreadCount ?? 0), 0)
+    const messageUnreadCount = conversations.reduce((total, item) => total + (item.archivedAt ? 0 : item.unreadCount ?? 0), 0)
     const messagesState = { conversations, refresh: refreshConversations }
 
     const [notificationScope, setNotificationScope] = useState<'selling' | 'buying'>('selling')
@@ -895,15 +895,23 @@ function ChatPanel({ chat, onClose, notify }: { chat: { conversationId: string; 
     return <DealChat chat={chat} http={request} notify={notify} onClose={onClose} />
 }
 
+function BookmarkIcon({ filled = false }: { filled?: boolean }) {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.75A1.75 1.75 0 0 1 7.75 2h8.5A1.75 1.75 0 0 1 18 3.75V22l-6-3.75L6 22V3.75Z" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /></svg>
+}
+
+function TrashIcon() {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7m-8.5 0 .8 12.5h9.4L17.5 7M10 11v5m4-5v5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+}
+
 function MessagesView({ notify }: { notify: (message: string) => void }) {
     const params = new URLSearchParams(window.location.search)
     const initialScope = params.get('filter')
     const { conversations, refresh } = useContext(MessagesContext)
-    const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(() => {
+    const [chat, setChat] = useState<({ conversationId: string; title: string } & Partial<Conversation>) | null>(() => {
         const id = conversationIdForPath(window.location.pathname)
         return id ? { conversationId: id, title: 'Обговорення' } : null
     })
-    const [scope, setScope] = useState<'all' | 'selling' | 'buying' | 'direct'>(['selling', 'buying', 'direct'].includes(initialScope ?? '') ? initialScope as 'selling' | 'buying' | 'direct' : 'all')
+    const [scope, setScope] = useState<'all' | 'selling' | 'buying' | 'direct' | 'saved' | 'trash'>(['selling', 'buying', 'direct', 'saved', 'trash'].includes(initialScope ?? '') ? initialScope as 'selling' | 'buying' | 'direct' | 'saved' | 'trash' : 'all')
     const [search, setSearch] = useState('')
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState('')
@@ -911,6 +919,7 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     const toChat = (conversation?: Conversation) => conversation ? {
         conversationId: conversation.id,
         title: conversation.title || conversation.otherUsername,
+        ...conversation,
     } : null
     const isMobileMessagesLayout = () => window.matchMedia('(max-width: 700px)').matches
     const load = async (showLoading = false) => {
@@ -925,7 +934,8 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
                     const matchingConversation = next.find((item) => item.id === current.conversationId)
                     return matchingConversation ? toChat(matchingConversation) : current
                 }
-                return isMobileMessagesLayout() ? null : toChat(next[0])
+                const firstActiveConversation = next.find((conversation) => !conversation.archivedAt)
+                return isMobileMessagesLayout() || !firstActiveConversation ? null : toChat(firstActiveConversation)
             })
         } catch (error) {
             setLoadError((error as Error).message)
@@ -941,7 +951,7 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     useEffect(() => {
         const syncConversation = () => {
             const id = conversationIdForPath(window.location.pathname)
-            setChat(id ? { conversationId: id, title: conversations.find(item => item.id === id)?.title || 'Обговорення' } : null)
+            setChat(id ? toChat(conversations.find(item => item.id === id)) ?? { conversationId: id, title: 'Обговорення' } : null)
         }
         window.addEventListener('popstate', syncConversation)
         return () => window.removeEventListener('popstate', syncConversation)
@@ -950,7 +960,8 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     useEffect(() => {
         const media = window.matchMedia('(max-width: 700px)')
         const selectChatForDesktop = () => {
-            if (!media.matches) setChat((current) => current ?? toChat(conversations[0]))
+            const firstActiveConversation = conversations.find((conversation) => !conversation.archivedAt)
+            if (!media.matches) setChat((current) => current ?? (firstActiveConversation ? toChat(firstActiveConversation) : null))
         }
         selectChatForDesktop()
         media.addEventListener('change', selectChatForDesktop)
@@ -958,23 +969,35 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     }, [conversations])
 
     const selectScope = (next: typeof scope) => {
+        closeChatActionMenus()
         setScope(next)
         const url = new URL(window.location.href)
         url.searchParams.set('filter', next)
         window.history.replaceState({}, '', url)
     }
     const openConversation = (conversation: Conversation) => {
+        closeChatActionMenus()
         window.history.pushState({}, '', `/messages/${encodeURIComponent(conversation.id)}`)
         setChat(toChat(conversation))
     }
     const closeConversation = () => {
+        closeChatActionMenus()
         window.history.pushState({}, '', '/messages')
         setChat(null)
     }
+    const matchesScope = (conversation: Conversation, value: typeof scope) => {
+        if (value === 'trash') return Boolean(conversation.archivedAt)
+        if (conversation.archivedAt) return false
+        if (value === 'saved') return Boolean(conversation.pinnedAt)
+        if (value === 'all') return true
+        if (value === 'direct') return conversation.type === 'direct'
+        return conversation.userRole === value
+    }
+    const unreadInScope = (value: typeof scope) => conversations
+        .filter((conversation) => matchesScope(conversation, value))
+        .reduce((total, conversation) => total + (conversation.unreadCount ?? 0), 0)
     const visible = conversations.filter((conversation) => (
-        (scope === 'all' || scope === 'direct'
-            ? scope === 'all' || conversation.type === 'direct'
-            : conversation.userRole === scope)
+        matchesScope(conversation, scope)
         && (String(conversation.title ?? '') + ' ' + conversation.otherUsername + ' ' + String(conversation.lastMessage ?? ''))
             .toLocaleLowerCase('uk-UA')
             .includes(search.trim().toLocaleLowerCase('uk-UA'))
@@ -1003,28 +1026,37 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
         ? <div className="loading">Завантаження повідомлень…</div>
         : loadError && !conversations.length
             ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити повідомлення</h3><p>{loadError}</p><button className="primary-button compact" onClick={() => void load(true)}>Спробувати ще раз</button></div>
-            : visible.length
-                ? visible.map((conversation) => <button className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active ' : '') + (conversation.unreadCount ? 'unread' : '')} key={conversation.id} onClick={() => openConversation(conversation)} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername) + (conversation.unreadCount ? `. Непрочитані повідомлення: ${conversation.unreadCount}` : '')}>
+        : visible.length
+                ? visible.map((conversation) => <div className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active ' : '') + (conversation.unreadCount ? 'unread' : '')} key={conversation.id} role="button" tabIndex={0} onClick={() => openConversation(conversation)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openConversation(conversation) } }} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername) + (conversation.unreadCount ? `. Непрочитані повідомлення: ${conversation.unreadCount}` : '')}>
                     <span className="conversation-thumb">{conversation.imageUrl ? <img src={imageUrl(conversation.imageUrl)} alt="" /> : conversation.categoryId ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} /> : conversation.otherAvatarUrl ? <img src={imageUrl(conversation.otherAvatarUrl)} alt="" /> : avatarInitials({ username: conversation.otherUsername })}</span>
-                    <span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{contextLabel(conversation)}</em><small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
-                    <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <MessageUnreadBadge count={conversation.unreadCount ?? 0} />}</span>
-                </button>)
+                    <span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{scope === 'trash' ? 'У кошику' : contextLabel(conversation)}</em><small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
+                    <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <MessageUnreadBadge count={conversation.unreadCount ?? 0} />}<ChatActions chat={{ ...conversation, id: conversation.id }} http={request} notify={notify} onChanged={refresh} onArchived={() => { if (chat?.conversationId === conversation.id) closeConversation() }} /></span>
+                </div>)
                 : <Empty text={search ? 'Нічого не знайдено' : 'Повідомлень поки немає'} />
 
+    const savedCount = conversations.filter((conversation) => matchesScope(conversation, 'saved')).length
+    const trashUnreadCount = unreadInScope('trash')
     return <section className="content messages-view">
         <div className="view-header">
             <div><span className="eyebrow">Спілкування</span><h1>Мої повідомлення</h1><p className="view-subtitle">Обговорюйте пропозиції та домовленості з покупцями й продавцями.</p></div>
-            <label className="message-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Пошук у повідомленнях…" aria-label="Пошук у повідомленнях" /></label>
         </div>
         <div className="messages-workspace">
             <aside className="messages-sidebar">
-                <div className="message-scope-tabs" role="tablist" aria-label="Тип чатів">
-                    {([['all', 'Усі чати'], ['buying', 'Покупки'], ['selling', 'Продажі'], ['direct', 'Прямі чати']] as const).map(([value, label]) => <button key={value} className={scope === value ? 'active' : ''} onClick={() => selectScope(value)}>{label}<small>{value === 'all' ? conversations.length : conversations.filter((item) => value === 'direct' ? item.type === 'direct' : item.userRole === value).length}</small></button>)}
+                <div className="message-list-tools">
+                    <label className="message-search"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Пошук у повідомленнях" aria-label="Пошук у повідомленнях" /></label>
+                    <div className="message-utilities" aria-label="Керування чатами">
+                        <button type="button" className={'message-utility-button saved-utility ' + (scope === 'saved' ? 'active' : '')} onClick={() => selectScope('saved')} aria-label="Збережені" title="Збережені" aria-pressed={scope === 'saved'}><BookmarkIcon filled={scope === 'saved'} />{savedCount > 0 && <small>{savedCount}</small>}</button>
+                        <button type="button" className={'message-utility-button trash-utility ' + (scope === 'trash' ? 'active' : '')} onClick={() => selectScope('trash')} aria-label={trashUnreadCount ? `Кошик. Непрочитані повідомлення: ${trashUnreadCount}` : 'Кошик'} title={trashUnreadCount ? `Кошик · непрочитані повідомлення: ${trashUnreadCount}` : 'Кошик'} aria-pressed={scope === 'trash'}><TrashIcon />{trashUnreadCount > 0 && <MessageUnreadBadge count={trashUnreadCount} />}</button>
+                    </div>
                 </div>
+                <div className="message-scope-tabs" role="tablist" aria-label="Тип чатів">
+                    {([['all', 'Усі чати'], ['buying', 'Покупки'], ['selling', 'Продажі'], ['direct', 'Прямі чати']] as const).map(([value, label]) => <button key={value} className={scope === value ? 'active' : ''} onClick={() => selectScope(value)} aria-pressed={scope === value}>{label}<small>{conversations.filter((item) => matchesScope(item, value)).length}</small></button>)}
+                </div>
+                {(scope === 'saved' || scope === 'trash') && <div className="message-personal-heading"><strong>{scope === 'saved' ? 'Збережені' : 'Кошик'}</strong><button type="button" className="text-button" onClick={() => selectScope('all')}>До всіх чатів</button></div>}
                 <div className="conversation-list">{listContent}</div>
             </aside>
             <div className="messages-dialog">
-                {loading && !chat ? <div className="loading">Завантаження чату…</div> : chat ? <DealChat chat={{ conversationId: chat.conversationId, title: active?.title || chat.title }} embedded http={request} notify={notify} onClose={closeConversation} /> : <Empty text="Оберіть чат зі списку" />}
+                {loading && !chat ? <div className="loading">Завантаження чату…</div> : chat ? <DealChat chat={{ ...chat, ...(active ?? {}), conversationId: chat.conversationId, title: active?.title || chat.title }} embedded http={request} notify={notify} onClose={closeConversation} /> : <Empty text="Оберіть чат зі списку" />}
             </div>
         </div>
     </section>

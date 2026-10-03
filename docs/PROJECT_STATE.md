@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 3 — Notification Center & Existing Event Integration — DONE`
+**Current step:** `STEP 4 — Messages/Chats UX completion — CURRENT / REVIEW FAIL`
 
-**Last updated:** 2026-10-01
+**Last updated:** 2026-10-03
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -49,6 +49,7 @@ React 19 + Vite + TypeScript frontend; Express + TypeScript backend; PostgreSQL/
 - Notifications мають structured recipient contexts `buying | selling`, а legacy/unclassified rows — `context = NULL`. Центр «Купівля» / «Продаж» / «Усі» має exact aggregate unread counters для всієї історії незалежно від latest-100 newest-first list, individual read, context-specific read-all і structured canonical destinations. Notification unread незалежний від message unread. Contract: [NOTIFICATIONS.md](NOTIFICATIONS.md).
 - Основні існуючі list/detail destinations мають canonical path URLs; Product, Buy Request і Conversation відновлюються з direct link/refresh. Breadcrumbs знаходяться в main content, а legacy `?view=...` links нормалізуються. Step 1 пройшов independent Reviewer PASS; manual Browser QA `map marker → entity` лишається UNVERIFIED.
 - Step 3 independent Reviewer PASS. Manual Browser legacy `NULL → Усі` та message unread ↔ notification unread — UNVERIFIED. Final execution results Playwright E2E №3 і mutation-error scenario — UNVERIFIED.
+- Step 4 implementation: chat roles use the shared `buying | selling` API contract; list ordering is deterministic newest-first; chats have local date separators and persisted-message/read indicators. Saved and Trash are personal participant state, while archived unread messages stay out of the sidebar total. Notification read state remains independent. Delivered receipts, terminal write-policy changes and a definitive Deal context for reused Offer chats remain out of scope.
 
 ## ACTIVITY ORGANISATION REQUIREMENT
 
@@ -87,18 +88,18 @@ These are UX groups, not a new backend state model. A future activity Step shoul
 | `DONE` | Canonical URLs / deep links / breadcrumbs | Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. |
 | `DONE` | Messages unread/sidebar UX | Independent Reviewer PASS. |
 | `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
-| `CANDIDATE` | STEP 4 — Messages/Chats UX completion | Separate Step; do not start automatically. |
+| `CURRENT / REVIEW FAIL` | STEP 4 — Messages/Chats UX completion | Independent Reviewer found 4 MAJOR and 1 MINOR defects; correction pending. |
 | `PLANNED` | Activity organisation | After Step 4. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**Step 3 — Notification Center & Existing Event Integration — DONE.** Сповіщення мають contexts «Купівля» / «Продаж» / «Усі», exact aggregate unread counters для всієї історії при latest-100 newest-first list, individual read, context read-all і structured destinations. Legacy rows без context доступні в «Усі». Message unread і notification unread залишаються незалежними. Independent Reviewer PASS. Step 1 and Step 2 remain DONE; Step 4 is CANDIDATE.
+**Step 4 — Messages/Chats UX completion — CURRENT / REVIEW FAIL.** Independent Reviewer знайшов 4 MAJOR defects (frontend `ChatInfo` TS2322; clipping conversation menu; Enter на `⋯` відкриває conversation; неатомарний incoming-after-personal-delete flow) і 1 MINOR defect у Step 4 Playwright navigation/geometry coverage. Correction pending; Step 4 не є DONE. Evidence: backend typecheck PASS; `git diff --check` PASS; targeted backend integration PASS; `npm test` — 63 PASS з integration skips; frontend typecheck FAIL TS2322; Step 4 Playwright FAIL через test defect; решта integration/Playwright evidence UNVERIFIED. Delivered semantics, terminal write policy і canonical Deal context для reused Offer conversation лишаються deferred.
 
 ## REQUIRED CONTEXT
 
-For Step 3: this file; [PRODUCT.md](PRODUCT.md) notification sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; [NOTIFICATIONS.md](NOTIFICATIONS.md); current notification API/schema/producers/UI/navigation helpers and notification tests only. Do not load historical documents by default.
+For Step 4 review: this file; [PRODUCT.md](PRODUCT.md) chat sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; current conversation schema/API/UI, migration 036 and chat tests only. Do not load historical documents by default.
 
 ## AI WORKFLOW
 

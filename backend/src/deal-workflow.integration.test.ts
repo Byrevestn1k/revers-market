@@ -94,6 +94,69 @@ if (hasDatabase) {
             expect(conversations.some((conversation: any) => conversation.id === productConversation && conversation.productId === productId)).toBe(true)
             expect((await seller.get('/api/conversations')).body.conversations.some((conversation: any) => conversation.buyRequestId === rid)).toBe(true)
         }, 60000)
+        it('keeps chat roles, activity, read state and personal saved/archive state isolated per participant', async () => {
+            const { rid, oid } = await setup(20)
+            const offerConversation = (await buyer.post(`/api/offers/${oid}/conversation`)).body.conversation.id
+            const sellerOffer = (await seller.post(`/api/offers/${oid}/conversation`)).body.conversation.id
+            expect(sellerOffer).toBe(offerConversation)
+
+            const buyerOffer = (await buyer.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation)
+            const sellerOfferRow = (await seller.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation)
+            expect(buyerOffer.userRole).toBe('buying')
+            expect(sellerOfferRow.userRole).toBe('selling')
+
+            const directConversation = (await seller.post(`/api/buy-requests/${rid}/conversation`)).body.conversation.id
+            await buyer.post(`/api/conversations/${offerConversation}/messages`).send({ body: 'Старіша активність' })
+            await seller.post(`/api/conversations/${directConversation}/messages`).send({ body: 'Новіша активність' })
+            const ordered = (await buyer.get('/api/conversations')).body.conversations
+            expect(ordered.findIndex((item: any) => item.id === directConversation)).toBeLessThan(ordered.findIndex((item: any) => item.id === offerConversation))
+
+            await pool.query("UPDATE messages SET created_at = '2026-01-01T00:00:00.000Z' WHERE conversation_id = ANY($1::uuid[])", [[offerConversation, directConversation]])
+            const tied = (await buyer.get('/api/conversations')).body.conversations.filter((item: any) => [offerConversation, directConversation].includes(item.id))
+            expect(tied.map((item: any) => item.id)).toEqual([offerConversation, directConversation].sort().reverse())
+
+            const notificationsBefore = (await buyer.get('/api/notifications')).body.notifications.map((item: any) => [item.id, item.readAt])
+            expect((await buyer.patch(`/api/conversations/${offerConversation}/pinned`).send({ pinned: true })).status).toBe(200)
+            expect((await buyer.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).pinnedAt).toBeTruthy()
+            expect((await seller.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).pinnedAt).toBeNull()
+
+            expect((await buyer.patch(`/api/conversations/${offerConversation}/archived`).send({ archived: true })).status).toBe(200)
+            const archived = (await buyer.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation)
+            expect(archived.archivedAt).toBeTruthy()
+            expect(archived.pinnedAt).toBeTruthy()
+            expect((await seller.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).archivedAt).toBeNull()
+            expect((await buyer.get('/api/notifications')).body.notifications.map((item: any) => [item.id, item.readAt])).toEqual(notificationsBefore)
+            await seller.post(`/api/conversations/${offerConversation}/messages`).send({ body: 'Нове повідомлення в архівному чаті' })
+            const archivedWithIncoming = (await buyer.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation)
+            expect(archivedWithIncoming.archivedAt).toBeTruthy()
+            expect(archivedWithIncoming.unreadCount).toBeGreaterThan(0)
+            expect((await buyer.patch(`/api/conversations/${offerConversation}/archived`).send({ archived: false })).status).toBe(200)
+            expect((await buyer.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).pinnedAt).toBeTruthy()
+
+            await seller.post(`/api/conversations/${offerConversation}/messages`).send({ body: 'Перевірка прочитання' })
+            expect((await buyer.patch(`/api/conversations/${offerConversation}/read`)).status).toBe(200)
+            const messages = (await seller.get(`/api/conversations/${offerConversation}/messages`)).body
+            expect(messages.counterpartLastReadAt).toBeTruthy()
+
+            expect((await buyer.get(`/api/users/${ids[1]}/block`)).body).toEqual({ blockedByMe: false, blockedByOther: false })
+            expect((await buyer.post(`/api/users/${ids[1]}/block`)).status).toBe(204)
+            expect((await buyer.get(`/api/users/${ids[1]}/block`)).body).toEqual({ blockedByMe: true, blockedByOther: false })
+            expect((await seller.get(`/api/users/${ids[0]}/block`)).body).toEqual({ blockedByMe: false, blockedByOther: true })
+            expect((await buyer.delete(`/api/users/${ids[1]}/block`)).status).toBe(204)
+
+            expect((await buyer.patch(`/api/conversations/${offerConversation}/archived`).send({ archived: true })).status).toBe(200)
+            const sharedMessageCount = (await seller.get(`/api/conversations/${offerConversation}/messages`)).body.messages.length
+            expect((await buyer.delete(`/api/conversations/${offerConversation}/personal`)).status).toBe(200)
+            expect((await buyer.get('/api/conversations')).body.conversations.some((item: any) => item.id === offerConversation)).toBe(false)
+            expect((await buyer.get(`/api/conversations/${offerConversation}/messages`)).status).toBe(404)
+            expect((await seller.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).archivedAt).toBeNull()
+            expect((await seller.get(`/api/conversations/${offerConversation}/messages`)).body.messages).toHaveLength(sharedMessageCount)
+
+            await seller.post(`/api/conversations/${offerConversation}/messages`).send({ body: 'Нове повідомлення після персонального видалення' })
+            const revived = (await buyer.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation)
+            expect(revived).toMatchObject({ pinnedAt: null, archivedAt: null })
+            expect(revived.unreadCount).toBeGreaterThan(0)
+        }, 60000)
         it('publishes double-blind 12-point reviews only after both parties and never leaks rating aggregates', async () => {
             const {oid}=await setup(); const id=await select(oid,100); await complete(id)
             const before=(await buyer.get(`/api/profiles/${names[1]}`)).body.profile.ratingSummary

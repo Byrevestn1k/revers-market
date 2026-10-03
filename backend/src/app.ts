@@ -13,7 +13,7 @@ import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress,
 import { getConversationContext, changeNegotiation } from './negotiation-service.js'
 import { getOrderContact } from './order-service.js'
 import { recordOfferView } from './buy-requests.js'
-import { blockUser, createReport, createReview, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateReportModeration } from './community-service.js'
+import { blockUser, createReport, createReview, deleteConversationForParticipant, getBlockStatus, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateConversationArchived, updateConversationPinned, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
 import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements } from './settlements.js'
@@ -215,6 +215,10 @@ export const createApp = () => {
 
     app.patch('/api/conversations/:id/read', requireAuth, withResult((request) => markConversationRead(request.authUser!, String(request.params.id))))
 
+    app.patch('/api/conversations/:id/pinned', requireAuth, withResult((request) => updateConversationPinned(request.authUser!, String(request.params.id), request.body?.pinned)))
+    app.patch('/api/conversations/:id/archived', requireAuth, withResult((request) => updateConversationArchived(request.authUser!, String(request.params.id), request.body?.archived)))
+    app.delete('/api/conversations/:id/personal', requireAuth, withResult((request) => deleteConversationForParticipant(request.authUser!, String(request.params.id))))
+
     app.get('/api/conversations', requireAuth, withResult((request) => listConversations(request.authUser!)))
 
     app.get('/api/notifications', requireAuth, withResult((request) => listNotifications(request.authUser!)))
@@ -234,6 +238,7 @@ export const createApp = () => {
     app.post('/api/users/:id/block', requireAuth, withResult((request) => blockUser(request.authUser!, String(request.params.id))))
 
     app.delete('/api/users/:id/block', requireAuth, withResult((request) => unblockUser(request.authUser!, String(request.params.id))))
+    app.get('/api/users/:id/block', requireAuth, withResult((request) => getBlockStatus(request.authUser!, String(request.params.id))))
 
     app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
         console.error('[app] unhandled error:', error)
