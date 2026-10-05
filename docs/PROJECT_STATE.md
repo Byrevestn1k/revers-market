@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 4 — Messages/Chats UX completion — READY FOR INDEPENDENT FINAL REVIEW`
+**Current step:** `STEP 4 — Messages/Chats UX completion — DONE`; Step 5 may begin.
 
 **Last updated:** 2026-10-05
 
@@ -88,14 +88,14 @@ These are UX groups, not a new backend state model. A future activity Step shoul
 | `DONE` | Canonical URLs / deep links / breadcrumbs | Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. |
 | `DONE` | Messages unread/sidebar UX | Independent Reviewer PASS. |
 | `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
-| `READY FOR REVIEW` | STEP 4 — Messages/Chats UX completion | Reviewer findings corrected; independent final review pending. |
+| `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. Step 5 may begin. |
 | `PLANNED` | Activity organisation | After Step 4. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**Step 4 — Messages/Chats UX completion — READY FOR INDEPENDENT FINAL REVIEW.** Виправлено 4 MAJOR findings: frontend `ChatInfo` typecheck, clipping меню, Enter на `⋯`, атомарність incoming-after-personal-delete. Виправлено Playwright navigation/locator defect і перевірено geometry/keyboard на 1440/1280/1024/768/390/320 px. Evidence: frontend/backend typecheck PASS; production build PASS; `npm test` — 64 PASS (integration skips); targeted DB integration PASS для Saved/Trash, archived+incoming, personal delete/incoming і direct Product/Request chat; message rollback unit PASS; Step 4 Playwright PASS; суміжні unread UI та real unread/deep-link E2E PASS; `git diff --check` PASS. Step 4 не є DONE до незалежного Reviewer PASS. Delivered semantics, terminal write policy і canonical Deal context для reused Offer conversation лишаються deferred.
+**Step 4 — Messages/Chats UX completion — DONE.** Виправлено 4 MAJOR findings: frontend `ChatInfo` typecheck, clipping меню, Enter на `⋯`, атомарність incoming-after-personal-delete. Виправлено Playwright navigation/locator defect і перевірено geometry/keyboard на 1440/1280/1024/768/390/320 px. Evidence: frontend/backend typecheck PASS; production build PASS; `npm test` — 64 PASS (integration skips); targeted DB integration PASS для Saved/Trash, archived+incoming, personal delete/incoming і direct Product/Request chat; message rollback unit PASS; Step 4 Playwright PASS; суміжні unread UI та real unread/deep-link E2E PASS; `git diff --check` PASS. Independent final re-review PASS; Step 4 incorporated into main. Step 5 may begin. Delivered semantics, terminal write policy і canonical Deal context для reused Offer conversation лишаються deferred.
 
 ## REQUIRED CONTEXT
 
