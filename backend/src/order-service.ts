@@ -339,17 +339,34 @@ export const listMessages = async (user: AuthUser, conversationId: string) => {
 
 export const createMessage = async (user: AuthUser, conversationId: string, body: unknown) => {
     if (typeof body !== 'string' || !body.trim() || body.length > 5000) return { status: 400, body: { error: 'INVALID_MESSAGE' } }
-    if (!(await conversationForUser(user, conversationId))) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
-    const counterpart = await pool.query<{ user_id: string }>('SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
-    for (const participant of counterpart.rows) if (await usersAreBlocked(pool, user.id, participant.user_id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
-    const result = await pool.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim()])
-    await pool.query(`UPDATE conversation_participants
-        SET deleted_at = NULL, archived_at = NULL, pinned_at = NULL
-        WHERE conversation_id = $1 AND user_id <> $2 AND deleted_at IS NOT NULL`, [conversationId, user.id])
-    const participants = await pool.query<{ user_id: string; role: 'buyer' | 'seller' }>('SELECT user_id, role FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id])
-    for (const participant of participants.rows) await createNotification(pool, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), participant.role === 'buyer' ? 'buying' : 'selling', { conversationId })
-    await pool.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversationId])
-    return { status: 201, body: { message: result.rows[0] } }
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        const participants = await client.query<{ user_id: string; role: 'buyer' | 'seller'; deleted_at: Date | null }>(
+            'SELECT user_id, role, deleted_at FROM conversation_participants WHERE conversation_id = $1 ORDER BY user_id FOR UPDATE', [conversationId])
+        if (!participants.rows.some(participant => participant.user_id === user.id && !participant.deleted_at)) {
+            await client.query('ROLLBACK')
+            return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
+        }
+        const counterpart = participants.rows.filter(participant => participant.user_id !== user.id)
+        for (const participant of counterpart) if (await usersAreBlocked(client, user.id, participant.user_id)) {
+            await client.query('ROLLBACK')
+            return { status: 403, body: { error: 'USER_BLOCKED' } }
+        }
+        const result = await client.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim()])
+        await client.query(`UPDATE conversation_participants
+            SET deleted_at = NULL, archived_at = NULL, pinned_at = NULL
+            WHERE conversation_id = $1 AND user_id <> $2 AND deleted_at IS NOT NULL`, [conversationId, user.id])
+        for (const participant of counterpart) await createNotification(client, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), participant.role === 'buyer' ? 'buying' : 'selling', { conversationId })
+        await client.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversationId])
+        await client.query('COMMIT')
+        return { status: 201, body: { message: result.rows[0] } }
+    } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+    } finally {
+        client.release()
+    }
 }
 
 export const markConversationRead = async (user: AuthUser, conversationId: string) => {

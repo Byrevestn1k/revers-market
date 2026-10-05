@@ -20,7 +20,7 @@ test('real unread messages synchronize list, navigation, direct links and persis
   }));
   const [buyer, sellerA, sellerB] = contexts;
   const list = async (context = buyer) => (await (await context.request.get('/api/conversations')).json()).conversations;
-  const total = async () => (await list()).reduce((sum: number, c: any) => sum + c.unreadCount, 0);
+  const total = async () => (await list()).filter((c: any) => !c.archivedAt).reduce((sum: number, c: any) => sum + c.unreadCount, 0);
   const notificationState = async () => (await (await buyer.request.get('/api/notifications')).json()).notifications.map((n: any) => [n.id, n.readAt]);
   const stamp = Date.now();
   try {
@@ -37,7 +37,7 @@ test('real unread messages synchronize list, navigation, direct links and persis
     await page.goto('/messages');
     const mobileBadge = page.locator('.mobile-nav .message-unread-count');
     await expect(mobileBadge).toHaveAttribute('aria-label', `Непрочитані повідомлення: ${initialTotal}`);
-    await expect(page.locator('.conversation-row.unread')).toHaveCount((await list()).filter((c: any) => c.unreadCount > 0).length);
+    await expect(page.locator('.conversation-row.unread')).toHaveCount((await list()).filter((c: any) => !c.archivedAt && c.unreadCount > 0).length);
     await expect(page.locator('.messages-dialog .chat-input')).toHaveCount(0);
     let allowRead = false;
     await page.route(`**/api/conversations/${ids[0]}/read`, async route => allowRead ? route.continue() : route.fulfill({ status: 503, json: { message: 'QA read failure' } }));

@@ -1,4 +1,5 @@
-import { useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { MessagesContext } from './messages-state'
 import type { Conversation } from './messages-state'
 import { unitLabel } from './listing-options'
@@ -10,7 +11,7 @@ export type DealRequest = { id: string; title: string; quantity: number; selecte
 export type DealOffer = { id: string; buyRequestId: string; seller: { id: string; username: string; rating?: number | null; completedDeals?: number; avatarUrl?: string }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; status: string; validUntil?: string | null; additionalPhotoUrl?: string; termsSnapshot?: {availableAt?: string}; deliverySnapshot?: {price?: number}; existingProduct?: { title: string }; photos?: { url: string }[] }
 type Proposal = { id: string; createdBy: string; price: number; quantity: number; delivery: string; deliveryPrice: number; status: string; comment: string; createdAt: string }
 type Context = { offerId: string; requestId: string; title: string; buyerId: string; sellerId: string; unit: string; currency: string; price: number; offeredQuantity: number; quantity: number; remaining: number; delivery: string; deliveryPrice: number; fulfillmentMode: string; available: boolean }
-type ChatInfo = Omit<Pick<Conversation, 'id' | 'title' | 'type' | 'productId' | 'buyRequestId' | 'imageUrl' | 'categoryName' | 'otherUserId' | 'otherUsername' | 'price' | 'currency' | 'pinnedAt' | 'archivedAt'>, 'id'> & { id?: string }
+type ChatInfo = Partial<Pick<Conversation, 'title' | 'type' | 'productId' | 'buyRequestId' | 'imageUrl' | 'categoryName' | 'otherUserId' | 'otherUsername' | 'price' | 'currency' | 'pinnedAt' | 'archivedAt'>> & { id?: string }
 const chatActionsCloseEvent = 'navpaky:close-chat-actions'
 let chatActionsInstance = 0
 
@@ -60,19 +61,42 @@ export function ChatActions({ chat, http, notify, onChanged, onArchived }: { cha
     const [confirmDelete, setConfirmDelete] = useState(false)
     const root = useRef<HTMLDivElement>(null)
     const trigger = useRef<HTMLButtonElement>(null)
+    const menu = useRef<HTMLDivElement>(null)
+    const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
     const instance = useRef(++chatActionsInstance)
     const otherId = chat.otherUserId
     const closeMenu = (restoreFocus = false) => {
         setOpen(false)
         if (restoreFocus) trigger.current?.focus()
     }
+    useLayoutEffect(() => {
+        if (!open) return
+        const positionMenu = () => {
+            const button = trigger.current?.getBoundingClientRect()
+            const popup = menu.current?.getBoundingClientRect()
+            if (!button || !popup) return
+            const margin = 8
+            const top = button.bottom + popup.height + margin <= window.innerHeight
+                ? button.bottom + 4
+                : Math.max(margin, button.top - popup.height - 4)
+            const left = Math.max(margin, Math.min(button.right - popup.width, window.innerWidth - popup.width - margin))
+            setMenuPosition({ top, left })
+        }
+        positionMenu()
+        window.addEventListener('resize', positionMenu)
+        window.addEventListener('scroll', positionMenu, true)
+        return () => {
+            window.removeEventListener('resize', positionMenu)
+            window.removeEventListener('scroll', positionMenu, true)
+        }
+    }, [open, blockState])
     useEffect(() => {
         const closeFromElsewhere = (event: Event) => {
             const except = (event as CustomEvent<{ except?: number }>).detail?.except
             if (except !== instance.current) closeMenu()
         }
         const closeOnPointerDown = (event: PointerEvent) => {
-            if (open && !root.current?.contains(event.target as Node)) closeMenu()
+            if (open && !root.current?.contains(event.target as Node) && !menu.current?.contains(event.target as Node)) closeMenu()
         }
         const closeOnEscape = (event: KeyboardEvent) => {
             if (open && event.key === 'Escape') { event.preventDefault(); closeMenu(true) }
@@ -100,7 +124,7 @@ export function ChatActions({ chat, http, notify, onChanged, onArchived }: { cha
     }
     return <div className="chat-actions" ref={root}>
         <button ref={trigger} type="button" className="icon-button" aria-label="Дії з чатом" aria-expanded={open} aria-haspopup="menu" onClick={(event) => { event.stopPropagation(); if (open) closeMenu(); else { closeChatActionMenus(instance.current); setOpen(true) } }}>⋯</button>
-        {open && <div className="chat-actions-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+        {open && createPortal(<div ref={menu} className="chat-actions-menu" role="menu" style={{ position: 'fixed', top: menuPosition.top, left: menuPosition.left }} onClick={(event) => event.stopPropagation()}>
             <button type="button" role="menuitem" disabled={busy} onClick={() => void act(`/api/conversations/${chat.id}/pinned`, patch({ pinned: !chat.pinnedAt }), chat.pinnedAt ? 'Чат прибрано зі збережених' : 'Чат додано до збережених')}>{chat.pinnedAt ? 'Прибрати зі збережених' : 'Додати в збережене'}</button>
             {chat.archivedAt
                 ? <><button type="button" role="menuitem" disabled={busy} onClick={() => void act(`/api/conversations/${chat.id}/archived`, patch({ archived: false }), 'Чат відновлено')}>Відновити з кошика</button><button type="button" role="menuitem" className="chat-actions-danger" disabled={busy} onClick={() => { setOpen(false); setConfirmDelete(true) }}>Видалити остаточно</button></>
@@ -109,7 +133,7 @@ export function ChatActions({ chat, http, notify, onChanged, onArchived }: { cha
             {otherId && blockState?.blockedByMe && <button type="button" role="menuitem" disabled={busy} onClick={() => void act(`/api/users/${otherId}/block`, { method: 'DELETE' }, 'Користувача розблоковано', () => setBlockState({ ...blockState, blockedByMe: false }))}>Розблокувати користувача</button>}
             {otherId && blockState && !blockState.blockedByMe && !blockState.blockedByOther && <button type="button" role="menuitem" disabled={busy} onClick={() => void act(`/api/users/${otherId}/block`, post({}), 'Користувача заблоковано', () => setBlockState({ ...blockState, blockedByMe: true }))}>Заблокувати користувача</button>}
             {blockState?.blockedByOther && <p className="chat-actions-note" role="status">Користувач обмежив взаємодію з вами.</p>}
-        </div>}
+        </div>, document.body)}
         {confirmArchive && <ConfirmationDialog title="Перемістити чат у кошик?" confirmLabel="Перемістити" destructive busy={busy} onClose={() => setConfirmArchive(false)} onConfirm={() => void act(`/api/conversations/${chat.id}/archived`, patch({ archived: true }), 'Чат переміщено в кошик', () => { setConfirmArchive(false); onArchived() })}><p>Історія повідомлень залишиться доступною для іншого учасника. Ви зможете відновити цей чат із кошика.</p></ConfirmationDialog>}
         {confirmDelete && <ConfirmationDialog title="Видалити діалог?" confirmLabel="Видалити" destructive busy={busy} onClose={() => setConfirmDelete(false)} onConfirm={() => void act(`/api/conversations/${chat.id}/personal`, { method: 'DELETE' }, 'Діалог видалено з вашого списку', () => { setConfirmDelete(false); onArchived() })}><p>Діалог буде прибрано з вашого списку повідомлень. Скасувати цю дію буде неможливо.</p></ConfirmationDialog>}
         {reporting && otherId && <TextEntryDialog title="Поскаржитися на користувача" label="Причина скарги" minLength={2} maxLength={160} submitLabel="Надіслати скаргу" busy={busy} onClose={() => setReporting(false)} onSubmit={(reason) => void act('/api/reports', post({ targetType: 'user', targetId: otherId, reason }), 'Скаргу надіслано', () => setReporting(false))} />}

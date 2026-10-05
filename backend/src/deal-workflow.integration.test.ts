@@ -152,10 +152,16 @@ if (hasDatabase) {
             expect((await seller.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).archivedAt).toBeNull()
             expect((await seller.get(`/api/conversations/${offerConversation}/messages`)).body.messages).toHaveLength(sharedMessageCount)
 
-            await seller.post(`/api/conversations/${offerConversation}/messages`).send({ body: 'Нове повідомлення після персонального видалення' })
+            expect((await seller.post(`/api/conversations/${offerConversation}/messages`).send({ body: 'Нове повідомлення після персонального видалення' })).status).toBe(201)
             const revived = (await buyer.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation)
             expect(revived).toMatchObject({ pinnedAt: null, archivedAt: null })
             expect(revived.unreadCount).toBeGreaterThan(0)
+            expect(revived.lastMessage).toBe('Нове повідомлення після персонального видалення')
+            const revivedMessages = (await buyer.get(`/api/conversations/${offerConversation}/messages`)).body.messages
+            expect(revivedMessages).toHaveLength(sharedMessageCount + 1)
+            expect(revivedMessages.at(-1).body).toBe('Нове повідомлення після персонального видалення')
+            expect((await seller.get(`/api/conversations/${offerConversation}/messages`)).body.messages).toHaveLength(sharedMessageCount + 1)
+            expect((await seller.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).archivedAt).toBeNull()
         }, 60000)
         it('publishes double-blind 12-point reviews only after both parties and never leaks rating aggregates', async () => {
             const {oid}=await setup(); const id=await select(oid,100); await complete(id)

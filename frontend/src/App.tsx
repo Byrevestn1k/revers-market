@@ -680,21 +680,22 @@ function App() {
     const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
     const [unreadNotifications, setUnreadNotifications] = useState(0)
     const [conversations, setConversations] = useState<Conversation[]>([])
+    const [conversationsLoaded, setConversationsLoaded] = useState(false)
     const conversationRevision = useRef(0)
     const refreshConversations = useCallback(async () => {
         const revision = ++conversationRevision.current
         const next = (await request('/api/conversations')).conversations as Conversation[]
-        if (revision === conversationRevision.current) setConversations(next)
+        if (revision === conversationRevision.current) { setConversations(next); setConversationsLoaded(true) }
         return next
     }, [])
     useEffect(() => {
-        if (!user) { ++conversationRevision.current; setConversations([]); return }
+        if (!user) { ++conversationRevision.current; setConversations([]); setConversationsLoaded(false); return }
         void refreshConversations().catch(() => undefined)
         const timer = window.setInterval(() => void refreshConversations().catch(() => undefined), 8000)
         return () => { clearInterval(timer); ++conversationRevision.current }
     }, [user?.id, view, refreshConversations])
     const messageUnreadCount = conversations.reduce((total, item) => total + (item.archivedAt ? 0 : item.unreadCount ?? 0), 0)
-    const messagesState = { conversations, refresh: refreshConversations }
+    const messagesState = { conversations, loaded: conversationsLoaded, refresh: refreshConversations }
 
     const [notificationScope, setNotificationScope] = useState<'selling' | 'buying'>('selling')
     const [path, setPath] = useState(() => window.location.pathname)
@@ -906,7 +907,7 @@ function TrashIcon() {
 function MessagesView({ notify }: { notify: (message: string) => void }) {
     const params = new URLSearchParams(window.location.search)
     const initialScope = params.get('filter')
-    const { conversations, refresh } = useContext(MessagesContext)
+    const { conversations, loaded, refresh } = useContext(MessagesContext)
     const [chat, setChat] = useState<({ conversationId: string; title: string } & Partial<Conversation>) | null>(() => {
         const id = conversationIdForPath(window.location.pathname)
         return id ? { conversationId: id, title: 'Обговорення' } : null
@@ -922,21 +923,27 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
         ...conversation,
     } : null
     const isMobileMessagesLayout = () => window.matchMedia('(max-width: 700px)').matches
+    const matchesScope = (conversation: Conversation, value: typeof scope) => {
+        if (value === 'trash') return Boolean(conversation.archivedAt)
+        if (conversation.archivedAt) return false
+        if (value === 'saved') return Boolean(conversation.pinnedAt)
+        if (value === 'all') return true
+        if (value === 'direct') return conversation.type === 'direct'
+        return conversation.userRole === value
+    }
+    const matchesSearch = (conversation: Conversation) => (
+        (String(conversation.title ?? '') + ' ' + conversation.otherUsername + ' ' + String(conversation.lastMessage ?? ''))
+            .toLocaleLowerCase('uk-UA')
+            .includes(search.trim().toLocaleLowerCase('uk-UA'))
+    )
+    const visible = conversations.filter((conversation) => matchesScope(conversation, scope) && matchesSearch(conversation))
     const load = async (showLoading = false) => {
         if (showLoading) {
             setLoading(true)
             setLoadError('')
         }
         try {
-            const next = await refresh()
-            setChat((current) => {
-                if (current) {
-                    const matchingConversation = next.find((item) => item.id === current.conversationId)
-                    return matchingConversation ? toChat(matchingConversation) : current
-                }
-                const firstActiveConversation = next.find((conversation) => !conversation.archivedAt)
-                return isMobileMessagesLayout() || !firstActiveConversation ? null : toChat(firstActiveConversation)
-            })
+            await refresh()
         } catch (error) {
             setLoadError((error as Error).message)
         } finally {
@@ -949,59 +956,63 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     }, [])
 
     useEffect(() => {
+        if (loading || !loaded) return
+        const selected = visible.find((conversation) => conversation.id === chat?.conversationId)
+            ?? (isMobileMessagesLayout() ? null : visible[0])
+        if (selected?.id !== chat?.conversationId) setChat(toChat(selected))
+        else if (selected && (chat?.pinnedAt !== selected.pinnedAt || chat?.archivedAt !== selected.archivedAt)) setChat(toChat(selected))
+        const pathname = selected ? `/messages/${encodeURIComponent(selected.id)}` : '/messages'
+        if (window.location.pathname !== pathname) {
+            const url = new URL(window.location.href)
+            url.pathname = pathname
+            window.history.replaceState(window.history.state, '', url)
+        }
+    }, [conversations, scope, search, loading, loaded])
+
+    useEffect(() => {
         const syncConversation = () => {
             const id = conversationIdForPath(window.location.pathname)
-            setChat(id ? toChat(conversations.find(item => item.id === id)) ?? { conversationId: id, title: 'Обговорення' } : null)
+            setChat(id ? toChat(visible.find(item => item.id === id)) : null)
         }
         window.addEventListener('popstate', syncConversation)
         return () => window.removeEventListener('popstate', syncConversation)
-    }, [conversations])
+    }, [conversations, scope, search])
 
     useEffect(() => {
         const media = window.matchMedia('(max-width: 700px)')
         const selectChatForDesktop = () => {
-            const firstActiveConversation = conversations.find((conversation) => !conversation.archivedAt)
-            if (!media.matches) setChat((current) => current ?? (firstActiveConversation ? toChat(firstActiveConversation) : null))
+            const firstVisibleConversation = visible[0]
+            if (!media.matches) setChat((current) => current ?? (firstVisibleConversation ? toChat(firstVisibleConversation) : null))
         }
-        selectChatForDesktop()
         media.addEventListener('change', selectChatForDesktop)
         return () => media.removeEventListener('change', selectChatForDesktop)
-    }, [conversations])
+    }, [conversations, scope, search])
 
     const selectScope = (next: typeof scope) => {
         closeChatActionMenus()
         setScope(next)
+        const current = conversations.find((item) => item.id === chat?.conversationId)
+        const selected = current && matchesScope(current, next) && matchesSearch(current) ? current
+            : isMobileMessagesLayout() ? null : conversations.find((item) => matchesScope(item, next) && matchesSearch(item))
+        setChat(selected ? toChat(selected) : null)
         const url = new URL(window.location.href)
+        url.pathname = selected ? `/messages/${encodeURIComponent(selected.id)}` : '/messages'
         url.searchParams.set('filter', next)
         window.history.replaceState({}, '', url)
     }
     const openConversation = (conversation: Conversation) => {
         closeChatActionMenus()
-        window.history.pushState({}, '', `/messages/${encodeURIComponent(conversation.id)}`)
+        window.history.pushState({}, '', `/messages/${encodeURIComponent(conversation.id)}${scope === 'all' ? '' : `?filter=${scope}`}`)
         setChat(toChat(conversation))
     }
     const closeConversation = () => {
         closeChatActionMenus()
-        window.history.pushState({}, '', '/messages')
+        window.history.pushState({}, '', `/messages${scope === 'all' ? '' : `?filter=${scope}`}`)
         setChat(null)
-    }
-    const matchesScope = (conversation: Conversation, value: typeof scope) => {
-        if (value === 'trash') return Boolean(conversation.archivedAt)
-        if (conversation.archivedAt) return false
-        if (value === 'saved') return Boolean(conversation.pinnedAt)
-        if (value === 'all') return true
-        if (value === 'direct') return conversation.type === 'direct'
-        return conversation.userRole === value
     }
     const unreadInScope = (value: typeof scope) => conversations
         .filter((conversation) => matchesScope(conversation, value))
         .reduce((total, conversation) => total + (conversation.unreadCount ?? 0), 0)
-    const visible = conversations.filter((conversation) => (
-        matchesScope(conversation, scope)
-        && (String(conversation.title ?? '') + ' ' + conversation.otherUsername + ' ' + String(conversation.lastMessage ?? ''))
-            .toLocaleLowerCase('uk-UA')
-            .includes(search.trim().toLocaleLowerCase('uk-UA'))
-    ))
     const time = (value: string | null) => {
         if (!value) return ''
         const date = new Date(value)
@@ -1021,13 +1032,14 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
             : conversation.userRole === 'selling'
                 ? 'Ваша пропозиція'
                 : 'Пропозиція продавця'
-    const active = conversations.find((conversation) => conversation.id === chat?.conversationId)
+    const currentChat = loading || !loaded || visible.some((conversation) => conversation.id === chat?.conversationId) ? chat : null
+    const active = visible.find((conversation) => conversation.id === currentChat?.conversationId)
     const listContent = loading
         ? <div className="loading">Завантаження повідомлень…</div>
         : loadError && !conversations.length
             ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити повідомлення</h3><p>{loadError}</p><button className="primary-button compact" onClick={() => void load(true)}>Спробувати ще раз</button></div>
         : visible.length
-                ? visible.map((conversation) => <div className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active ' : '') + (conversation.unreadCount ? 'unread' : '')} key={conversation.id} role="button" tabIndex={0} onClick={() => openConversation(conversation)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openConversation(conversation) } }} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername) + (conversation.unreadCount ? `. Непрочитані повідомлення: ${conversation.unreadCount}` : '')}>
+                ? visible.map((conversation) => <div className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active ' : '') + (conversation.unreadCount ? 'unread' : '')} key={conversation.id} role="button" tabIndex={0} onClick={() => openConversation(conversation)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openConversation(conversation) } }} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername) + (conversation.unreadCount ? `. Непрочитані повідомлення: ${conversation.unreadCount}` : '')}>
                     <span className="conversation-thumb">{conversation.imageUrl ? <img src={imageUrl(conversation.imageUrl)} alt="" /> : conversation.categoryId ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} /> : conversation.otherAvatarUrl ? <img src={imageUrl(conversation.otherAvatarUrl)} alt="" /> : avatarInitials({ username: conversation.otherUsername })}</span>
                     <span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{scope === 'trash' ? 'У кошику' : contextLabel(conversation)}</em><small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
                     <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <MessageUnreadBadge count={conversation.unreadCount ?? 0} />}<ChatActions chat={{ ...conversation, id: conversation.id }} http={request} notify={notify} onChanged={refresh} onArchived={() => { if (chat?.conversationId === conversation.id) closeConversation() }} /></span>
@@ -1056,7 +1068,7 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
                 <div className="conversation-list">{listContent}</div>
             </aside>
             <div className="messages-dialog">
-                {loading && !chat ? <div className="loading">Завантаження чату…</div> : chat ? <DealChat chat={{ ...chat, ...(active ?? {}), conversationId: chat.conversationId, title: active?.title || chat.title }} embedded http={request} notify={notify} onClose={closeConversation} /> : <Empty text="Оберіть чат зі списку" />}
+                {loading && !currentChat ? <div className="loading">Завантаження чату…</div> : currentChat ? <DealChat chat={{ ...currentChat, ...(active ?? {}), conversationId: currentChat.conversationId, title: active?.title || currentChat.title }} embedded http={request} notify={notify} onClose={closeConversation} /> : <Empty text="Оберіть чат зі списку" />}
             </div>
         </div>
     </section>

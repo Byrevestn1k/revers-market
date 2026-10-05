@@ -5,8 +5,9 @@ export type Conversation = { id: string; orderId?: string | null; offerId?: stri
 // The conversation API is the source for both the list and navigation count.
 export const MessagesContext = createContext<{
   conversations: Conversation[];
+  loaded: boolean;
   refresh: () => Promise<Conversation[]>;
-}>({ conversations: [], refresh: async () => [] });
+}>({ conversations: [], loaded: false, refresh: async () => [] });
 
 export function MessageUnreadBadge({ count }: { count: number }) {
   return count > 0 ? <b className="message-unread-count" aria-label={`Непрочитані повідомлення: ${count}`}>{count > 99 ? '99+' : count}</b> : null;
