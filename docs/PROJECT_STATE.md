@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 5 — Activity Organisation — READY FOR INDEPENDENT RE-REVIEW`.
+**Current step:** `STEP 5 — Activity Organisation — DONE`; next Step may begin.
 
 **Last updated:** 2026-10-06
 
@@ -53,7 +53,7 @@ React 19 + Vite + TypeScript frontend; Express + TypeScript backend; PostgreSQL/
 
 ## ACTIVITY ORGANISATION REQUIREMENT
 
-STEP 5 UX organizes a user's work in two contexts: **Купую** shows own Buy Requests with related Offers/Deals/actions; **Продаю** shows own Products, own Offers and related Deals/actions. Canonical pages remain separate and group records by lifecycle. This implementation is ready for independent review.
+STEP 5 UX organizes a user's work in two contexts: **Купую** shows own Buy Requests with related Offers/Deals/actions; **Продаю** shows own Products, own Offers and related Deals/actions. Canonical pages remain separate and group records by lifecycle. Independent final re-review passed; Step 5 is integrated into main.
 
 | Entity | Actual backend status | Business meaning | Possible user-facing group |
 | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 
 - Product direct chat не створює Deal, completion чи review.
 - Offer conversation може повторно використовуватися для послідовних Deals, що робить історичний context менш однозначним.
-- STEP 5 організував власні товари, запити, пропозиції та угоди за станами; два зауваження першої незалежної перевірки виправлено, результат очікує повторної перевірки.
+- STEP 5 організував власні товари, запити, пропозиції та угоди за станами; два зауваження першої незалежної перевірки виправлено й підтверджено повторною перевіркою.
 
 ## ROADMAP
 
@@ -89,17 +89,17 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | Messages unread/sidebar UX | Independent Reviewer PASS. |
 | `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
 | `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. Step 5 may begin. |
-| `READY FOR INDEPENDENT RE-REVIEW` | Activity organisation | Two MAJOR findings corrected and targeted validation complete; no commit/push/merge. |
+| `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**Step 5 — Activity Organisation — READY FOR INDEPENDENT RE-REVIEW.** Сторінки власних товарів, запитів, пропозицій продавця та угод мають групи з однаковою класифікацією для рядків і лічильників, сортування за часом змін, контекстні порожні/помилкові стани й рольові підказки. Власні списки Product/Request/Offer завантажують усі сторінки API; запити показують кількість пропозицій. Після першого Reviewer FAIL виправлено класифікацію пропозицій до закритих запитів і перехід до безпечної історії власної пропозиції. Корекції підтверджено frontend/backend typecheck, production build, 64 backend unit, 5 activity unit, 2 targeted DB integration і Step 5 Playwright E2E з реальними тестовими записами; потрібна незалежна повторна перевірка. Докладний contract: [PRODUCT.md](PRODUCT.md).
+**Step 5 — Activity Organisation — DONE.** Сторінки власних товарів, запитів, пропозицій продавця та угод мають групи з однаковою класифікацією для рядків і лічильників, сортування за часом змін, контекстні порожні/помилкові стани й рольові підказки. Власні списки Product/Request/Offer завантажують усі сторінки API; запити показують кількість пропозицій. Після першого Reviewer FAIL виправлено класифікацію пропозицій до закритих запитів і перехід до безпечної історії власної пропозиції. Корекції підтверджено frontend/backend typecheck, production build, 64 backend unit, 5 activity unit, 2 targeted DB integration і Step 5 Playwright E2E з реальними тестовими записами. Незалежна фінальна повторна перевірка PASS; Step 5 інтегровано в main. Наступний Step може починатися за окремим завданням. Докладний contract: [PRODUCT.md](PRODUCT.md).
 
 ## REQUIRED CONTEXT
 
-For Step 5 independent review: this file; [PRODUCT.md](PRODUCT.md) activity, Request/Offer/Deal sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; current `/my/products`, `/my/requests`, `/requests`, `/orders` UI and related API/tests. Do not load historical documents by default.
+No next Step has started. For completed Step 5 reference: this file; [PRODUCT.md](PRODUCT.md) activity, Request/Offer/Deal sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; current `/my/products`, `/my/requests`, `/requests`, `/orders` UI and related API/tests. Define required context for the next Step when it is assigned; do not load historical documents by default.
 
 ## AI WORKFLOW
 
