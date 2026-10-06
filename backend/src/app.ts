@@ -184,7 +184,7 @@ export const createApp = () => {
 
     app.post('/api/offers/:id/reject', requireAuth, withResult((request) => rejectOffer(request.authUser!, String(request.params.id))))
 
-    app.get('/api/offers/mine', requireAuth, withResult((request) => listMyOffers(request.authUser!)))
+    app.get('/api/offers/mine', requireAuth, withResult((request) => listMyOffers(request.authUser!, Number(request.query.page ?? 1))))
 
     app.get('/api/orders', requireAuth, withResult((request) => listOrders(request.authUser!)))
 

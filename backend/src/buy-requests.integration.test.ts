@@ -33,6 +33,19 @@ if (hasDatabase) {
                 expect(offerOne.status).toBe(201)
                 expect(offerTwo.status).toBe(201)
                 expect(offerOne.body.offer).toMatchObject({ quantity: 300, price: { amount: 240 }, note: 'Умова A' })
+                const mine = await buyer.get('/api/buy-requests').query({ mine: 'true', page: 1 })
+                expect(mine.status).toBe(200)
+                expect(mine.body.pagination).toMatchObject({ page: 1 })
+                expect(mine.body.buyRequests.map((item: { id: string }) => item.id)).toContain(requestId)
+                expect(mine.body.buyRequests.find((item: { id: string }) => item.id === requestId).offerCount).toBe(2)
+                const publicRequest = (await sellerOne.get('/api/buy-requests')).body.buyRequests.find((item: { id: string }) => item.id === requestId)
+                expect(publicRequest.offerCount).toBeUndefined()
+                expect((await sellerOne.get('/api/buy-requests').query({ mine: 'true' })).body.buyRequests.map((item: { id: string }) => item.id)).not.toContain(requestId)
+                const ownOffers = await sellerOne.get('/api/offers/mine').query({ page: 1 })
+                expect(ownOffers.status).toBe(200)
+                expect(ownOffers.body.pagination).toMatchObject({ page: 1 })
+                expect(ownOffers.body.offers.find((item: { id: string }) => item.id === offerOne.body.offer.id)).toMatchObject({ buyRequestId: requestId, requestTitle: 'Потрібна пшениця', requestStatus: 'open', status: 'submitted' })
+                expect((await buyer.get('/api/offers/mine')).body.offers.map((item: { id: string }) => item.id)).not.toContain(offerOne.body.offer.id)
                 expect(offerTwo.body.offer).toMatchObject({ quantity: 200, price: { amount: 245 }, note: 'Умова B' })
                 expect(offerOne.body.offer.price).not.toEqual(offerTwo.body.offer.price)
                 expect((await buyer.get(`/api/buy-requests/${requestId}/offers`)).body.offers).toHaveLength(2)
@@ -66,6 +79,78 @@ if (hasDatabase) {
                     [[buyerPayload.username.toLowerCase(), sellerOnePayload.username.toLowerCase(), sellerTwoPayload.username.toLowerCase()]],
                 )
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2, $3)', [buyerPayload.username.toLowerCase(), sellerOnePayload.username.toLowerCase(), sellerTwoPayload.username.toLowerCase()])
+            }
+        }, 30000)
+
+        it('keeps seller offer history scoped after requests complete, cancel or expire', async () => {
+            const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+            const users = ['b', 's1', 's2'].map((role, index) => ({ username: `history_${role}_${suffix}`, email: `history_${role}_${suffix}@example.com`, countryCode: 'UA', phone: `+380${['50', '63', '67'][index]}${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }))
+            const [buyer, sellerOne, sellerTwo] = users.map(() => request.agent(createApp()))
+            try {
+                for (const [index, agent] of [buyer, sellerOne, sellerTwo].entries()) expect((await agent.post('/api/auth/register').send(users[index])).status).toBe(201)
+                const category = (await buyer.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
+                const createRequest = async (title: string) => {
+                    const response = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title, description: 'Лише для перевірки історії', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 100, maxPrice: 200, delivery: 'no', geoArea: 'Київська область', address: 'Приватна адреса покупця' })
+                    expect(response.status).toBe(201)
+                    return response.body.buyRequest.id as string
+                }
+                const createOffer = async (agent: typeof sellerOne, requestId: string, quantity = 5) => {
+                    const response = await agent.post(`/api/buy-requests/${requestId}/offers`).send({ quantity, unit: 'kg', price: 150, currency: 'UAH', delivery: 'Самовивіз' })
+                    expect(response.status).toBe(201)
+                    return response.body.offer.id as string
+                }
+                const activeId = await createRequest('Активний запит')
+                const activeOfferId = await createOffer(sellerOne, activeId)
+                expect((await sellerOne.patch(`/api/offers/${activeOfferId}`).send({ note: 'Умови активного запиту' })).status).toBe(200)
+                const completedId = await createRequest('Виконаний запит')
+                const completedOfferId = await createOffer(sellerOne, completedId)
+                const selectedOfferId = await createOffer(sellerTwo, completedId, 10)
+                const selected = await buyer.post(`/api/offers/${selectedOfferId}/accept`).send({ quantity: 10 })
+                expect(selected.status).toBe(201)
+                expect((await sellerTwo.post(`/api/orders/${selected.body.order.id}/seller-confirm`)).status).toBe(200)
+                expect((await buyer.post(`/api/orders/${selected.body.order.id}/complete`)).status).toBe(200)
+                expect((await sellerTwo.post(`/api/orders/${selected.body.order.id}/complete`)).status).toBe(200)
+                expect((await buyer.get(`/api/buy-requests/${completedId}`)).body.buyRequest.status).toBe('completed')
+                const completedEdit = await sellerOne.patch(`/api/offers/${completedOfferId}`).send({ note: 'Запізніла зміна' })
+                expect(completedEdit.status).toBe(409)
+                expect(completedEdit.body.error).toBe('BUY_REQUEST_CLOSED')
+                const cancelledId = await createRequest('Скасований запит')
+                const cancelledOfferId = await createOffer(sellerOne, cancelledId)
+                expect((await buyer.patch(`/api/buy-requests/${cancelledId}`).send({ status: 'cancelled' })).status).toBe(200)
+                const cancelledEdit = await sellerOne.patch(`/api/offers/${cancelledOfferId}`).send({ note: 'Запізніла зміна' })
+                expect(cancelledEdit.status).toBe(409)
+                expect(cancelledEdit.body.error).toBe('BUY_REQUEST_CLOSED')
+                const expiredId = await createRequest('Прострочений запит')
+                const expiredOfferId = await createOffer(sellerOne, expiredId)
+                expect((await buyer.patch(`/api/buy-requests/${expiredId}`).send({ status: 'expired' })).status).toBe(200)
+                const expiredEdit = await sellerOne.patch(`/api/offers/${expiredOfferId}`).send({ note: 'Запізніла зміна' })
+                expect(expiredEdit.status).toBe(409)
+                expect(expiredEdit.body.error).toBe('BUY_REQUEST_CLOSED')
+
+                const mine = await sellerOne.get('/api/offers/mine')
+                expect(mine.status).toBe(200)
+                const byId = new Map(mine.body.offers.map((offer: { id: string }) => [offer.id, offer]))
+                for (const [id, title, requestStatus] of [
+                    [activeOfferId, 'Активний запит', 'open'],
+                    [completedOfferId, 'Виконаний запит', 'completed'],
+                    [cancelledOfferId, 'Скасований запит', 'cancelled'],
+                    [expiredOfferId, 'Прострочений запит', 'expired'],
+                ]) {
+                    expect(byId.get(id)).toMatchObject({ id, status: 'submitted', requestTitle: title, requestStatus })
+                    expect(byId.get(id)).not.toHaveProperty('requestDescription')
+                    expect(byId.get(id)).not.toHaveProperty('address')
+                    expect(byId.get(id)).not.toHaveProperty('buyer')
+                }
+                expect((await sellerTwo.get('/api/offers/mine')).body.offers.map((offer: { id: string }) => offer.id)).not.toContain(cancelledOfferId)
+                expect((await sellerTwo.get(`/api/buy-requests/${cancelledId}/offers`)).status).toBe(403)
+                expect((await sellerOne.get(`/api/buy-requests/${cancelledId}`)).status).toBe(404)
+                expect((await sellerTwo.get(`/api/buy-requests/${cancelledId}`)).status).toBe(404)
+                expect((await buyer.get(`/api/buy-requests/${cancelledId}`)).status).toBe(200)
+                expect((await sellerTwo.get('/api/offers/mine')).body.offers).toContainEqual(expect.objectContaining({ id: selectedOfferId, status: 'accepted', requestStatus: 'completed' }))
+            } finally {
+                const names = users.map(user => user.username.toLowerCase())
+                await pool.query('DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[])) OR seller_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))', [names])
+                await pool.query('DELETE FROM users WHERE username_normalized = ANY($1::text[])', [names])
             }
         }, 30000)
     })

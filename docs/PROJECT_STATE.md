@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 4 — Messages/Chats UX completion — DONE`; Step 5 may begin.
+**Current step:** `STEP 5 — Activity Organisation — READY FOR INDEPENDENT RE-REVIEW`.
 
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-06
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -53,7 +53,7 @@ React 19 + Vite + TypeScript frontend; Express + TypeScript backend; PostgreSQL/
 
 ## ACTIVITY ORGANISATION REQUIREMENT
 
-Future UX organizes a user's work in two contexts: **Купую** first shows own Buy Requests with related Offers/Deals/actions; **Продаю** first shows own Products, own Offers and related Deals/actions. It must not become one long mixed list.
+STEP 5 UX organizes a user's work in two contexts: **Купую** shows own Buy Requests with related Offers/Deals/actions; **Продаю** shows own Products, own Offers and related Deals/actions. Canonical pages remain separate and group records by lifecycle. This implementation is ready for independent review.
 
 | Entity | Actual backend status | Business meaning | Possible user-facing group |
 | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ Future UX organizes a user's work in two contexts: **Купую** first shows ow
 | Deal v2 | `selected`, `in_progress`, `buyer_marked_completed`, `seller_marked_completed`, `completed`, `failed`, `cancelled`, `rejected`, `disputed` | Seller confirmation, fulfilment, other participant confirmation, final result or dispute | Needs action; active; completed; cancelled; dispute/action |
 | Deal legacy compatibility | `draft`, `active`, `offer_received`, `accepted`, `expired` | Historical order states still accepted by backend compatibility code | Map only when historical data is present |
 
-These are UX groups, not a new backend state model. A future activity Step should add counters, filters, sorting, clear badges, required-action cues, contextual primary action and loading/empty/error states with responsive/mobile behavior.
+These are UX groups, not a new backend state model. STEP 5 added counters, filters, sorting, role-aware action cues and loading/empty/error states with responsive behavior; see [PRODUCT.md](PRODUCT.md) for the implemented mapping.
 
 ## OPEN DECISIONS
 
@@ -78,7 +78,7 @@ These are UX groups, not a new backend state model. A future activity Step shoul
 
 - Product direct chat не створює Deal, completion чи review.
 - Offer conversation може повторно використовуватися для послідовних Deals, що робить історичний context менш однозначним.
-- Activity organisation у «Купую» / «Продаю», counters, filters, required-action indicators і consistent async states потребують окремого UX Step.
+- STEP 5 організував власні товари, запити, пропозиції та угоди за станами; два зауваження першої незалежної перевірки виправлено, результат очікує повторної перевірки.
 
 ## ROADMAP
 
@@ -89,17 +89,17 @@ These are UX groups, not a new backend state model. A future activity Step shoul
 | `DONE` | Messages unread/sidebar UX | Independent Reviewer PASS. |
 | `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
 | `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. Step 5 may begin. |
-| `PLANNED` | Activity organisation | After Step 4. |
+| `READY FOR INDEPENDENT RE-REVIEW` | Activity organisation | Two MAJOR findings corrected and targeted validation complete; no commit/push/merge. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**Step 4 — Messages/Chats UX completion — DONE.** Виправлено 4 MAJOR findings: frontend `ChatInfo` typecheck, clipping меню, Enter на `⋯`, атомарність incoming-after-personal-delete. Виправлено Playwright navigation/locator defect і перевірено geometry/keyboard на 1440/1280/1024/768/390/320 px. Evidence: frontend/backend typecheck PASS; production build PASS; `npm test` — 64 PASS (integration skips); targeted DB integration PASS для Saved/Trash, archived+incoming, personal delete/incoming і direct Product/Request chat; message rollback unit PASS; Step 4 Playwright PASS; суміжні unread UI та real unread/deep-link E2E PASS; `git diff --check` PASS. Independent final re-review PASS; Step 4 incorporated into main. Step 5 may begin. Delivered semantics, terminal write policy і canonical Deal context для reused Offer conversation лишаються deferred.
+**Step 5 — Activity Organisation — READY FOR INDEPENDENT RE-REVIEW.** Сторінки власних товарів, запитів, пропозицій продавця та угод мають групи з однаковою класифікацією для рядків і лічильників, сортування за часом змін, контекстні порожні/помилкові стани й рольові підказки. Власні списки Product/Request/Offer завантажують усі сторінки API; запити показують кількість пропозицій. Після першого Reviewer FAIL виправлено класифікацію пропозицій до закритих запитів і перехід до безпечної історії власної пропозиції. Корекції підтверджено frontend/backend typecheck, production build, 64 backend unit, 5 activity unit, 2 targeted DB integration і Step 5 Playwright E2E з реальними тестовими записами; потрібна незалежна повторна перевірка. Докладний contract: [PRODUCT.md](PRODUCT.md).
 
 ## REQUIRED CONTEXT
 
-For Step 4 review: this file; [PRODUCT.md](PRODUCT.md) chat sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; current conversation schema/API/UI, migration 036 and chat tests only. Do not load historical documents by default.
+For Step 5 independent review: this file; [PRODUCT.md](PRODUCT.md) activity, Request/Offer/Deal sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; current `/my/products`, `/my/requests`, `/requests`, `/orders` UI and related API/tests. Do not load historical documents by default.
 
 ## AI WORKFLOW
 

@@ -26,22 +26,24 @@ const asDateOrNull = (value: unknown): string | null => {
     return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
-const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_name, u.username AS buyer_username
+const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_name, u.username AS buyer_username,
+    (SELECT count(*)::int FROM offers ro WHERE ro.buy_request_id = r.id) AS offer_count
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id`
-const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title,
+const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.status AS request_status,
     CASE WHEN u.rating_count > 0 THEN round(u.rating_sum / u.rating_count, 2) ELSE NULL END AS seller_rating,
     u.avatar_url AS seller_avatar,
     (SELECT jsonb_agg(jsonb_build_object('url', pp.url) ORDER BY pp.sort_order) FROM product_photos pp WHERE pp.product_id = o.product_id) AS product_photos,
     EXISTS (SELECT 1 FROM negotiation_proposals np WHERE np.offer_id = o.id AND np.status = 'pending' AND np.created_by <> o.seller_id) AS pending_negotiation,
     EXISTS (SELECT 1 FROM orders so WHERE so.offer_id = o.id AND so.status = 'selected') AS waiting_confirmation,
     (SELECT count(*)::int FROM orders d WHERE (d.seller_id = u.id OR d.buyer_id = u.id) AND d.status = 'completed' AND d.buyer_completed_at IS NOT NULL AND d.seller_completed_at IS NOT NULL) AS seller_deals
-    FROM offers o JOIN users u ON u.id = o.seller_id LEFT JOIN products p ON p.id = o.product_id`
+    FROM offers o JOIN users u ON u.id = o.seller_id JOIN buy_requests r ON r.id = o.buy_request_id LEFT JOIN products p ON p.id = o.product_id`
 
 interface BuyRequestRow {
     settlement_code?: string | null
     id: string
     buyer_id: string
     buyer_username: string
+    offer_count: number
     category_id: string
     category_code: string
     category_name: string
@@ -84,6 +86,8 @@ interface OfferRow {
     seller_username: string
     product_id: string | null
     product_title: string | null
+    request_title: string
+    request_status: string
     offered_quantity: string | number
     accepted_quantity: string | number
     unit: string
@@ -97,10 +101,11 @@ interface OfferRow {
     status: string
     valid_until: Date | null
     created_at: Date
+    updated_at: Date
 }
 
 const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
-    id: row.id, buyer: { id: row.buyer_id, username: row.buyer_username },
+    id: row.id, buyer: { id: row.buyer_id, username: row.buyer_username }, ...(includeAddress ? { offerCount: row.offer_count } : {}),
     category: { id: row.category_id, code: row.category_code, name: row.category_name },
     productId: row.product_id, title: row.title, description: row.description,
     quantity: Number(row.requested_quantity), fulfilledQuantity: Number(row.fulfilled_quantity), selectedQuantity: Number(row.selected_quantity ?? 0), completedQuantity: Number(row.completed_quantity ?? row.fulfilled_quantity), remainingQuantity: Number(row.requested_quantity) - Number(row.selected_quantity ?? 0) - Number(row.completed_quantity ?? row.fulfilled_quantity), fulfillmentMode: row.fulfillment_mode, unit: row.unit,
@@ -112,13 +117,13 @@ const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
 })
 const offerDto = (row: OfferRow) => ({
-    id: row.id, seller: { id: row.seller_id, username: row.seller_username, rating: row.seller_rating == null ? null : Number(row.seller_rating), avatarUrl: row.seller_avatar, completedDeals: row.seller_deals ?? 0 }, buyRequestId: row.buy_request_id,
+    id: row.id, seller: { id: row.seller_id, username: row.seller_username, rating: row.seller_rating == null ? null : Number(row.seller_rating), avatarUrl: row.seller_avatar, completedDeals: row.seller_deals ?? 0 }, buyRequestId: row.buy_request_id, requestTitle: row.request_title, requestStatus: row.request_status,
     existingProduct: row.product_id ? { id: row.product_id, title: row.product_title } : null,
     quantity: Number(row.offered_quantity), acceptedQuantity: Number(row.accepted_quantity), unit: row.unit,
     price: { amount: Number(row.unit_price), currency: row.currency }, delivery: row.delivery, note: row.note,
     additionalPhotoUrl: row.additional_photo_url, termsSnapshot: row.terms, deliverySnapshot: row.delivery_terms,
     photos: row.product_photos ?? [], pendingNegotiation: row.pending_negotiation, waitingConfirmation: row.waiting_confirmation,
-    status: row.status, validUntil: row.valid_until?.toISOString() ?? null, createdAt: row.created_at.toISOString(),
+    status: row.status, validUntil: row.valid_until?.toISOString() ?? null, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
 })
 
 const categoryExists = async (queryable: Queryable, id: string) => Boolean((await queryable.query('SELECT 1 FROM categories WHERE id = $1 AND is_active', [id])).rowCount)
@@ -182,8 +187,15 @@ export const listBuyRequests = async (query: Record<string, unknown>, user?: Aut
     const conditions = [user && query.mine === 'true' ? `r.buyer_id = $${params.push(user.id)}` : `r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`]
     if (typeof query.buyerUsername === 'string' && query.buyerUsername.trim()) { params.push(query.buyerUsername.trim().toLowerCase()); conditions.push(`u.username_normalized = $${params.length}`) }
     if (typeof query.categoryId === 'string' && uuid(query.categoryId)) conditions.push(categoryFilterSql('r.category_id', params.push(query.categoryId)))
-    const result = await pool.query(`${requestSelect} WHERE ${conditions.join(' AND ')} ORDER BY r.created_at DESC LIMIT 50`, params)
-    return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)) } }
+    const mine = Boolean(user && query.mine === 'true')
+    const page = mine ? Math.max(1, Number.parseInt(String(query.page ?? '1'), 10) || 1) : 1
+    const limit = 50
+    const where = conditions.join(' AND ')
+    const count = mine ? await pool.query<{ count: string }>(`SELECT count(*) FROM buy_requests r JOIN users u ON u.id = r.buyer_id WHERE ${where}`, params) : null
+    const result = mine
+        ? await pool.query(`${requestSelect} WHERE ${where} ORDER BY r.updated_at DESC, r.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, (page - 1) * limit])
+        : await pool.query(`${requestSelect} WHERE ${where} ORDER BY r.created_at DESC, r.id DESC LIMIT 50`, params)
+    return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)), ...(mine ? { pagination: { page, pages: Math.ceil(Number(count!.rows[0].count) / limit) } } : {}) } }
 }
 
 export const updateBuyRequest = async (user: AuthUser, id: string, input: Record<string, unknown>) => {
@@ -231,9 +243,11 @@ export const listOffers = async (user: AuthUser, requestId: string) => {
     return { status: 200, body: { offers: result.rows.map(offerDto) } }
 }
 
-export const listMyOffers = async (user: AuthUser) => {
-    const result = await pool.query(`${offerSelect} WHERE o.seller_id = $1 ORDER BY o.updated_at DESC LIMIT 100`, [user.id])
-    return { status: 200, body: { offers: result.rows.map(offerDto) } }
+export const listMyOffers = async (user: AuthUser, page = 1) => {
+    const safePage = Math.max(1, Number.parseInt(String(page), 10) || 1)
+    const count = await pool.query<{ count: string }>('SELECT count(*) FROM offers WHERE seller_id = $1', [user.id])
+    const result = await pool.query(`${offerSelect} WHERE o.seller_id = $1 ORDER BY o.updated_at DESC, o.id DESC LIMIT 100 OFFSET $2`, [user.id, (safePage - 1) * 100])
+    return { status: 200, body: { offers: result.rows.map(offerDto), pagination: { page: safePage, pages: Math.ceil(Number(count.rows[0].count) / 100) } } }
 }
 
 export const recordOfferView = async (user: AuthUser, offerId: string) => {
@@ -354,6 +368,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         const request = (await client.query('SELECT * FROM buy_requests WHERE id = $1 FOR UPDATE', [link.buy_request_id])).rows[0]
         const existing = (await client.query('SELECT * FROM offers WHERE id = $1 FOR UPDATE', [offerId])).rows[0]
         if (existing.status !== 'submitted' || Number(existing.accepted_quantity) > 0) return { status: 409, body: { error: 'OFFER_TERMS_LOCKED' } }
+        if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
         if ((input.unit !== undefined && input.unit !== request.unit) || (input.currency !== undefined && input.currency !== request.currency)) return invalid(['unit','currency'])
         if (input.productId) {
             const product = await client.query("SELECT id FROM products WHERE id=$1 AND owner_id=$2 AND category_id=$3 AND status='active' AND quantity > reserved_quantity", [input.productId, user.id, request.category_id])
