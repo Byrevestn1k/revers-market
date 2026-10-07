@@ -4,7 +4,7 @@ export type CityBoundary = { rings: Point[][]; maxDistanceKm: number }
 
 const cache = new Map<string, { expiresAt: number; value: CityBoundary | null }>()
 const DAY = 24 * 60 * 60 * 1000
-const distanceKm = (a: Point, b: Point) => {
+export const distanceKm = (a: Point, b: Point) => {
     const radians = Math.PI / 180
     const h = Math.sin((b.latitude - a.latitude) * radians / 2) ** 2 + Math.cos(a.latitude * radians) * Math.cos(b.latitude * radians) * Math.sin((b.longitude - a.longitude) * radians / 2) ** 2
     return 12742 * Math.asin(Math.min(1, Math.sqrt(h)))

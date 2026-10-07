@@ -4,6 +4,7 @@ import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
 import { withinCityOrDistance, type CityBoundary } from './city-boundaries.js'
 import { getSettlement } from './settlements.js'
+import { requestPublicLocationSql } from './request-public-location.js'
 
 export type MapPoint = { latitude: number; longitude: number }
 export type MapViewport = { south: number; north: number; west: number; east: number }
@@ -163,13 +164,7 @@ export class MapService {
             (r.map_location_mode IN ('pin', 'address') OR r.address_visibility = 'public' OR (r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND r.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(r.geo_area, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(r.geo_area) = lower(u.location_display))))) AS is_public_point,
             CASE WHEN r.address_visibility = 'public' THEN r.delivery_address WHEN r.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
             ${distanceSql(distancePoint)} AS distance_km FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id
-            CROSS JOIN LATERAL (SELECT CASE WHEN u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%' THEN 100000::numeric ELSE 100::numeric END AS factor) privacy
-            CROSS JOIN LATERAL (SELECT
-                CASE WHEN r.map_location_mode IN ('pin', 'address') OR r.address_visibility = 'public' THEN r.latitude WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND r.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(r.geo_area, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(r.geo_area) = lower(u.location_display))) THEN u.public_latitude ELSE floor(r.latitude * privacy.factor + 0.5) / privacy.factor END AS latitude,
-                CASE WHEN r.map_location_mode IN ('pin', 'address') OR r.address_visibility = 'public' THEN r.longitude WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND r.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(r.geo_area, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(r.geo_area) = lower(u.location_display))) THEN u.public_longitude ELSE floor(r.longitude * privacy.factor + 0.5) / privacy.factor END AS longitude,
-                CASE WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND r.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(r.geo_area, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(r.geo_area) = lower(u.location_display))) THEN COALESCE(NULLIF(u.location_display, ''), r.geo_area) ELSE r.geo_area END AS geo_area,
-                CASE WHEN r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND r.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(r.geo_area, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(r.geo_area) = lower(u.location_display))) THEN u.settlement_code ELSE r.settlement_code END AS settlement_code
-            ) public_point WHERE ${conditions.join(' AND ')}`, parameters)
+            ${requestPublicLocationSql} WHERE ${conditions.join(' AND ')}`, parameters)
         return result.rows.map((row) => this.marker(row, 'buyRequest'))
     }
 

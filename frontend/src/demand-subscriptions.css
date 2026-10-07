@@ -1,0 +1,41 @@
+.demand-subscriptions { max-width: 1100px; }
+.demand-subscriptions .view-header { flex-wrap: wrap; gap: 16px; }
+.demand-subscriptions h1 { overflow-wrap: anywhere; }
+.subscription-intro, .subscription-hint { color: #52675e; line-height: 1.6; }
+.subscription-form { padding: 24px; margin: 24px 0; border: 1px solid #d6e4dc; border-radius: 16px; background: #fff; }
+.subscription-form h2 { margin-top: 0; font-size: 1.2rem; }
+.subscription-form fieldset { display: grid; gap: 18px; padding: 0; margin: 0; border: 0; min-width: 0; }
+.subscription-form label { display: grid; gap: 6px; font-weight: 600; }
+.subscription-form select { width: 100%; min-width: 0; padding: 12px; border: 1px solid #d6e4dc; border-radius: 8px; font: inherit; background: #fff; color: inherit; }
+.subscription-form .subscription-active { display: flex; align-items: center; gap: 10px; }
+.subscription-active input { width: 18px; height: 18px; }
+.subscription-hint { margin: 0; font-size: .88rem; }
+.subscription-list { display: grid; gap: 16px; margin-top: 24px; }
+.subscription-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; padding: 22px; border: 1px solid #d6e4dc; border-radius: 16px; background: #fff; }
+.subscription-summary { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.subscription-summary h2 { margin: 0 0 8px; font-size: 1.1rem; line-height: 1.5; }
+.subscription-summary p { margin: 0 0 10px; }
+.subscription-status { display: inline-block; padding: 5px 10px; border-radius: 8px; background: #f0f1f0; color: #52675e; font-size: .85rem; }
+.subscription-status.is-active { background: #eaf6ed; color: #166633; }
+.subscription-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.subscription-actions button { min-height: 44px; white-space: normal; }
+.demand-subscriptions .category-picker-results button { overflow-wrap: anywhere; }
+.subscription-criteria-section { display: grid; gap: 16px; padding-top: 16px; border-top: 1px solid #d6e4dc; min-width: 0; }
+.subscription-criteria-section h3 { margin: 0; font-size: 1rem; }
+.subscription-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.subscription-form input[type=number] { box-sizing: border-box; width: 100%; min-width: 0; padding: 12px; border: 1px solid #d6e4dc; border-radius: 8px; font: inherit; }
+.subscription-cities { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.subscription-cities li { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; background: #eaf6ed; }
+.subscription-cities span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.subscription-cities button { flex: none; min-width: 44px; min-height: 44px; }
+.subscription-radius { display: grid; gap: 16px; min-width: 0; }
+.subscription-radius .profile-point-picker { height: 260px; width: 100%; }
+.subscription-active input[type=checkbox] { flex-shrink: 0; }
+.demand-subscriptions .settlement-picker-results { left: 0; right: 0; width: auto; max-width: 100%; }
+@media (max-width: 760px) {
+  .subscription-form, .subscription-card { padding: 16px; }
+  .subscription-actions { width: 100%; }
+  .subscription-actions button { flex: 1 1 110px; }
+  .demand-subscriptions .view-header > .primary-button { width: 100%; }
+}
+@media (max-width: 480px) { .subscription-field-pair { grid-template-columns: minmax(0, 1fr); } }

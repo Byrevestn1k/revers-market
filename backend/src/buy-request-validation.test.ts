@@ -10,6 +10,18 @@ describe('buy request and offer validation', () => {
     it('accepts exact price and normalized delivery modes', () => expect(validateBuyRequestInput({ ...request, exactPrice: 220, minPrice: undefined, maxPrice: undefined, delivery: 'preferred' })).toEqual([]))
     it('rejects unsafe additional offer photos', () => expect(validateOfferInput({ ...offer, additionalPhotoUrl: 'javascript:alert(1)' })).toContain('additionalPhotoUrl'))
     it('validates supplied fields for partial request updates', () => expect(validateBuyRequestInput({ title: 'Оновлено' }, true)).toEqual([]))
+    it('allows unpriced requests but keeps quantity required', () => {
+        const { minPrice, maxPrice, quantity, ...withoutQuantity } = request
+        expect(validateBuyRequestInput({ ...withoutQuantity, quantity })).toEqual([])
+        expect(validateBuyRequestInput(withoutQuantity)).toContain('quantity')
+    })
+    it('requires explicit supported receipt methods to agree with legacy fields', () => {
+        expect(validateBuyRequestInput({ receiptMethod: 'SELF_PICKUP' }, true)).toEqual([])
+        expect(validateBuyRequestInput({ receiptMethod: 'SELLER_DELIVERY' }, true)).toEqual([])
+        expect(validateBuyRequestInput({ receiptMethod: 'CARRIER' }, true)).toContain('receiptMethod')
+        expect(validateBuyRequestInput({ receiptMethod: 'SELF_PICKUP', deliveryRequired: true }, true)).toContain('receiptMethod')
+        expect(validateBuyRequestInput({ receiptMethod: 'SELLER_DELIVERY', delivery: 'no' }, true)).toContain('receiptMethod')
+    })
     it('requires consent and a complete address before publishing a request address', () => {
         expect(validateBuyRequestInput({ ...request, addressVisibility: 'public', latitude: 50.45, longitude: 30.52 })).toContain('addressVisibilityConsent')
         expect(validateBuyRequestInput({ ...request, addressVisibility: 'public', addressVisibilityConsent: true, latitude: 50.45, longitude: 30.52 })).toEqual([])

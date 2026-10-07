@@ -8,7 +8,11 @@
 
 `notifications` stores `user_id`, `type` (`order`, `message`, `review`, `report`, `system`), presentation `title`/`body`, persisted recipient `context` (`buying` or `selling`), optional `order_id`, `conversation_id`, `buy_request_id`, `read_at` and `created_at`. Current API lists the latest 100 notifications and returns exact unread `total`, `buying` and `selling` counters for all of the user's history; it marks one notification or all notifications in one context read. Existing historical rows with no provable structured relation retain `context = NULL`, count in `total`, and do not count in either context.
 
-Current producers include Offer created/updated/withdrawn/rejected, Deal selection/confirmation/result/dispute, direct chat start, message sent and review submitted. Delivery is in-app only; email, push, preferences and seller demand subscriptions are not implemented.
+Current producers include Offer created/updated/withdrawn/rejected, Deal selection/confirmation/result/dispute, direct chat start, message sent, review submitted and new Buy Requests matching active seller demand subscriptions. Delivery is in-app only; external channels and digests are not implemented.
+
+### Basic seller demand subscriptions — Step 8
+
+Authenticated users manage their own subscriptions at `/settings/demand-subscriptions`. Minimum: category plus country, oblast or city/cities. Optional quantity/unit, per-unit acceptable price/currency, explicit SELF_PICKUP or SELLER_DELIVERY methods and radius narrow matching with AND semantics. Parent categories include active descendants; geography uses canonical public settlement identity and the map's public point. Missing price/quantity/receipt fails a corresponding configured filter; unset optional filters do not restrict matching. New Request creation delivers immediate `system` notifications in `selling` context with canonical `buyRequestId` references, excluding the author. Request and notification insertion share a transaction; a DB unique index suppresses duplicate subscription/request delivery. Delivered notifications survive subscription deletion. See [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md) for contracts and validation evidence.
 
 ### Current UI and navigation
 

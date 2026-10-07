@@ -1,4 +1,4 @@
-export type AppView = 'home' | 'find' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile'
+export type AppView = 'home' | 'find' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile' | 'subscriptions'
 
 export const viewRoutes: Record<AppView, string> = {
     home: '/dashboard',
@@ -14,6 +14,7 @@ export const viewRoutes: Record<AppView, string> = {
     messages: '/messages',
     notifications: '/notifications',
     profile: '/settings/profile',
+    subscriptions: '/settings/demand-subscriptions',
 }
 
 const routeViews = new Map(Object.entries(viewRoutes).map(([view, route]) => [route, view as AppView]))

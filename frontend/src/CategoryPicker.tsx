@@ -8,9 +8,9 @@ export function CategoryImage({ category, className = '' }: { category: Category
     return <span className={`category-image ${className}`} aria-hidden="true" style={{ backgroundPosition: `${(index % 5) * 25}% ${Math.floor(index / 5) * (100 / 3)}%` }} />
 }
 
-type Props = { categories: Category[]; value?: string; defaultValue?: string; onChange?: (id: string) => void; name?: string; required?: boolean; allowAll?: boolean; className?: string; label?: string }
+type Props = { categories: Category[]; value?: string; defaultValue?: string; onChange?: (id: string) => void; name?: string; required?: boolean; allowAll?: boolean; className?: string; label?: string; inlineTree?: boolean }
 
-export default function CategoryPicker({ categories, value, defaultValue = '', onChange, name = 'categoryId', required = false, allowAll = false, className = '', label }: Props) {
+export default function CategoryPicker({ categories, value, defaultValue = '', onChange, name = 'categoryId', required = false, allowAll = false, className = '', label, inlineTree = false }: Props) {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [query, setQuery] = useState('')
     const [open, setOpen] = useState(false)
@@ -23,7 +23,7 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
     const selectedLabel = labels.get(selectedId) ?? ''
     const normalized = query.trim().toLocaleLowerCase('uk-UA')
     const rootCategories = useMemo(() => categoryChildren(categories, null), [categories])
-    const matchingCategories = useMemo(() => normalized ? categories.filter((item) => labels.get(item.id)?.toLocaleLowerCase('uk-UA').includes(normalized)) : rootCategories, [categories, labels, normalized, rootCategories])
+    const matchingCategories = useMemo(() => normalized ? categories.filter((item) => labels.get(item.id)?.toLocaleLowerCase('uk-UA').includes(normalized)) : inlineTree ? categories : rootCategories, [categories, labels, normalized, rootCategories, inlineTree])
 
     useEffect(() => {
         const closeOnOutsideClick = (event: MouseEvent) => {
@@ -41,7 +41,7 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         const children = categoryChildren(categories, parentId)
         return children.length ? [...items, children] : items
     }, [])
-    const itemLabel = (item: Category) => normalized ? labels.get(item.id) ?? item.name : item.name
+    const itemLabel = (item: Category) => normalized || inlineTree ? labels.get(item.id) ?? item.name : item.name
     const list = (items: Category[], level: number, flyout = false) => <div className={flyout ? 'category-picker-submenu' : 'category-picker-results'} role="listbox" aria-label={flyout ? 'Підкатегорії' : normalized ? 'Знайдені категорії' : 'Усі категорії'}>
         {!flyout && allowAll && !normalized && <button type="button" role="option" aria-selected={!selectedId} className="category-picker-all" onMouseDown={(event) => event.preventDefault()} onClick={() => choose('')}>Усі категорії</button>}
         {items.map((item) => {
@@ -59,7 +59,7 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         </div>
         {open && <div id={`${id}-menu`} className="category-picker-menu">
             {matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}
-            {submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}
+            {!inlineTree && submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}
         </div>}
         {!categories.length && <small role="status">Список категорій завантажується або недоступний.</small>}
     </div>

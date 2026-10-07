@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 7 — Reviews / Відгуки — DONE; MERGED TO MAIN`. Next candidate: Step 8 Basic seller demand subscriptions.
+**Current step:** `STEP 8 — Basic seller demand subscriptions — READY FOR INDEPENDENT REVIEW`.
 
 **Last updated:** 2026-10-07
 
@@ -71,7 +71,7 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 - Policy для conversation після completed/cancelled/rejected Deal.
 - Expiry policy для Product, Request та Offer.
 - Verification gate перед Offer/Deal.
-- Seller demand subscriptions: basic criteria — planned, але implementation не approved.
+- Step 8 includes basic category/geography, quantity/unit, price/currency and explicit receipt subscriptions with optional public-point radius; AI, route/corridor, postal/carrier and advanced geography remain future scope.
 - Route/corridor matching — `FUTURE`; не створювати engine, schema чи migrations без окремого Step.
 
 ## KNOWN RELEVANT ISSUES
@@ -90,18 +90,18 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
 | `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. |
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
-| `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
+| `READY FOR INDEPENDENT REVIEW` | STEP 8 — Basic seller demand subscriptions | Own CRUD; minimum category + country/region/cities; optional quantity, price, receipt and public radius with predictable matching. Immediate selling notifications, DB deduplication and author exclusion. Independent review pending. |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 7 DONE; independent final review PASS; merged to `main`.** Reviews are tied only to completed Deal transactions. For the current product, a seller-created Product ends in direct chat and does not create a Deal, so it is not reviewable; the implemented review flow is the completed Buy Request → Offer → Deal flow. The API derives the counterpart from authenticated Deal participants, enforces 1–12 ratings and one review per reviewer/Deal, and profile aggregates expose only published received reviews. The completed Deal card is the primary action surface and now identifies the review target and supports cancelling an unfinished form. Real-DB integration and live-browser E2E passed. Next candidate: Step 8 Basic seller demand subscriptions.
+**STEP 8 READY FOR INDEPENDENT REVIEW.** Baseline: `main @ 146ead23e8770fcf9cefc910fe30d9a9db260df3`; working branch: `handoff/step-8`. Sellers manage only their own subscriptions at `/settings/demand-subscriptions`. Category and country/region/cities are sufficient; quantity/unit, acceptable price/currency, explicit receipt methods and public-point radius are optional. Criteria combine with AND, city/method lists with OR; unknown constrained price/quantity/receipt fails matching. New Buy Requests produce immediate selling notifications with canonical destinations, author exclusion and DB subscription/request uniqueness. Geography uses the existing public settlement/point projection. Migrations 040/041, real-DB and responsive UI tests are included. Step 7 remains DONE and merged. No commit, push or merge is performed; Step 9 is not started.
 
 ## REQUIRED CONTEXT
 
-For Step 6 review: this file; [AUTH_PROVIDERS.md](AUTH_PROVIDERS.md); [PRODUCT.md](PRODUCT.md) login methods and roles; `backend/src/auth.ts`, `external-auth.ts`, `external-auth-providers.ts`, migrations 038–039, related tests; `frontend/src/external-auth-ui.tsx` and routes; Step 6 Playwright scenarios. Do not load historical documents by default.
+For Step 8 review: this file; [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md); [NOTIFICATIONS.md](NOTIFICATIONS.md) CURRENT; migrations 040/041; backend subscriptions, demand-matching, shared Request public projection, Request validation/creation and integration tests; frontend DemandSubscriptions, SubscriptionCriteriaFields, criteria types/CSS, explicit Request receipt UI, CategoryPicker inline mode and settings navigation; `e2e/demand-subscriptions.spec.ts`. Do not load historical documents by default.
 
 ## AI WORKFLOW
 

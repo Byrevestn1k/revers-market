@@ -9,6 +9,7 @@ import { refreshRequestQuantities } from './request-quantities.js'
 import { audit, createNotification, usersAreBlocked } from './community-service.js'
 import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
 import { categoryFilterSql } from './category-filter.js'
+import { notifyDemandSubscriptions } from './demand-subscriptions.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -39,6 +40,8 @@ const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS produ
     FROM offers o JOIN users u ON u.id = o.seller_id JOIN buy_requests r ON r.id = o.buy_request_id LEFT JOIN products p ON p.id = o.product_id`
 
 interface BuyRequestRow {
+    country_code: string | null
+    receipt_method: 'SELF_PICKUP' | 'SELLER_DELIVERY' | null
     settlement_code?: string | null
     id: string
     buyer_id: string
@@ -112,6 +115,7 @@ const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     price: { min: number(row.min_unit_price), max: number(row.max_unit_price), currency: row.currency },
     delivery: { required: row.delivery_required, preferred: row.preferred_delivery, address: includeAddress || row.address_visibility === 'public' ? row.delivery_address : null },
     addressVisibility: row.address_visibility,
+    countryCode: row.country_code, receiptMethod: row.receipt_method,
     mapLocationMode: row.map_location_mode,
     geoArea: row.geo_area, settlement: getSettlement(row.settlement_code), coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' || ['pin', 'address'].includes(row.map_location_mode) ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }), deadline: row.deadline?.toISOString() ?? null, status: row.status,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
@@ -165,13 +169,25 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     if (input.deadline != null && deadline === null) return invalid(['deadline'])
     if (latitude !== null && (latitude < -90 || latitude > 90)) return invalid(['latitude'])
     if (longitude !== null && (longitude < -180 || longitude > 180)) return invalid(['longitude'])
-    const deliveryRequired = input.delivery === 'yes' || input.delivery === 'preferred' || input.deliveryRequired === true
-    const preferredDelivery = input.preferredDelivery ?? (input.delivery === 'preferred' ? 'preferred' : null)
-    const created = await pool.query<{ id: string }>(
-        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id',
-        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'multiple_sellers'],
+    const deliveryRequired = input.receiptMethod != null ? input.receiptMethod === 'SELLER_DELIVERY' : input.delivery === 'yes' || input.delivery === 'preferred' || input.deliveryRequired === true
+    const preferredDelivery = input.receiptMethod != null ? input.receiptMethod === 'SELF_PICKUP' ? 'pickup' : 'seller_delivery' : input.preferredDelivery ?? (input.delivery === 'preferred' ? 'preferred' : null)
+    const receiptMethod = input.receiptMethod ?? (preferredDelivery === 'pickup' && !deliveryRequired ? 'SELF_PICKUP' : preferredDelivery === 'seller_delivery' ? 'SELLER_DELIVERY' : null)
+    const client = await pool.connect()
+    let requestId: string
+    try {
+    await client.query('BEGIN')
+    const created = await client.query<{ id: string }>(
+        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode, country_code, receipt_method) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id',
+        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'multiple_sellers', input.countryCode ?? 'UA', receiptMethod],
     )
-    const response = await getBuyRequest(created.rows[0].id, user)
+    requestId = created.rows[0].id
+    await notifyDemandSubscriptions(client, requestId)
+    await client.query('COMMIT')
+    } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+    } finally { client.release() }
+    const response = await getBuyRequest(requestId, user)
     return { ...response, status: 201 }
 }
 
@@ -204,17 +220,27 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     const errors = validateBuyRequestInput(input, true)
     if (errors.length) return invalid(errors)
     const normalizedInput = { ...input }
+    if (input.receiptMethod !== undefined) {
+        normalizedInput.deliveryRequired = input.receiptMethod === 'SELLER_DELIVERY'
+        normalizedInput.preferredDelivery = input.receiptMethod === 'SELF_PICKUP' ? 'pickup' : input.receiptMethod === 'SELLER_DELIVERY' ? 'seller_delivery' : null
+    } else if (input.delivery !== undefined || input.deliveryRequired !== undefined || input.preferredDelivery !== undefined) {
+        // A legacy edit cannot keep a stale explicit receipt method.
+        normalizedInput.receiptMethod = null
+    }
     if (input.exactPrice !== undefined) { normalizedInput.minPrice = input.exactPrice; normalizedInput.maxPrice = input.exactPrice }
-    if (input.delivery !== undefined) { normalizedInput.deliveryRequired = input.delivery !== 'no'; if (input.delivery === 'preferred') normalizedInput.preferredDelivery = input.preferredDelivery ?? 'preferred' }
-    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', fulfillmentMode: 'fulfillment_mode', status: 'status' }
+    if (input.delivery !== undefined && input.receiptMethod === undefined) { normalizedInput.deliveryRequired = input.delivery !== 'no'; if (input.delivery === 'preferred') normalizedInput.preferredDelivery = input.preferredDelivery ?? 'preferred' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', countryCode: 'country_code', receiptMethod: 'receipt_method', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', fulfillmentMode: 'fulfillment_mode', status: 'status' }
     const { assignments, values } = buildUpdate(allowed, normalizedInput)
     if (!assignments.length) return invalid(['buyRequest'])
     const client = await pool.connect()
     let committed = false
     try {
     await client.query('BEGIN')
-    const current = await client.query('SELECT status, fulfilled_quantity FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
+    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
+    const country = 'countryCode' in input ? input.countryCode : current.rows[0].country_code
+    const settlement = 'settlementCode' in input ? input.settlementCode : current.rows[0].settlement_code
+    if (settlement != null && country != null && country !== 'UA') return invalid(['countryCode'])
     if (input.fulfillmentMode !== undefined && Boolean((await client.query("SELECT 1 FROM orders WHERE buy_request_id = $1 AND status IN ('accepted', 'selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed', 'disputed', 'completed') LIMIT 1", [id])).rowCount)) return { status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED' } }
     if (input.categoryId !== undefined && !(await categoryExists(client, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
     const immutableAfterOffers = ['categoryId', 'productId', 'quantity', 'unit', 'currency']

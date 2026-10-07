@@ -20,6 +20,7 @@ import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSe
 import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
 import { externalAuthRouter } from './external-auth.js'
 import type { exchangeProfile } from './external-auth-providers.js'
+import { deleteDemandSubscription, getDemandSubscription, listDemandSubscriptions, saveDemandSubscription } from './demand-subscriptions.js'
 
 const mapService = new MapService()
 
@@ -225,6 +226,12 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.get('/api/conversations', requireAuth, withResult((request) => listConversations(request.authUser!)))
 
     app.get('/api/notifications', requireAuth, withResult((request) => listNotifications(request.authUser!)))
+
+    app.get('/api/demand-subscriptions', requireAuth, withResult((request) => listDemandSubscriptions(request.authUser!)))
+    app.post('/api/demand-subscriptions', requireAuth, withResult((request) => saveDemandSubscription(request.authUser!, request.body ?? {})))
+    app.get('/api/demand-subscriptions/:id', requireAuth, withResult((request) => getDemandSubscription(request.authUser!, String(request.params.id))))
+    app.patch('/api/demand-subscriptions/:id', requireAuth, withResult((request) => saveDemandSubscription(request.authUser!, request.body ?? {}, String(request.params.id))))
+    app.delete('/api/demand-subscriptions/:id', requireAuth, withResult((request) => deleteDemandSubscription(request.authUser!, String(request.params.id))))
 
     app.patch('/api/notifications/read', requireAuth, withResult((request) => markNotificationsRead(request.authUser!, typeof request.body?.notificationId === 'string' ? request.body.notificationId : undefined, request.body?.context === 'buying' || request.body?.context === 'selling' ? request.body.context : undefined)))
 

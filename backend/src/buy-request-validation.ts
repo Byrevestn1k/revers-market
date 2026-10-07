@@ -1,4 +1,6 @@
 import { validateSettlement } from './settlements.js'
+import { countryDialCodes } from './validation.js'
+import { RECEIPT_METHODS } from './demand-matching.js'
 export const BUY_REQUEST_STATUSES = ['open', 'partially_selected', 'partially_completed', 'completed', 'partially_fulfilled', 'fulfilled', 'cancelled', 'expired'] as const
 export const OFFER_STATUSES = ['draft', 'submitted', 'accepted', 'partially_accepted', 'rejected', 'withdrawn', 'expired'] as const
 export const FULFILLMENT_MODES = ['single_seller', 'multiple_sellers'] as const
@@ -25,7 +27,11 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
     if (input.latitude != null && (typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90)) errors.push('latitude')
     if (input.longitude != null && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180)) errors.push('longitude')
     if (input.delivery !== undefined && !['no', 'yes', 'preferred'].includes(String(input.delivery))) errors.push('delivery')
-    if (!partial && input.delivery === undefined && input.deliveryRequired === undefined) errors.push('delivery')
+    if (input.receiptMethod != null && !RECEIPT_METHODS.includes(input.receiptMethod as typeof RECEIPT_METHODS[number])) errors.push('receiptMethod')
+    if (input.receiptMethod === 'SELF_PICKUP' && (input.delivery === 'yes' || input.deliveryRequired === true || input.preferredDelivery != null && input.preferredDelivery !== 'pickup')) errors.push('receiptMethod')
+    if (input.receiptMethod === 'SELLER_DELIVERY' && (input.delivery === 'no' || input.deliveryRequired === false || input.preferredDelivery != null && input.preferredDelivery !== 'seller_delivery')) errors.push('receiptMethod')
+    if (input.countryCode != null && (typeof input.countryCode !== 'string' || !countryDialCodes[input.countryCode])) errors.push('countryCode')
+    if (input.settlementCode != null && input.countryCode != null && input.countryCode !== 'UA') errors.push('countryCode')
     if (input.deliveryRequired !== undefined && typeof input.deliveryRequired !== 'boolean') errors.push('deliveryRequired')
     if (input.preferredDelivery !== undefined && input.preferredDelivery !== null && (typeof input.preferredDelivery !== 'string' || input.preferredDelivery.length > 160)) errors.push('preferredDelivery')
     if (input.address !== undefined && input.address !== null && (typeof input.address !== 'string' || input.address.length > 500)) errors.push('address')
@@ -40,7 +46,6 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
     if (input.exactPrice !== undefined && input.exactPrice !== null && !validPrice(input.exactPrice)) errors.push('exactPrice')
     if (input.exactPrice !== undefined && input.exactPrice !== null && (input.minPrice !== undefined || input.maxPrice !== undefined)) errors.push('priceMode')
     if (validPrice(input.minPrice) && validPrice(input.maxPrice) && (input.minPrice as number) > (input.maxPrice as number)) errors.push('priceRange')
-    if (!partial && input.exactPrice === undefined && input.minPrice === undefined && input.maxPrice === undefined) errors.push('price')
     if (input.deadline !== undefined && input.deadline !== null && !validDate(input.deadline)) errors.push('deadline')
     if (input.status !== undefined && !BUY_REQUEST_STATUSES.includes(input.status as typeof BUY_REQUEST_STATUSES[number])) errors.push('status')
     if (input.fulfillmentMode !== undefined && !FULFILLMENT_MODES.includes(input.fulfillmentMode as typeof FULFILLMENT_MODES[number])) errors.push('fulfillmentMode')
