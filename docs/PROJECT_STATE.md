@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 6 — External Authentication — DONE; MERGED TO MAIN`.
+**Current step:** `STEP 7 — Reviews / Відгуки — DONE; MERGED TO MAIN`. Next candidate: Step 8 Basic seller demand subscriptions.
 
 **Last updated:** 2026-10-07
 
@@ -92,12 +92,12 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
-| `READY FOR INDEPENDENT REVIEW` | STEP 7 — Reviews / Відгуки | Deal-based completed-request reviews audited; counterpart clarity and cancellation added to the review form. Real-DB integration and live-browser E2E passed. |
+| `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 7 READY FOR INDEPENDENT REVIEW.** Reviews are tied only to completed Deal transactions. For the current product, a seller-created Product ends in direct chat and does not create a Deal, so it is not reviewable; the implemented review flow is the completed Buy Request → Offer → Deal flow. The API derives the counterpart from authenticated Deal participants, enforces 1–12 ratings and one review per reviewer/Deal, and profile aggregates expose only published received reviews. The completed Deal card is the primary action surface and now identifies the review target and supports cancelling an unfinished form. Real-DB integration and live-browser E2E passed. Step 6 remains merged to `main`.
+**STEP 7 DONE; independent final review PASS; merged to `main`.** Reviews are tied only to completed Deal transactions. For the current product, a seller-created Product ends in direct chat and does not create a Deal, so it is not reviewable; the implemented review flow is the completed Buy Request → Offer → Deal flow. The API derives the counterpart from authenticated Deal participants, enforces 1–12 ratings and one review per reviewer/Deal, and profile aggregates expose only published received reviews. The completed Deal card is the primary action surface and now identifies the review target and supports cancelling an unfinished form. Real-DB integration and live-browser E2E passed. Next candidate: Step 8 Basic seller demand subscriptions.
 
 ## REQUIRED CONTEXT
 
