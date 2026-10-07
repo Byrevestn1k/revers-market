@@ -19,7 +19,7 @@
 
 | Документ | Тип і призначення | Статус щодо current implementation |
 | --- | --- | --- |
-| [PROJECT_STATE.md](PROJECT_STATE.md) | **CURRENT STEP.** Поточний етап, завершені кроки й потрібний контекст. | Step 5 DONE; Step 6 awaits final independent re-review. |
+| [PROJECT_STATE.md](PROJECT_STATE.md) | **CURRENT STEP.** Поточний етап, завершені кроки й потрібний контекст. | Step 5 DONE; Step 6 merged to `main`. |
 | [AUTH_PROVIDERS.md](AUTH_PROVIDERS.md) | **CURRENT FEATURE.** Способи входу Google, Facebook і Telegram та межі перевірки. | Step 6 corrections are implemented; real OAuth scenarios remain UNVERIFIED. |
 | [GIT_COMMIT_RULES.md](GIT_COMMIT_RULES.md) | **Workflow.** Що додавати або не додавати до commit/push, щоб source files не змішувалися з локальними даними. | Постійне правило для роботи з Git. |
 | [MVP_INVENTORY.md](MVP_INVENTORY.md) | **CURRENT PRODUCT AUDIT / PLANNING.** Snapshot стану продукту, перевірених можливостей, MVP gaps, рішень і рекомендованого порядку робіт станом на 2026-09-29. | Не є implementation source of truth: фактичну поведінку завжди звіряти з кодом, migrations і automated tests. |

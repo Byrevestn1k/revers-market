@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 6 — External Authentication — READY FOR FINAL INDEPENDENT RE-REVIEW`.
+**Current step:** `STEP 6 — External Authentication — DONE; MERGED TO MAIN`.
 
 **Last updated:** 2026-10-07
 
@@ -91,12 +91,12 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. |
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
-| `READY FOR FINAL INDEPENDENT RE-REVIEW` | STEP 6 — Google, Facebook, Telegram authentication | Final blockers and provider-test stability correction completed. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
+| `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 6 READY FOR FINAL INDEPENDENT RE-REVIEW.** Step 5 завершено. Google, Facebook і Telegram використовують окремі способи входу до внутрішнього `User.id`. Google/Telegram перевіряють наявність, числовий тип і допустимий future skew `iat`; старі сесії не можуть почати LINK, а callback повторно перевіряє ту саму сесію після provider exchange і безпосередньо перед додаванням identity. Автоматизовані regression-тести фіксують межі 9:59/10:01, expiry під час callback та replay. Повний `npm test` завершився 128/129: provider security test стабільний, а єдина помилка — environment-dependent `map.integration.test.ts` через сторонні active public points у локальній БД; вона не пов’язана зі Step 6. Міграції 038 і 039 застосовано в локальній БД. Реальний Browser OAuth усіх трьох провайдерів залишається UNVERIFIED без налаштованих provider apps. Контракт: [AUTH_PROVIDERS.md](AUTH_PROVIDERS.md).
+**STEP 6 DONE; MERGED TO MAIN.** Step 5 завершено. Google, Facebook і Telegram використовують окремі способи входу до внутрішнього `User.id`. Google/Telegram перевіряють наявність, числовий тип і допустимий future skew `iat`; старі сесії не можуть почати LINK, а callback повторно перевіряє ту саму сесію після provider exchange і безпосередньо перед додаванням identity. Автоматизовані regression-тести фіксують межі 9:59/10:01, expiry під час callback та replay. Повний `npm test` завершився 128/129: provider security test стабільний, а єдина помилка — environment-dependent `map.integration.test.ts` через сторонні active public points у локальній БД; вона не пов’язана зі Step 6. Міграції 038 і 039 застосовано в локальній БД. Реальний Browser OAuth усіх трьох провайдерів залишається UNVERIFIED без налаштованих provider apps. Контракт: [AUTH_PROVIDERS.md](AUTH_PROVIDERS.md).
 
 ## REQUIRED CONTEXT
 

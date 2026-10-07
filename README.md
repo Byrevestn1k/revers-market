@@ -2,7 +2,7 @@
 
 Локальний маркетплейс товарів і запитів на купівлю з пошуком, картою, пропозиціями, угодами, чатом і відгуками.
 
-**Поточний етап:** Step 5 завершено. Виправлення реалізації Step 6 (Google, Facebook і Telegram authentication) завершено; очікується фінальне незалежне approval перед merge. Реальні OAuth сценарії провайдерів залишаються UNVERIFIED. Актуальний статус: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
+**Поточний етап:** Step 5 завершено. Step 6 (Google, Facebook і Telegram authentication) пройшов незалежну перевірку та інтегрований у `main`. Реальні OAuth сценарії провайдерів залишаються UNVERIFIED. Актуальний статус: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
 ## Структура
 
