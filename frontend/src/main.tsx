@@ -4,6 +4,7 @@ import App from './App'
 import './styles.css'
 import './brand.css'
 import './App.css'
+import './external-auth.css'
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>

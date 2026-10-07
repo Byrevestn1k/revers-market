@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5173';
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -9,7 +11,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   outputDir: 'test-results',
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',
@@ -21,8 +23,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://127.0.0.1:5173',
+    command: process.env.E2E_WEB_SERVER_COMMAND ?? 'npm run dev',
+    url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,
   },

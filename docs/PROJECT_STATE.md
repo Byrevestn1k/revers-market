@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 5 — Activity Organisation — DONE`; next Step may begin.
+**Current step:** `STEP 6 — External Authentication — READY FOR FINAL INDEPENDENT RE-REVIEW`.
 
-**Last updated:** 2026-10-06
+**Last updated:** 2026-10-07
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -88,18 +88,19 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | Canonical URLs / deep links / breadcrumbs | Independent Reviewer PASS; manual Browser QA `map marker → entity` remains UNVERIFIED. |
 | `DONE` | Messages unread/sidebar UX | Independent Reviewer PASS. |
 | `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
-| `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. Step 5 may begin. |
+| `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. |
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
-| `FUTURE` | Advanced subscription filters, Google authorization, route/corridor matching | No implementation approval. |
+| `READY FOR FINAL INDEPENDENT RE-REVIEW` | STEP 6 — Google, Facebook, Telegram authentication | Final blockers and provider-test stability correction completed. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
+| `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**Step 5 — Activity Organisation — DONE.** Сторінки власних товарів, запитів, пропозицій продавця та угод мають групи з однаковою класифікацією для рядків і лічильників, сортування за часом змін, контекстні порожні/помилкові стани й рольові підказки. Власні списки Product/Request/Offer завантажують усі сторінки API; запити показують кількість пропозицій. Після першого Reviewer FAIL виправлено класифікацію пропозицій до закритих запитів і перехід до безпечної історії власної пропозиції. Корекції підтверджено frontend/backend typecheck, production build, 64 backend unit, 5 activity unit, 2 targeted DB integration і Step 5 Playwright E2E з реальними тестовими записами. Незалежна фінальна повторна перевірка PASS; Step 5 інтегровано в main. Наступний Step може починатися за окремим завданням. Докладний contract: [PRODUCT.md](PRODUCT.md).
+**STEP 6 READY FOR FINAL INDEPENDENT RE-REVIEW.** Step 5 завершено. Google, Facebook і Telegram використовують окремі способи входу до внутрішнього `User.id`. Google/Telegram перевіряють наявність, числовий тип і допустимий future skew `iat`; старі сесії не можуть почати LINK, а callback повторно перевіряє ту саму сесію після provider exchange і безпосередньо перед додаванням identity. Автоматизовані regression-тести фіксують межі 9:59/10:01, expiry під час callback та replay. Повний `npm test` завершився 128/129: provider security test стабільний, а єдина помилка — environment-dependent `map.integration.test.ts` через сторонні active public points у локальній БД; вона не пов’язана зі Step 6. Міграції 038 і 039 застосовано в локальній БД. Реальний Browser OAuth усіх трьох провайдерів залишається UNVERIFIED без налаштованих provider apps. Контракт: [AUTH_PROVIDERS.md](AUTH_PROVIDERS.md).
 
 ## REQUIRED CONTEXT
 
-No next Step has started. For completed Step 5 reference: this file; [PRODUCT.md](PRODUCT.md) activity, Request/Offer/Deal sections; [UX_RULES.md](UX_RULES.md) navigation/responsive sections; current `/my/products`, `/my/requests`, `/requests`, `/orders` UI and related API/tests. Define required context for the next Step when it is assigned; do not load historical documents by default.
+For Step 6 review: this file; [AUTH_PROVIDERS.md](AUTH_PROVIDERS.md); [PRODUCT.md](PRODUCT.md) login methods and roles; `backend/src/auth.ts`, `external-auth.ts`, `external-auth-providers.ts`, migrations 038–039, related tests; `frontend/src/external-auth-ui.tsx` and routes; Step 6 Playwright scenarios. Do not load historical documents by default.
 
 ## AI WORKFLOW
 

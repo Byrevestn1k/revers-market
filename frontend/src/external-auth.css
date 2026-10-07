@@ -1,0 +1,31 @@
+.external-auth-options { display: grid; gap: .65rem; margin: 1rem 0 1.25rem; }
+.external-auth-button { display: flex; align-items: center; justify-content: center; gap: .6rem; min-height: 44px; padding: .65rem 1rem; border: 1px solid #cbd9cf; border-radius: 8px; background: #fff; color: #18342e; font-size: .85rem; font-weight: 700; text-align: center; text-decoration: none; }
+.external-provider-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; font-family: Arial, sans-serif; font-size: 18px; font-weight: 800; line-height: 1; }
+.external-provider-icon-google { color: #4285f4; }
+.external-provider-icon-facebook { color: #1877f2; font-size: 23px; }
+.external-provider-icon-telegram { fill: #229ed9; }
+.external-auth-button:hover, .external-auth-button:focus-visible { border-color: #16a05a; background: #f2faf3; }
+.external-auth-button[aria-disabled="true"] { opacity: .65; pointer-events: none; }
+.external-auth-divider { position: relative; margin: .4rem 0; color: #74817c; font-size: .78rem; text-align: center; }
+.external-auth-divider::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; border-top: 1px solid #e2e9e4; }
+.external-auth-divider span { position: relative; padding: 0 .8rem; background: #fff; }
+.login-methods { margin: 2rem 0; padding: 1.5rem; border: 1px solid #e2e9e4; border-radius: 14px; background: #fff; }
+.login-methods h2 { margin-top: 0; font-size: 1.3rem; }
+.login-method-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; padding: .9rem 0; border-top: 1px solid #e2e9e4; }
+.login-method-row > div { min-width: 0; overflow-wrap: anywhere; }
+.login-method-row strong, .login-method-row small { display: block; }
+.login-method-row small, .login-method-row > span { color: #74817c; font-size: .78rem; }
+.login-method-row .light-button { border: 1px solid #cbd9cf; text-decoration: none; }
+.login-method-row .outline-button { flex: none; }
+.profile-has-no-password .password-change { display: none; }
+.unlink-dialog { width: min(420px, 100%); padding: 1.5rem; border-radius: 12px; background: #fff; }
+.unlink-dialog h3 { margin-top: 0; }
+.unlink-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .7rem; margin-top: 1.5rem; }
+.external-signup-page { grid-template-columns: minmax(0, 520px); justify-content: center; padding: 2rem; }
+.external-signup-page .auth-card { width: 100%; }
+.external-signup-page .auth-card form { margin: 1.5rem 0; }
+.external-auth-decision { display: grid; gap: 1rem; margin: 1.5rem 0; }
+.external-auth-decision p { margin: 0; line-height: 1.5; }
+.external-auth-decision .primary-button, .external-auth-decision .light-button { display: flex; justify-content: center; align-items: center; min-height: 44px; text-align: center; text-decoration: none; }
+@media (min-width: 761px) and (max-width: 1024px) { .auth-page { grid-template-columns: minmax(0, 560px); justify-content: center; gap: 1.5rem; padding: 2rem; } .auth-story .brand { margin-bottom: 1.5rem; } .auth-story h1 { margin: .5rem 0; font-size: clamp(2.8rem, 7vw, 4rem); } .auth-story > p { margin-bottom: 0; } }
+@media (max-width: 390px) { .login-methods { padding: 1rem; } .login-method-row { align-items: flex-start; flex-direction: column; } .login-method-row .light-button, .login-method-row .outline-button { width: 100%; } .external-signup-page { padding: 1rem; } }

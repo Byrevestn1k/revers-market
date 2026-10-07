@@ -15,7 +15,7 @@ const normalizeUsername = (username: string) => username.trim().toLowerCase()
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 const getCookie = (request: Request) => request.headers.cookie?.match(/(?:^|; )navpaky_session=([^;]+)/)?.[1]
 
-const publicUser = (row: { id: string; username: string; country_code: string; phone: string; email?: string | null; email_verified?: boolean; pending_email?: string | null }): AuthUser => ({
+export const publicUser = (row: { id: string; username: string; country_code: string; phone: string; email?: string | null; email_verified?: boolean; pending_email?: string | null }): AuthUser => ({
     id: row.id,
     username: row.username,
     countryCode: row.country_code,
@@ -34,13 +34,18 @@ export const clearSessionCookie = (response: Response) => {
     response.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`)
 }
 
-const createSession = async (userId: string, response: Response) => {
+export const createSession = async (userId: string, response: Response) => {
     const token = randomBytes(32).toString('base64url')
     await pool.query(
         'INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
         [userId, hashToken(token), new Date(Date.now() + SESSION_TTL_MS)],
     )
     setSessionCookie(response, token)
+}
+
+export const requestSessionHash = (request: Request) => {
+    const token = getCookie(request)
+    return token ? hashToken(token) : null
 }
 
 const resolveSessionUser = async (request: Request): Promise<AuthUser | null> => {
@@ -136,7 +141,7 @@ export const login = async (usernameOrEmail: string, password: string, response:
         [byEmail ? normalizeEmail(identifier) : normalizeUsername(identifier)],
     )
     const user = result.rows[0]
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
         return { status: 401, body: { error: 'INVALID_CREDENTIALS', message: 'Неправильні облікові дані' } }
     }
     await createSession(user.id, response)

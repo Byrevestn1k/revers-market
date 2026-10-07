@@ -18,6 +18,8 @@ import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
 import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements } from './settlements.js'
 import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
+import { externalAuthRouter } from './external-auth.js'
+import type { exchangeProfile } from './external-auth-providers.js'
 
 const mapService = new MapService()
 
@@ -33,7 +35,7 @@ const withResult = (handler: RequestHandler) =>
         } catch (error) { next(error) }
     }
 
-export const createApp = () => {
+export const createApp = (options: { providerExchange?: typeof exchangeProfile } = {}) => {
     const app = express()
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173'
     const allowedFrontendUrls = [...new Set([frontendUrl, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174', 'http://127.0.0.1:5174'])]
@@ -41,6 +43,7 @@ export const createApp = () => {
     app.use(cors({ origin: allowedFrontendUrls, credentials: true }))
     app.use(express.json({ limit: '8mb' }))
     app.use('/uploads', express.static(fileURLToPath(new URL('../uploads', import.meta.url))))
+    app.use('/api/auth/external', externalAuthRouter(options.providerExchange))
 
     app.get('/health', withResult(async () => {
         const database = await checkDatabase()
