@@ -1157,7 +1157,7 @@ function NotificationsView({ notify, scope, onNotificationsChange, onNavigate }:
     return <section className="content notifications-view"><div className="view-header"><div><span className="eyebrow">Центр подій</span><h1>Сповіщення</h1></div>{activeContext !== 'all' && <button className="outline-button" disabled={!contextUnread(activeContext)} onClick={markContextRead}>Прочитати всі</button>}</div><div className="notification-context-tabs" role="tablist" aria-label="Контекст сповіщень"><button role="tab" aria-selected={activeContext === 'buying'} className={activeContext === 'buying' ? 'active' : ''} onClick={() => setActiveContext('buying')}>Купівля {contextUnread('buying') > 0 && <b>{contextUnread('buying')}</b>}</button><button role="tab" aria-selected={activeContext === 'selling'} className={activeContext === 'selling' ? 'active' : ''} onClick={() => setActiveContext('selling')}>Продаж {contextUnread('selling') > 0 && <b>{contextUnread('selling')}</b>}</button><button role="tab" aria-selected={activeContext === 'all'} className={activeContext === 'all' ? 'active' : ''} onClick={() => setActiveContext('all')}>Усі</button></div>{mutationError && <p className="form-error" role="alert">{mutationError} <button className="text-button" onClick={() => void load()}>Оновити список</button></p>}{loading ? <div className="loading" role="status">Завантажуємо сповіщення…</div> : error ? <section className="empty-state" role="alert"><h3>Не вдалося завантажити сповіщення</h3><p>{error}</p><button className="primary-button compact" onClick={() => void load()}>Повторити</button></section> : <div className="notification-list">{contextItems.map((item) => <article className={`notification-row ${item.readAt ? 'read' : 'unread'}`} key={item.id}><div><strong>{item.title}</strong><p>{item.body}</p><small>{item.readAt ? 'Прочитано' : 'Непрочитано'} · {new Date(item.createdAt).toLocaleString('uk-UA')}</small></div><div className="notification-actions">{!item.readAt && <button className="text-button" onClick={() => void markOneRead(item)}>Позначити прочитаним</button>}<button className="text-button" onClick={() => void markOneRead(item, destinationFor(item))}>Переглянути</button></div></article>)}{!contextItems.length && <Empty text={activeContext === 'buying' ? 'У покупках поки немає сповіщень' : activeContext === 'selling' ? 'У продажах поки немає сповіщень' : 'У вас поки немає сповіщень'} />}</div>}</section>
 }
 
-function ReviewForm({ order, notify, onDone, viewerId }: { viewerId: string; order: Order; notify: (message: string) => void; onDone: () => void }) {
+function ReviewForm({ order, notify, onDone, onCancel, viewerId }: { viewerId: string; order: Order; notify: (message: string) => void; onDone: () => void; onCancel: () => void }) {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
     const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1165,15 +1165,18 @@ function ReviewForm({ order, notify, onDone, viewerId }: { viewerId: string; ord
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
         try { await request(`/api/orders/${order.id}/reviews`, { method: 'POST', body: JSON.stringify({ rating: Number(data.rating), communicationRating: Number(data.communicationRating), complianceRating: Number(data.complianceRating), descriptionRating: data.descriptionRating ? Number(data.descriptionRating) : undefined, body: data.body }) }); notify('Відгук надіслано'); onDone() } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
     }
-    return <form className="offer-form" onSubmit={submit}>
+    const reviewingSeller = order.buyer.id === viewerId
+    const counterpart = reviewingSeller ? order.seller.username : order.buyer.username
+    return <form className="offer-form" onSubmit={submit} aria-label={`Відгук про ${reviewingSeller ? 'продавця' : 'покупця'} ${counterpart}`}>
+        <p className="form-hint">Відгук про {reviewingSeller ? 'продавця' : 'покупця'}: <b>@{counterpart}</b>. Угода: «{order.conditionsSnapshot?.productTitle || 'Домовленість'}».</p>
         <div className="field-row">
             <label>Загальна оцінка (1–12)<select name="rating" required><option value="">Оберіть оцінку</option>{Array.from({ length: 12 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         </div>
         {[['communicationRating', 'Спілкування'], ['complianceRating', 'Дотримання домовленостей'], ...(order.buyer.id === viewerId ? [['descriptionRating', 'Товар відповідав опису']] : [])].map(([name,label]) => <label key={name}>{label} (1–12)<select name={name} required><option value="">Оберіть оцінку</option>{Array.from({length:12},(_,i) => <option value={i+1} key={i}>{i+1}</option>)}</select></label>)}
         <p className="form-hint">Відгуки відкриються після відповіді обох сторін або після завершення строку очікування.</p>
         <label>Коментар<input name="body" maxLength={2000} placeholder="Як пройшла угода?" /></label>
-        {error && <p className="form-error">{error}</p>}
-        <button className="primary-button" disabled={busy}>{busy ? 'Надсилання…' : 'Залишити відгук'}</button>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="request-actions"><button className="primary-button" disabled={busy}>{busy ? 'Надсилання…' : 'Залишити відгук'}</button><button type="button" className="outline-button" disabled={busy} onClick={onCancel}>Скасувати</button></div>
     </form>
 }
 
@@ -1221,7 +1224,7 @@ function OrdersView({ notify, viewerId }: { notify: (message: string) => void; v
                 {order.status === 'completed' && !order.myReviewCreated && <button className="outline-button" onClick={() => setReviewing(reviewing === order.id ? '' : order.id)}>Залишити відгук</button>}
             </div>
             {order.myReviewCreated && <p className="form-hint">Ваш відгук збережено.</p>}{order.counterpartReviewCreated && !order.myReviewCreated && <p>Інша сторона вже залишила відгук. Залиште свій, щоб побачити оцінки.</p>}
-            {reviewing === order.id && <ReviewForm viewerId={viewerId} order={order} notify={notify} onDone={() => { setReviewing(''); load() }} />}
+            {reviewing === order.id && <ReviewForm viewerId={viewerId} order={order} notify={notify} onCancel={() => setReviewing('')} onDone={() => { setReviewing(''); load() }} />}
         </article>)}{!visible.length && <Empty text={orders.length ? activityGroups.deal.find(item => item.id === selectedScope)!.empty : 'Домовленостей поки немає'} />}</div></>}
         {resultDialog && <OrderResultDialog {...resultDialog} viewerId={viewerId} http={request} onClose={() => setResultDialog(null)} onDone={() => { setResultDialog(null); notify('Вашу відповідь збережено'); load() }} />}
         {disputeOrder && <TextEntryDialog title="Відкрити спір" label="Опишіть проблему" minLength={5} maxLength={2000} submitLabel="Відкрити спір" onClose={() => setDisputeOrder(null)} onSubmit={async (reason) => { try { await request(`/api/orders/${disputeOrder.id}/dispute`, { method: 'POST', body: JSON.stringify({ reason }) }); notify('Спір відкрито'); setDisputeOrder(null); load() } catch (error) { notify((error as Error).message) } }} />}

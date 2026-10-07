@@ -174,8 +174,22 @@ const completeFromUi = async (actor: Actor, card: ReturnType<typeof dealCard>) =
   await dialog.getByRole('button', { name: 'Підтвердити' }).click();
 };
 
+const createCompletedReviewDeal = async (buyer: Actor, seller: Actor, suffix: string) => {
+  const categories = await json<{ categories: Array<{ id: string; code: string }> }>(await buyer.context.request.get('/api/categories'), 200);
+  const categoryId = categories.categories.find(category => category.code === 'grains')?.id ?? categories.categories[0].id;
+  const title = `E2E3 review viewport ${suffix}`;
+  const buyRequest = await json<{ buyRequest: { id: string } }>(await buyer.context.request.post('/api/buy-requests', { data: { categoryId, title, description: '', delivery: 'no', minPrice: 1, maxPrice: 10, quantity: 1, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', fulfillmentMode: 'single_seller' } }), 201);
+  const offer = await json<{ offer: { id: string } }>(await seller.context.request.post(`/api/buy-requests/${buyRequest.buyRequest.id}/offers`, { data: { quantity: 1, unit: 'kg', price: 5, currency: 'UAH', delivery: 'Самовивіз' } }), 201);
+  const order = await json<{ order: { id: string } }>(await buyer.context.request.post(`/api/offers/${offer.offer.id}/accept`, { data: { quantity: 1, selectionKey: randomUUID() } }), 201);
+  await json(await seller.context.request.post(`/api/orders/${order.order.id}/seller-confirm`), 200);
+  await json(await buyer.context.request.post(`/api/orders/${order.order.id}/complete`, { data: {} }), 200);
+  await json(await seller.context.request.post(`/api/orders/${order.order.id}/complete`, { data: {} }), 200);
+  return title;
+};
+
 const submitReview = async (actor: Actor, card: ReturnType<typeof dealCard>, rating: number, body: string, buyerReview: boolean) => {
   await card.getByRole('button', { name: 'Залишити відгук' }).click();
+  await expect(card.getByText(/Відгук про (продавця|покупця):/)).toBeVisible();
   await card.getByLabel('Загальна оцінка (1–12)').selectOption(String(rating));
   await card.getByLabel('Спілкування (1–12)').selectOption(String(rating));
   await card.getByLabel('Дотримання домовленостей (1–12)').selectOption(String(rating));
@@ -369,11 +383,8 @@ test('E2E №3 responsive smoke: Deal and Review controls remain usable', async 
   let scenario: Scenario | undefined;
   try {
     scenario = await createScenario(browser);
-    const { buyer, sellerA, sellerB } = scenario.actors;
+    const { buyer, sellerA } = scenario.actors;
     await json(await sellerA.context.request.post(`/api/orders/${scenario.orderA}/seller-confirm`, { data: {} }), 200);
-    await json(await sellerB.context.request.post(`/api/orders/${scenario.orderB}/seller-confirm`, { data: {} }), 200);
-    await json(await buyer.context.request.post(`/api/orders/${scenario.orderB}/complete`, { data: {} }), 200);
-    await json(await sellerB.context.request.post(`/api/orders/${scenario.orderB}/complete`, { data: {} }), 200);
 
     await sellerA.page.setViewportSize({ width: 320, height: 700 });
     await openOrders(sellerA);
@@ -381,18 +392,23 @@ test('E2E №3 responsive smoke: Deal and Review controls remain usable', async 
     await expect(activeCard.getByRole('button', { name: '✔ Угода відбулася' })).toBeVisible();
     await assertNoHorizontalOverflow(sellerA.page);
 
-    await buyer.page.setViewportSize({ width: 390, height: 844 });
-    await openOrders(buyer, 'completed');
-    const completedCard = dealCard(buyer, scenario.title, sellerB.username);
-    await expect(completedCard.getByRole('button', { name: 'Залишити відгук' })).toBeVisible();
-    await completedCard.getByRole('button', { name: 'Залишити відгук' }).click();
-    await expect(completedCard.getByLabel('Загальна оцінка (1–12)')).toBeVisible();
-    await assertNoHorizontalOverflow(buyer.page);
-
-    await buyer.page.setViewportSize(desktop);
-    await expect(completedCard.getByLabel('Загальна оцінка (1–12)')).toBeVisible();
-    await expect(completedCard.getByRole('button', { name: 'Залишити відгук' }).last()).toBeVisible();
-    await assertNoHorizontalOverflow(buyer.page);
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }, { width: 768, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 700 }]) {
+      const title = await createCompletedReviewDeal(buyer, sellerA, String(viewport.width));
+      await openOrders(buyer, 'completed');
+      const completedCard = dealCard(buyer, title, sellerA.username);
+      await buyer.page.setViewportSize(viewport);
+      await expect(completedCard.getByRole('button', { name: 'Залишити відгук' })).toBeVisible();
+      await completedCard.getByRole('button', { name: 'Залишити відгук' }).click();
+      await expect(completedCard.getByLabel('Загальна оцінка (1–12)')).toBeVisible();
+      await expect(completedCard.getByText(`Відгук про продавця: @${sellerA.username}`)).toBeVisible();
+      await expect(completedCard.getByRole('button', { name: 'Скасувати' })).toBeVisible();
+      await assertNoHorizontalOverflow(buyer.page);
+      await completedCard.getByRole('button', { name: 'Скасувати' }).click();
+      await expect(completedCard.getByLabel('Загальна оцінка (1–12)')).toHaveCount(0);
+      await submitReview(buyer, completedCard, 12, `Automated ${viewport.width}px review`, true);
+      await expect(completedCard.getByText('Ваш відгук збережено.')).toBeVisible();
+      await assertNoHorizontalOverflow(buyer.page);
+    }
   } finally {
     await cleanupScenario(scenario);
   }

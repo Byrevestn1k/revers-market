@@ -92,11 +92,12 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
 | `PLANNED` | Basic seller demand subscriptions | Requires a dedicated approved Step. |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
+| `READY FOR INDEPENDENT REVIEW` | STEP 7 — Reviews / Відгуки | Deal-based completed-request reviews audited; counterpart clarity and cancellation added to the review form. Real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 6 DONE; MERGED TO MAIN.** Step 5 завершено. Google, Facebook і Telegram використовують окремі способи входу до внутрішнього `User.id`. Google/Telegram перевіряють наявність, числовий тип і допустимий future skew `iat`; старі сесії не можуть почати LINK, а callback повторно перевіряє ту саму сесію після provider exchange і безпосередньо перед додаванням identity. Автоматизовані regression-тести фіксують межі 9:59/10:01, expiry під час callback та replay. Повний `npm test` завершився 128/129: provider security test стабільний, а єдина помилка — environment-dependent `map.integration.test.ts` через сторонні active public points у локальній БД; вона не пов’язана зі Step 6. Міграції 038 і 039 застосовано в локальній БД. Реальний Browser OAuth усіх трьох провайдерів залишається UNVERIFIED без налаштованих provider apps. Контракт: [AUTH_PROVIDERS.md](AUTH_PROVIDERS.md).
+**STEP 7 READY FOR INDEPENDENT REVIEW.** Reviews are tied only to completed Deal transactions. For the current product, a seller-created Product ends in direct chat and does not create a Deal, so it is not reviewable; the implemented review flow is the completed Buy Request → Offer → Deal flow. The API derives the counterpart from authenticated Deal participants, enforces 1–12 ratings and one review per reviewer/Deal, and profile aggregates expose only published received reviews. The completed Deal card is the primary action surface and now identifies the review target and supports cancelling an unfinished form. Real-DB integration and live-browser E2E passed. Step 6 remains merged to `main`.
 
 ## REQUIRED CONTEXT
 
