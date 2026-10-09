@@ -28,8 +28,8 @@
 .subscription-cities li { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; background: #eaf6ed; }
 .subscription-cities span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .subscription-cities button { flex: none; min-width: 44px; min-height: 44px; }
-.subscription-radius { display: grid; gap: 16px; min-width: 0; }
-.subscription-radius .profile-point-picker { height: 260px; width: 100%; }
+.subscription-suburbs { display: grid; gap: 16px; min-width: 0; }
+.subscription-suburbs input[type=range] { width: 100%; min-width: 0; accent-color: #008a35; min-height: 44px; }
 .subscription-active input[type=checkbox] { flex-shrink: 0; }
 .demand-subscriptions .settlement-picker-results { left: 0; right: 0; width: auto; max-width: 100%; }
 @media (max-width: 760px) {

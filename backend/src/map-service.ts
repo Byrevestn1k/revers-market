@@ -8,7 +8,7 @@ import { requestPublicLocationSql } from './request-public-location.js'
 
 export type MapPoint = { latitude: number; longitude: number }
 export type MapViewport = { south: number; north: number; west: number; east: number }
-export type MapFilterState = { nationwide?: boolean; includeOwnerListings?: boolean; exactDistance?: boolean; settlementCode?: string; geoSettlementCode?: string; cityName?: string; cityBoundary?: CityBoundary; cityOutsideKm?: number; categoryId?: string; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
+export type MapFilterState = { buyRequestIds?: string[]; nationwide?: boolean; includeOwnerListings?: boolean; exactDistance?: boolean; settlementCode?: string; geoSettlementCode?: string; cityName?: string; cityBoundary?: CityBoundary; cityOutsideKm?: number; categoryId?: string; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
 export type MapMarker = MapPoint & {
     id: string
     kind: 'product' | 'buyRequest'
@@ -55,6 +55,7 @@ export const approximatePoint = (point: MapPoint, precision = 2): MapPoint => {
 }
 
 export const syncMapFilters = (filters: Partial<MapFilterState>, mapCenter?: MapPoint): MapFilterState => ({
+    ...(filters.buyRequestIds ? { buyRequestIds: filters.buyRequestIds } : {}),
     categoryId: filters.categoryId || undefined,
     geoZone: filters.geoZone?.trim() || undefined,
     radiusKm: clampRadius(filters.radiusKm),
@@ -150,6 +151,7 @@ export class MapService {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
         const distancePoint = filters.exactDistance ? 'r' : 'public_point'
         const conditions = [`r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        if (filters.buyRequestIds) { parameters.push(filters.buyRequestIds); conditions.push(`r.id = ANY($${parameters.length}::uuid[])`) }
         if (filters.cityName && !filters.cityBoundary) {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_area', filters, parameters)
             conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('public_point')} <= $3)` : match)
@@ -161,8 +163,8 @@ export class MapService {
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['r.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['r.title', 'r.description', 'u.username', 'u.nickname'], filters.q, parameters))
         const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
-            (r.map_location_mode IN ('pin', 'address') OR r.address_visibility = 'public' OR (r.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND r.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(r.geo_area, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(r.geo_area) = lower(u.location_display))))) AS is_public_point,
-            CASE WHEN r.address_visibility = 'public' THEN r.delivery_address WHEN r.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
+            (r.address_visibility = 'public') AS is_public_point,
+            CASE WHEN r.address_visibility = 'public' THEN r.delivery_address ELSE NULL END AS public_address,
             ${distanceSql(distancePoint)} AS distance_km FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id
             ${requestPublicLocationSql} WHERE ${conditions.join(' AND ')}`, parameters)
         return result.rows.map((row) => this.marker(row, 'buyRequest'))

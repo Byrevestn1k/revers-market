@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements, validateSettlement } from './settlements.js'
+import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements, validateSettlement, resolvePublicSettlement } from './settlements.js'
 
 describe('official settlement directory', () => {
+    it('resolves legacy public labels only when exact and unambiguous in Ukraine', () => {
+        const mlyniv = getSettlement('UA56040190010053186')!
+        expect(resolvePublicSettlement('Млинів,  Млинівська селищна громада', 'UA')).toEqual(mlyniv)
+        expect(resolvePublicSettlement('смт. Млинів, Рівненська область, Дубенський район, Україна', null)).toEqual(mlyniv)
+        expect(resolvePublicSettlement('Млинів', 'PL')).toBeNull()
+        expect(resolvePublicSettlement('Млинів, Київська область', 'UA')).toBeNull()
+        expect(resolvePublicSettlement('Млинів, Інша селищна громада', 'UA')).toBeNull()
+        expect(resolvePublicSettlement('Млин', 'UA')).toBeNull()
+        expect(resolvePublicSettlement('Рівне', 'UA')).toBeNull()
+        expect(resolvePublicSettlement('Мирне', 'UA')).toBeNull()
+        expect(resolvePublicSettlement('Млинів, Секретна вулиця 123', 'UA')).toBeNull()
+        expect(resolvePublicSettlement(null, 'UA')).toBeNull()
+    })
     it('returns all namesakes, ordered cities then towns then villages', () => {
         const matches = searchSettlements('Мирне').settlements.filter(item => item.name === 'Мирне')
         expect(matches.length).toBeGreaterThan(40)

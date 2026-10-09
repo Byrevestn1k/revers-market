@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 8 — Basic seller demand subscriptions — READY FOR INDEPENDENT REVIEW`.
+**Current step:** `STEP 8 CORRECTIONS — READY FOR RE-REVIEW`.
 
-**Last updated:** 2026-10-07
+**Last updated:** 2026-10-08
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -71,7 +71,7 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 - Policy для conversation після completed/cancelled/rejected Deal.
 - Expiry policy для Product, Request та Offer.
 - Verification gate перед Offer/Deal.
-- Step 8 includes basic category/geography, quantity/unit, price/currency and explicit receipt subscriptions with optional public-point radius; AI, route/corridor, postal/carrier and advanced geography remain future scope.
+- Step 8 includes category/geography, optional quantity/unit and price/currency, at least one of the two receipt methods (both default), and optional suburbs measured from verified city boundaries shared with existing search. Country/region/cities form a union; redundant lower selections are removed. AI, route/corridor and postal/carrier remain future scope.
 - Route/corridor matching — `FUTURE`; не створювати engine, schema чи migrations без окремого Step.
 
 ## KNOWN RELEVANT ISSUES
@@ -90,18 +90,20 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 3 — Notification Center & Existing Event Integration | Independent Reviewer PASS. |
 | `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. |
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
-| `READY FOR INDEPENDENT REVIEW` | STEP 8 — Basic seller demand subscriptions | Own CRUD; minimum category + country/region/cities; optional quantity, price, receipt and public radius with predictable matching. Immediate selling notifications, DB deduplication and author exclusion. Independent review pending. |
+| `READY FOR RE-REVIEW` | STEP 8 — Seller demand subscription corrections | Exact decimal conversions; country/region/city union; optional verified-boundary suburbs; both receipt defaults and preferred-delivery compatibility. Owned CRUD, immediate selling alerts and dedup retained. Independent re-review pending. |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 8 READY FOR INDEPENDENT REVIEW.** Baseline: `main @ 146ead23e8770fcf9cefc910fe30d9a9db260df3`; working branch: `handoff/step-8`. Sellers manage only their own subscriptions at `/settings/demand-subscriptions`. Category and country/region/cities are sufficient; quantity/unit, acceptable price/currency, explicit receipt methods and public-point radius are optional. Criteria combine with AND, city/method lists with OR; unknown constrained price/quantity/receipt fails matching. New Buy Requests produce immediate selling notifications with canonical destinations, author exclusion and DB subscription/request uniqueness. Geography uses the existing public settlement/point projection. Migrations 040/041, real-DB and responsive UI tests are included. Step 7 remains DONE and merged. No commit, push or merge is performed; Step 9 is not started.
+**STEP 8 CORRECTIONS READY FOR RE-REVIEW.** Working branch handoff/step-8, HEAD 401a605ca838fb6360d391a507ad712406a14c46. Final corrections address the latest reviewer FAIL: Rivne's actual OSM city polygon was wrongly rejected by administrative-only metadata checks; search and subscriptions now share verified directory-bound geometry. Real DB saving with 10 km, inside/suburb/outside matching, Rivne + Kyiv and public-coordinate privacy passed. Missing buyer budget now matches a seller price minimum/range; known budget retains existing comparisons. Notification Center displays public Request details and an adaptive description. The user's final privacy clarification is implemented for Requests: private points stay visible with rounding and no address text; public consent retains exact location. City-only subscription matches reuse the existing verified HERE locality resolver for an explicitly approximate city marker, without substituting it into suburb matching. Complete authenticated Chromium seller subscription → buyer Request → seller selling alert/counter → canonical Request → read counter passed without API stubs at all five required widths.
+
+Earlier exact decimal conversion, country/region/city union, repeated territory input, unlimited unit/currency, both receipt defaults, SELF_PICKUP/SELLER_DELIVERY and preferred-delivery compatibility are retained. Main migrations 040–043 remain applied; this correction needs no new migration. Tests use an isolated PostgreSQL/PostGIS database. Final validation: 203/203 backend tests in 29 files, real provider suburbs test, 2/2 real authenticated browser flows without API stubs, typecheck/build and diff checks passed. Both notification details and real matches map were checked at 1440/1024/768/390/320. Full evidence and remaining provider/HERE street/house risks are in DEMAND_SUBSCRIPTIONS.md. Step 7 remains DONE. No commit/push/merge, dependency/architecture change or Step 9. Independent re-review is still required; implementer checks are not an independent PASS.
 
 ## REQUIRED CONTEXT
 
-For Step 8 review: this file; [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md); [NOTIFICATIONS.md](NOTIFICATIONS.md) CURRENT; migrations 040/041; backend subscriptions, demand-matching, shared Request public projection, Request validation/creation and integration tests; frontend DemandSubscriptions, SubscriptionCriteriaFields, criteria types/CSS, explicit Request receipt UI, CategoryPicker inline mode and settings navigation; `e2e/demand-subscriptions.spec.ts`. Do not load historical documents by default.
+For Step 8 review: this file; [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md); [NOTIFICATIONS.md](NOTIFICATIONS.md) CURRENT; migrations 040/041/042/043; backend subscriptions, demand-matching, city-boundaries and its tests, shared Request public projection, Request validation/creation and integration tests; frontend DemandSubscriptions, SubscriptionCriteriaFields, criteria types/CSS, explicit Request receipt UI, CategoryPicker inline mode and settings navigation; `e2e/demand-subscriptions.spec.ts`, `e2e/demand-subscriptions-live.spec.ts`, live suburbs integration and Notification Center public-preview changes. Do not load historical documents by default.
 
 ## AI WORKFLOW
 
@@ -133,3 +135,5 @@ Implementer and Reviewer assess work independently. A Reviewer does not assume t
 2. Record validation and any remaining risk; do not create a changelog copy.
 3. Mark the Step `READY FOR REVIEW` until the required independent review passes.
 4. After Reviewer PASS, mark it `DONE` and set the next candidate without starting it automatically.
+
+Step 8 follow-up: one repeated territory input reuses SettlementPicker, multiple region/country arrays in migration 043, suburbs capped at 20 km. Owned existing match count and /discover subscription-filtered map/list reuse notification matcher and public map projection. Legacy public place labels now resolve only through an exact unambiguous Ukrainian directory match, fixing existing Mlyniv Requests without rewriting records. Current final validation is recorded in DEMAND_SUBSCRIPTIONS.md, including the real authenticated browser flow and Rivne 10 km boundary/privacy checks; buyer-to-seller/product subscriptions remain a separate task under the user’s conditional scope. No Step 9 or independent PASS claimed.

@@ -12,6 +12,7 @@ const categories = [
 ];
 const cities = [
   { code: 'rivne', name: 'Рівне', type: 'city', district: 'Рівненський район', region: 'Рівненська область', community: 'Рівненська' },
+  { code: 'rivne-namesake', name: 'Рівне', type: 'village', district: 'Ковельський район', region: 'Волинська область', community: 'Рівненська' },
   { code: 'kyiv', name: 'Київ', type: 'city', district: '', region: 'місто Київ', community: 'Київська' },
 ];
 type Subscription = Partial<SubscriptionCriteria> & { id: string; category: { id: string; name: string }; region: string | null; active: boolean };
@@ -21,7 +22,10 @@ async function fixture(page: Page, initial: Subscription[] = []) {
   let subscriptions = [...initial];
   let failLoad = false;
   let failMutation = false;
+  let failBoundary = false;
   let readAt: string | null = null;
+  let matchReads = 0;
+  const savedSubscriptions: Record<string, unknown>[] = [];
   const createdRequests: Record<string, unknown>[] = [];
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -42,17 +46,25 @@ async function fixture(page: Page, initial: Subscription[] = []) {
     }
     if (path.startsWith('/api/products')) return route.fulfill({ json: { products: [], pagination: { page: 1, pages: 1 } } });
     if (path === '/api/conversations') return route.fulfill({ json: { conversations: [] } });
+    if (path.endsWith('/matches') && path.startsWith('/api/demand-subscriptions/')) {
+      matchReads++;
+      const subscription = subscriptions.find(item => item.id === path.split('/')[3]);
+      const markers = Array.from({ length: 7 }, (_, index) => ({ id: index === 0 ? requestId : 'matched-' + index, kind: 'buyRequest', title: 'Відповідний запит ' + (index + 1), geoZone: 'Рівне', category: categories[1], latitude: 50.62 + index * .001, longitude: 26.25 + index * .001, approximate: true, distanceBand: 'понад 20 км', quantity: 10, unit: 'kg' }));
+      return route.fulfill({ json: { subscription, count: 7, markers, unmappedRequests: [] } });
+    }
     if (path.startsWith('/api/demand-subscriptions')) {
       if (method === 'GET') return route.fulfill(failLoad ? { status: 503, json: { message: 'Помилка завантаження' } } : { json: { subscriptions } });
+      if (failBoundary && data.cityOutsideKm != null) return route.fulfill({status:400,json:{error:'CITY_BOUNDARY_UNAVAILABLE',message:'Не підтверджено адміністративні межі: Рівне. Вимкніть врахування передмістя.'}});
       if (failMutation) return route.fulfill({ status: 503, json: { message: 'Помилка збереження' } });
       const id = path.split('/')[3];
       if (method === 'DELETE') { subscriptions = subscriptions.filter(item => item.id !== id); return route.fulfill({ status: 204 }); }
+      savedSubscriptions.push(data);
       const existing = subscriptions.find(item => item.id === id);
       const chosen = categories.find(item => item.id === data.categoryId);
-      const subscription: Subscription = { ...existing, ...data, id: id ?? `fixture-${subscriptions.length}`, category: chosen ?? existing!.category,
-        countryCode: data.countryCode ?? existing?.countryCode ?? (data.region || data.settlementCodes?.length ? 'UA' : null),
+      const subscription: Subscription = { ...existing, ...data, matchCount: 7, id: id ?? `fixture-${subscriptions.length}`, category: chosen ?? existing!.category,
+        countryCode: 'countryCodes' in data ? data.countryCodes[0] ?? null : existing?.countryCode ?? null,
         settlements: cities.filter(city => (data.settlementCodes ?? existing?.settlementCodes ?? []).includes(city.code)),
-        region: 'region' in data ? data.region : existing?.region ?? null, active: 'active' in data ? data.active : existing?.active ?? true };
+        region: 'regions' in data ? data.regions[0] ?? null : existing?.region ?? null, active: 'active' in data ? data.active : existing?.active ?? true };
       subscriptions = existing ? subscriptions.map(item => item.id === id ? subscription : item) : [subscription, ...subscriptions];
       return route.fulfill({ status: existing ? 200 : 201, json: { subscription } });
     }
@@ -62,12 +74,17 @@ async function fixture(page: Page, initial: Subscription[] = []) {
     if (path.startsWith('/api/profiles/')) return route.fulfill({ json: { profile: { id: 'buyer-fixture', username: 'Покупець QA', createdAt: new Date().toISOString(), statistics: { listingsCount: 0, completedDealsCount: 0 }, ratingSummary: { average: null, count: 0 } } } });
     return route.fulfill({ json: {} });
   });
-  return { createdRequests, failLoad: (value: boolean) => { failLoad = value; }, failMutation: (value: boolean) => { failMutation = value; } };
+  return { createdRequests, savedSubscriptions, matchReads: () => matchReads, failBoundary: (value:boolean) => { failBoundary=value; }, failLoad: (value: boolean) => { failLoad = value; }, failMutation: (value: boolean) => { failMutation = value; } };
+}
+
+async function chooseTerritory(page: Page, query: string, option: string | RegExp = query + ' — вся область') {
+  await page.getByRole('combobox', { name: 'Країна, область або населений пункт', exact: true }).fill(query);
+  await page.getByRole('option', { name: option, exact: typeof option === 'string' }).click();
 }
 
 async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  for (const control of await page.locator('.demand-subscriptions button:visible, .demand-subscriptions input:visible, .demand-subscriptions select:visible').all()) {
+  for (const control of await page.locator('.demand-subscriptions button:visible, .demand-subscriptions input:visible, .demand-subscriptions select:visible, .demand-subscriptions a:visible').all()) {
     const box = await control.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -78,7 +95,7 @@ async function noOverflow(page: Page) {
 for (const width of [1440, 1024, 768, 390, 320]) {
   test(`subscription CRUD and responsive layout ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    await fixture(page);
+    const state = await fixture(page);
     await page.goto('/settings/demand-subscriptions');
     await expect(page.getByRole('heading', { name: 'Підписки на запити', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'У вас ще немає підписок' })).toBeVisible();
@@ -91,7 +108,7 @@ for (const width of [1440, 1024, 768, 390, 320]) {
     await noOverflow(page);
     await page.getByRole('option', { name: 'Сільське господарство › Мед', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveCount(0);
-    await page.getByRole('combobox', { name: 'Область', exact: true }).selectOption('Рівненська область');
+    await chooseTerritory(page, 'Рівненська область');
     await page.screenshot({ path: testInfo.outputPath(`subscription-form-${width}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Зберегти підписку' }).click();
     const card = page.getByRole('article', { name: 'Підписка: Мед', exact: true });
@@ -102,32 +119,36 @@ for (const width of [1440, 1024, 768, 390, 320]) {
     await card.getByRole('button', { name: 'Увімкнути' }).click();
     await expect(card).toContainText('Статус: Активна');
     await card.getByRole('button', { name: 'Редагувати' }).click();
-    await page.getByRole('combobox', { name: 'Область', exact: true }).selectOption('');
+    await page.getByRole('button', { name: 'Прибрати Рівненська область', exact: true }).click();
     for (const name of ['Рівне', 'Київ']) {
-      await page.getByRole('combobox', { name: 'Додати місто / населений пункт' }).fill(name);
+      await page.getByRole('combobox', { name: 'Країна, область або населений пункт' }).fill(name);
       await page.getByRole('option', { name: new RegExp(`місто, ${name},`) }).click();
     }
-    await expect(page.getByRole('list', { name: 'Вибрані міста' }).locator('li')).toHaveCount(2);
+    await expect(page.getByRole('list', { name: 'Вибрані території' }).locator('li')).toHaveCount(2);
     await page.getByLabel('Кількість від', { exact: true }).fill('10');
     await page.getByLabel('Кількість до', { exact: true }).fill('50');
     await page.getByRole('combobox', { name: 'Одиниця', exact: true }).selectOption('kg');
     await page.getByLabel('Прийнятна ціна від, за одиницю', { exact: true }).fill('170');
     await page.getByRole('combobox', { name: 'Валюта', exact: true }).selectOption('UAH');
     await page.getByRole('checkbox', { name: /Доставка продавцем/ }).check();
-    await page.getByRole('checkbox', { name: 'Обмежити радіусом від точки' }).check();
-    await page.getByLabel('Широта', { exact: true }).fill('50.62');
-    await page.getByLabel('Довгота', { exact: true }).fill('26.25');
+    await page.getByRole('checkbox', { name: /Самовивіз/ }).uncheck();
+    await page.getByRole('checkbox', { name: /Доставка продавцем/ }).click();
+    await expect(page.getByRole('checkbox', { name: /Доставка продавцем/ })).toBeChecked();
+    await expect(page.getByRole('alert')).toContainText('Щонайменше один');
+    await page.getByRole('checkbox', { name: 'Враховувати передмістя' }).check();
+    await page.getByRole('slider', { name: 'Відстань за межами міста' }).fill('20');
     await noOverflow(page);
     await page.screenshot({ path: testInfo.outputPath(`subscription-criteria-${width}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Зберегти підписку' }).click();
-    await expect(card).toContainText('Уся Україна');
+    await expect(card).toContainText('Територія: Вибрані міста');
     await expect(card).toContainText('Київ (місто Київ)');
     await expect(card).toContainText('Кількість: 10 — 50');
     await expect(card).toContainText('170');
     await expect(card).toContainText('Доставка продавцем');
-    await expect(card).toContainText('Радіус: 25 км');
+    await expect(card).toContainText('Передмістя: до 20 км');
+    expect(state.savedSubscriptions.at(-1)).toMatchObject({countryCodes:[],regions:[],settlementCodes:['rivne','kyiv'],cityOutsideKm:20,center:null,radiusKm:null,receiptMethods:['SELLER_DELIVERY']});
     await page.reload();
-    await expect(card).toContainText('Уся Україна');
+    await expect(card).toContainText('Територія: Вибрані міста');
     await card.getByRole('button', { name: 'Редагувати' }).click();
     await expect(page.getByLabel('Кількість від', { exact: true })).toHaveValue('10');
     await expect(page.getByLabel('Кількість до', { exact: true })).toHaveValue('50');
@@ -135,19 +156,39 @@ for (const width of [1440, 1024, 768, 390, 320]) {
     await expect(page.getByLabel('Прийнятна ціна від, за одиницю', { exact: true })).toHaveValue('170');
     await expect(page.getByRole('combobox', { name: 'Валюта', exact: true })).toHaveValue('UAH');
     await expect(page.getByRole('checkbox', { name: /Доставка продавцем/ })).toBeChecked();
-    await expect(page.getByLabel('Широта', { exact: true })).toHaveValue('50.62');
+    await expect(page.getByRole('slider', { name: 'Відстань за межами міста' })).toHaveValue('20');
+    await expect(page.getByRole('checkbox', { name: /Самовивіз/ })).not.toBeChecked();
     await page.getByRole('button', { name: 'Прибрати Київ' }).click();
-    await expect(page.getByRole('list', { name: 'Вибрані міста' }).locator('li')).toHaveCount(1);
+    await expect(page.getByRole('list', { name: 'Вибрані території' }).locator('li')).toHaveCount(1);
     await page.getByRole('button', { name: 'Зберегти підписку' }).click();
     await expect(card).not.toContainText('Київ');
     await page.getByRole('button', { name: 'Додати підписку' }).click();
     await page.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill('Обладнання');
     await noOverflow(page);
     await page.getByRole('option', { name: /Обладнання та інструменти/ }).click();
+    await chooseTerritory(page, 'Україна', 'Україна');
     await page.getByRole('button', { name: 'Зберегти підписку' }).click();
     await expect(page.locator('.subscription-card')).toHaveCount(2);
     await noOverflow(page);
     await page.screenshot({ path: testInfo.outputPath(`subscription-list-${width}.png`), fullPage: true });
+    await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/matches') && response.status() === 200),
+      card.getByRole('link', { name: 'Збігів: 7' }).click(),
+    ]);
+    await expect(page.getByRole('heading', { name: 'Збіги підписки: Мед' })).toBeVisible();
+    await expect(page.getByText('Передмістя: до 20 км', { exact: true })).toBeVisible();
+    await page.getByText('Значення пошуку за підпискою', { exact: true }).click();
+    await expect(page.getByLabel('Кількість від', { exact: true })).toHaveValue('10');
+    await expect(page.getByLabel('Кількість до', { exact: true })).toHaveValue('50');
+    await expect(page.getByLabel('Прийнятна ціна від, за одиницю', { exact: true })).toHaveValue('170');
+    await expect(page.getByRole('combobox', { name: 'Одиниця', exact: true })).toHaveValue('kg');
+    await expect(page.getByRole('combobox', { name: 'Валюта', exact: true })).toHaveValue('UAH');
+    await expect(page.getByRole('slider', { name: 'Відстань за межами міста' })).toHaveValue('20');
+    await expect(page.getByRole('checkbox', { name: /Доставка продавцем/ })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: /Самовивіз/ })).not.toBeChecked();
+    await noOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath(`subscription-search-values-${width}.png`), fullPage: true });
+    await page.goto('/settings/demand-subscriptions');
     await card.getByRole('button', { name: 'Видалити' }).click();
     const dialog = page.getByRole('dialog', { name: 'Видалити підписку?' });
     await expect(dialog).toBeVisible();
@@ -160,7 +201,7 @@ for (const width of [1440, 1024, 768, 390, 320]) {
   });
 }
 
-test('minimal country, region and city subscriptions need no quantity, price or receipt', async ({ page }) => {
+test('minimal country, region and city subscriptions need no quantity or price and default to both receipt methods', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page);
   await page.goto('/settings/demand-subscriptions');
@@ -168,18 +209,18 @@ test('minimal country, region and city subscriptions need no quantity, price or 
     await page.getByRole('button', { name: 'Додати підписку' }).click();
     await page.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill('Мед');
     await page.getByRole('option', { name: 'Сільське господарство › Мед' }).click();
-    await page.getByRole('combobox', { name: 'Країна', exact: true }).selectOption('');
     await page.getByRole('button', { name: 'Зберегти підписку' }).click();
     await expect(page.getByRole('alert')).toContainText('Оберіть країну, область або місто');
-    if (geography === 'country') await page.getByRole('combobox', { name: 'Країна', exact: true }).selectOption('PL');
-    if (geography === 'region') await page.getByRole('combobox', { name: 'Область', exact: true }).selectOption('Рівненська область');
+    if (geography === 'country') await chooseTerritory(page, 'Польща', 'Польща');
+    if (geography === 'region') await chooseTerritory(page, 'Рівненська область');
     if (geography === 'city') {
-      await page.getByRole('combobox', { name: 'Додати місто / населений пункт' }).fill('Рівне');
+      await page.getByRole('combobox', { name: 'Країна, область або населений пункт' }).fill('Рівне');
       await page.getByRole('option', { name: /місто, Рівне,/ }).click();
     }
     await expect(page.getByLabel('Кількість від', { exact: true })).toHaveValue('');
     await expect(page.getByLabel('Прийнятна ціна від, за одиницю', { exact: true })).toHaveValue('');
-    await expect(page.getByRole('checkbox', { name: /Самовивіз/ })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: /Самовивіз/ })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: /Доставка продавцем/ })).toBeChecked();
     await page.getByRole('button', { name: 'Зберегти підписку' }).click();
     await expect(page.getByRole('form')).toHaveCount(0);
   }
@@ -241,6 +282,7 @@ test('subscription load and mutation errors allow retry without losing form data
   await page.getByRole('button', { name: 'Додати підписку' }).click();
   await page.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill('Мед');
   await page.getByRole('option', { name: 'Сільське господарство › Мед' }).click();
+  await chooseTerritory(page, 'Україна', 'Україна');
   state.failMutation(true);
   await page.getByRole('button', { name: 'Зберегти підписку' }).click();
   await expect(page.getByRole('alert')).toContainText('Помилка збереження');
@@ -250,3 +292,133 @@ test('subscription load and mutation errors allow retry without losing form data
   await expect(page.getByRole('article', { name: 'Підписка: Мед' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
+
+ test('country covers lower levels, keyboard city selection blocks duplicates and handles optional validation', async ({page}, testInfo) => {
+  await page.setViewportSize({width:320,height:900});
+  const state = await fixture(page);
+  await page.goto('/settings/demand-subscriptions');
+  await page.getByRole('button',{name:'Додати підписку'}).click();
+  await page.getByRole('combobox',{name:'Пошук або вибір категорії'}).fill('Мед');
+  await page.getByRole('option',{name:'Сільське господарство › Мед',exact:true}).click();
+  await expect(page.getByRole('combobox',{name:'Область',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('combobox',{name:'Країна',exact:true})).toHaveCount(0);
+  const picker = page.getByRole('combobox',{name:'Країна, область або населений пункт'});
+  await picker.fill('Рівне');
+  await expect(page.getByRole('option',{name:/місто, Рівне,/})).toBeVisible();
+  await expect(page.getByRole('option',{name:/село, Рівне, Ковельський район, Волинська область/})).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('subscription-namesakes-320.png'),fullPage:true});
+  await picker.press('ArrowDown'); await picker.press('ArrowDown'); await picker.press('Enter');
+  await expect(page.getByRole('list',{name:'Вибрані території'}).locator('li')).toHaveCount(1);
+  await picker.fill('Рівне');
+  await page.getByRole('option',{name:/місто, Рівне,/}).click();
+  await expect(page.getByRole('alert')).toContainText('уже вибрано');
+  await expect(page.getByRole('list',{name:'Вибрані території'}).locator('li')).toHaveCount(1);
+  await chooseTerritory(page, 'Рівненська область');
+  await expect(page.getByRole('list',{name:'Вибрані території'}).locator('li')).toHaveCount(1);
+  await expect(page.getByRole('checkbox',{name:'Враховувати передмістя'})).toBeDisabled();
+  await picker.fill('Київ'); await page.getByRole('option',{name:/місто, Київ,/}).click();
+  await expect(page.getByRole('list',{name:'Вибрані території'})).toContainText('місто Київ');
+  await page.getByRole('checkbox',{name:'Враховувати передмістя'}).check();
+  await page.getByRole('checkbox',{name:'Враховувати передмістя'}).uncheck();
+  await expect(page.getByRole('list',{name:'Вибрані території'}).locator('li')).toHaveCount(2);
+  await page.getByLabel('Кількість від',{exact:true}).fill('10');
+  await page.getByRole('button',{name:'Зберегти підписку'}).click();
+  await expect(page.getByRole('alert')).toContainText('Оберіть одиницю');
+  await page.getByRole('combobox',{name:'Одиниця',exact:true}).selectOption('kg');
+  await page.getByLabel('Прийнятна ціна від, за одиницю',{exact:true}).fill('200');
+  await page.getByRole('button',{name:'Зберегти підписку'}).click();
+  await expect(page.getByRole('alert')).toContainText('Оберіть валюту');
+  await page.getByLabel('Кількість від',{exact:true}).fill('');
+  await page.getByLabel('Прийнятна ціна від, за одиницю',{exact:true}).fill('');
+  await page.getByRole('combobox',{name:'Одиниця',exact:true}).selectOption('');
+  await chooseTerritory(page, 'Україна', 'Україна');
+  await expect(picker).toBeVisible();
+  await expect(page.getByText(/Уся Україна вже включає/)).toBeVisible();
+  await page.getByRole('button',{name:'Зберегти підписку'}).click();
+  expect(state.savedSubscriptions.at(-1)).toMatchObject({countryCodes:['UA'],regions:[],settlementCodes:[],cityOutsideKm:null,unit:null,currency:null,minQuantity:null,minPrice:null,receiptMethods:['SELF_PICKUP','SELLER_DELIVERY']});
+  await page.getByRole('button',{name:'Редагувати',exact:true}).click();
+  await expect(page.getByRole('list',{name:'Вибрані території'})).toContainText('Україна');
+  await expect(page.getByRole('combobox',{name:'Одиниця',exact:true})).toHaveValue('');
+  await expect(page.getByRole('combobox',{name:'Валюта',exact:true})).toHaveValue('');
+  await noOverflow(page);
+ });
+
+ test('unavailable administrative boundary preserves cities and allows saving without suburbs', async ({page}) => {
+  await page.setViewportSize({width:390,height:900});
+  const state = await fixture(page); state.failBoundary(true);
+  await page.goto('/settings/demand-subscriptions');
+  await page.getByRole('button',{name:'Додати підписку'}).click();
+  await page.getByRole('combobox',{name:'Пошук або вибір категорії'}).fill('Мед');
+  await page.getByRole('option',{name:'Сільське господарство › Мед',exact:true}).click();
+  await page.getByRole('combobox',{name:'Країна, область або населений пункт'}).fill('Рівне');
+  await page.getByRole('option',{name:/місто, Рівне,/}).click();
+  await page.getByRole('checkbox',{name:'Враховувати передмістя'}).check();
+  await page.getByRole('button',{name:'Зберегти підписку'}).click();
+  await expect(page.getByRole('alert')).toContainText('Не підтверджено адміністративні межі');
+  await expect(page.getByRole('list',{name:'Вибрані території'})).toContainText('Рівненська область');
+  await page.getByRole('checkbox',{name:'Враховувати передмістя'}).uncheck();
+  await page.getByRole('button',{name:'Зберегти підписку'}).click();
+  expect(state.savedSubscriptions.at(-1)).toMatchObject({settlementCodes:['rivne'],cityOutsideKm:null});
+  await expect(page.getByRole('article',{name:'Підписка: Мед',exact:true})).toContainText('Рівне');
+  await noOverflow(page);
+ });
+
+for (const width of [1440, 1024, 768, 390, 320]) {
+  test(`one input retains multiple regions and opens all counted matches ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await fixture(page);
+    await page.goto('/settings/demand-subscriptions');
+    await page.getByRole('button', { name: 'Додати підписку' }).click();
+    await page.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill('Мед');
+    await page.getByRole('option', { name: 'Сільське господарство › Мед', exact: true }).click();
+    await chooseTerritory(page, 'Рівненська область');
+    await chooseTerritory(page, 'місто Київ');
+    await expect(page.getByRole('list', { name: 'Вибрані території' }).locator('li')).toHaveCount(2);
+    await chooseTerritory(page, 'Рівне', /місто, Рівне,/);
+    await expect(page.getByRole('alert')).toContainText('уже включений');
+    await page.getByRole('button', { name: 'Зберегти підписку' }).click();
+    expect(state.savedSubscriptions.at(-1)).toMatchObject({ countryCodes: [], regions: ['Рівненська область', 'місто Київ'], settlementCodes: [] });
+    await page.reload();
+    const card = page.getByRole('article', { name: 'Підписка: Мед' });
+    await expect(card).toContainText('Рівненська область, місто Київ');
+    await card.getByRole('button', { name: 'Редагувати' }).click();
+    await expect(page.getByRole('list', { name: 'Вибрані території' }).locator('li')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Скасувати', exact: true }).click();
+    await expect(card.getByRole('link', { name: 'Збігів: 7' })).toBeVisible();
+    await noOverflow(page);
+    await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/matches') && response.status() === 200),
+      card.getByRole('link', { name: 'Збігів: 7' }).click(),
+    ]);
+    await expect(page).toHaveURL(/\/discover\?demandSubscription=fixture-0$/);
+    await expect(page.getByRole('heading', { name: 'Збіги підписки: Мед' })).toBeVisible();
+    await expect(page.getByText('Знайдено: 7. Показано всі відповідні запити покупців.')).toBeVisible();
+    await expect(page.locator('.map-listing-result')).toHaveCount(7);
+    await page.getByText('Значення пошуку за підпискою', { exact: true }).click();
+    await expect(page.getByRole('list', { name: 'Вибрані території' }).locator('li')).toHaveCount(2);
+    await expect(page.getByRole('list', { name: 'Вибрані території' })).toContainText('Рівненська область');
+    await expect(page.getByRole('checkbox', { name: /Самовивіз/ })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: /Доставка продавцем/ })).toBeChecked();
+    await page.getByText('Значення пошуку за підпискою', { exact: true }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`subscription-matches-${width}.png`), fullPage: true });
+    await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/matches') && response.status() === 200),
+      page.reload(),
+    ]);
+    await expect(page.locator('.map-listing-result')).toHaveCount(7);
+    const canvas = page.locator('.map-canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + 40, box.y + 80);
+    const beforePan = state.matchReads();
+    const extraRead = page.waitForRequest(request => new URL(request.url()).pathname.endsWith('/matches'), { timeout: 2000 }).then(() => true, () => false);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 150, box.y + 130, { steps: 8 });
+    await page.mouse.up();
+    expect(await extraRead).toBe(false);
+    expect(state.matchReads()).toBe(beforePan);
+    await expect(page.locator('.map-listing-result')).toHaveCount(7);
+    expect((await page.locator('.map-listing-result').allTextContents()).join(' ')).not.toContain('понад 20 км');
+  });
+}

@@ -15,7 +15,7 @@ import SettlementSearchInput from './SettlementSearchInput'
 import SettlementPicker from './SettlementPicker'
 import MapListingPreview from './MapListingPreview'
 import { markerKey, selectionMarkers, selectionForMarker, type MapSelection } from './map-selection'
-import type { Settlement } from './settlement-model'
+import { resolveSettlement, type Settlement } from './settlement-model'
 import Card, { ListingPicture } from './ProductCard'
 import { ListingBasics, QuantityFields, CurrencyField, FieldError } from './ListingFields'
 import ListingLocationFields from './ListingLocationFields'
@@ -34,7 +34,8 @@ import type { MapViewport } from './map-clusters'
 import type { HomeCity, HomeMapProps } from './PublicHome'
 import './sidebar-profile.css'
 import DemandSubscriptions from './DemandSubscriptions'
-import { receiptLabel, receiptLabels, type ReceiptMethod } from './subscription-criteria'
+import { countryName, criteriaDraft, receiptLabel, receiptLabels, type ReceiptMethod, type SubscriptionCriteria } from './subscription-criteria'
+import SubscriptionCriteriaFields from './SubscriptionCriteriaFields'
 import { COUNTRIES } from './countries'
 import { RequestOffers, DealChat, ChatActions, closeChatActionMenus, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
 import { MessagesContext, MessageUnreadBadge } from './messages-state'
@@ -135,6 +136,8 @@ function ViewBreadcrumbs({ view }: { view: View }) { const label = viewBreadcrum
 
 function MapView({ categories, openProduct, openRequest, openProfile, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange }: { categories: Category[]; openProduct: (product: Product) => void; openRequest: (id: string, mapState?: MapReturnState) => void; openProfile: (username: string) => void; notify: (message: string) => void; city?: HomeCity } & Partial<HomeMapProps>) {
     const restored = useRef<MapReturnState | null>((window.history.state as { mapReturn?: MapReturnState } | null)?.mapReturn ?? null).current
+    const subscriptionId = new URLSearchParams(window.location.search).get('demandSubscription')
+    const [subscriptionResult, setSubscriptionResult] = useState<{ count: number; subscription: Partial<SubscriptionCriteria> & { category: { id: string; name: string } }; unmappedRequests: { id: string; title: string; geoArea: string; settlement: Settlement | null }[] } | null>(null)
     const restoringLocation = useRef(Boolean(restored))
     const location = useSearchLocation(request, userId, city, locationReady)
     const [pickingPoint, setPickingPoint] = useState(false)
@@ -155,8 +158,8 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [localCategoryId, setLocalCategoryId] = useState(() => restored?.localCategoryId ?? '')
     const categoryId = sharedCategoryId ?? localCategoryId
     const setCategoryId = (id: string) => { setLocalCategoryId(id); onCategoryChange?.(id) }
-    const [showProducts, setShowProducts] = useState(() => restored?.showProducts ?? true)
-    const [showBuyRequests, setShowBuyRequests] = useState(() => restored?.showBuyRequests ?? true)
+    const [showProducts, setShowProducts] = useState(() => subscriptionId ? false : restored?.showProducts ?? true)
+    const [showBuyRequests, setShowBuyRequests] = useState(() => subscriptionId ? true : restored?.showBuyRequests ?? true)
     const [markers, setMarkers] = useState<MapMarker[]>([])
     const [fetching, setLoading] = useState(true)
     const [loadedKey, setLoadedKey] = useState('')
@@ -177,13 +180,13 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [sellerProfile, setSellerProfile] = useState<PublicProfile | null>(null)
     const [sellerProfileLoading, setSellerProfileLoading] = useState(false)
     useEffect(() => { if (restoringLocation.current) { restoringLocation.current = false; return }; setSelection(null); setGeoZone(''); setGeoSettlement(null); setFocusRevision(0); setSearchScope(searchCity ? 'city' : 'country') }, [searchCity?.name, searchCity?.settlement?.code, searchCity?.latitude, searchCity?.longitude])
-    const filtered = Boolean(categoryId || mapSearch)
+    const filtered = Boolean(subscriptionId || categoryId || mapSearch)
     const searchOrigin = searchScope === 'nearby' ? homeLocation ?? searchCity ?? center : searchCity ?? center
-    const requestKey = JSON.stringify([searchScope, searchCity?.name ?? '', searchCity?.settlement?.code ?? '', searchOrigin.latitude, searchOrigin.longitude, homeLocation?.latitude, homeLocation?.longitude, radius, nearbyRadius, location.busy, showProducts, showBuyRequests, categoryId, geoZone, geoSettlement?.code, mapSearch, searchIn, searchRevision, center.latitude, center.longitude, zoom, viewport?.south, viewport?.north, viewport?.west, viewport?.east])
+    const requestKey = subscriptionId ? JSON.stringify([subscriptionId, searchRevision]) : JSON.stringify([searchScope, searchCity?.name ?? '', searchCity?.settlement?.code ?? '', searchOrigin.latitude, searchOrigin.longitude, homeLocation?.latitude, homeLocation?.longitude, radius, nearbyRadius, location.busy, showProducts, showBuyRequests, categoryId, geoZone, geoSettlement?.code, mapSearch, searchIn, searchRevision, center.latitude, center.longitude, zoom, viewport?.south, viewport?.north, viewport?.west, viewport?.east])
     const pending = mapQuery.trim() !== mapSearch || loadedKey !== requestKey
     const loading = fetching || pending
     const categoryById = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories])
-    const areaMarkers = useMemo(() => pending ? [] : searchScope === 'nearby' ? markers : viewport ? markers.filter((item) => inViewport(item, viewport)) : [], [markers, viewport, pending, searchScope])
+    const areaMarkers = useMemo(() => pending ? [] : subscriptionId || searchScope === 'nearby' ? markers : viewport ? markers.filter((item) => inViewport(item, viewport)) : [], [markers, viewport, pending, searchScope, subscriptionId])
     const areaProducts = useMemo(() => areaMarkers.filter((item) => item.kind === 'product'), [areaMarkers])
     const sellers = useMemo(() => groupMapSellers(areaProducts), [areaProducts])
     const scopedMarkers = useMemo(() => selectionMarkers(selection, markers, areaMarkers), [markers, areaMarkers, selection])
@@ -258,7 +261,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     }, [expanded])
 
     useEffect(() => {
-        if (!viewport || location.busy) return
+        if (!subscriptionId && (!viewport || location.busy)) return
         const controller = new AbortController()
         setLoading(true); setError('')
         const timer = window.setTimeout(async () => {
@@ -277,18 +280,37 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             if (searchIn === 'owner' && searchScope !== 'nearby') params.set('includeOwnerListings', 'true')
             if (categoryId) params.set('categoryId', categoryId)
             try {
-                const result = await request('/api/map/markers?' + params, { signal: controller.signal })
+                const result = await request(subscriptionId ? '/api/demand-subscriptions/' + encodeURIComponent(subscriptionId) + '/matches' : '/api/map/markers?' + params, { signal: controller.signal })
+                let points = result.markers
+                if (subscriptionId) {
+                    // A city-only Request can have a verified approximate city marker.
+                    // This display estimate never replaces the server's suburb-matching point.
+                    const places = new Map<string, ReturnType<typeof resolveSettlement>>()
+                    const estimates = await Promise.all(result.unmappedRequests.map(async item => {
+                        if (!item.settlement) return null
+                        try {
+                            if (!places.has(item.settlement.code)) places.set(item.settlement.code, resolveSettlement(item.settlement, controller.signal))
+                            const place = await places.get(item.settlement.code)!
+                            if (!validCoordinates(place.coordinates)) return null
+                            return { id: item.id, kind: 'buyRequest', title: item.title, category: categoryById.get(item.category.id) ?? item.category, quantity: item.quantity, unit: item.unit,
+                                geoZone: `${item.geoArea || place.name} · Орієнтовно в населеному пункті`, approximate: true, distanceBand: '',
+                                latitude: Math.floor(place.coordinates.latitude * 100 + .5) / 100, longitude: Math.floor(place.coordinates.longitude * 100 + .5) / 100 }
+                        } catch { return null } // Keep the Request in the list when HERE cannot confirm it.
+                    }))
+                    const located = new Set(estimates.filter(Boolean).map(item => item.id))
+                    points = [...points, ...estimates.filter(Boolean)]
+                    if (!controller.signal.aborted) setSubscriptionResult({ ...result, unmappedRequests: result.unmappedRequests.filter(item => !located.has(item.id)) })
+                }
                 if (!controller.signal.aborted) {
-                    setMarkers(result.markers); setLoadedKey(requestKey)
+                    setMarkers(points); setLoadedKey(requestKey)
                     const map = mapInstance.current
-                    if (map && searchScope !== 'nearby' && initialSearch) {
-                        const points = result.markers
-                        const origin = searchScope === 'city' && searchCity ? [searchCity.latitude, searchCity.longitude] as [number, number] : [49.0, 31.0] as [number, number]
-                        if (!points.length && searchScope === 'city' && searchCity) map.setView(origin, 12, { animate: false })
+                    if (map && (subscriptionId || searchScope !== 'nearby') && initialSearch) {
+                        const origin = !subscriptionId && searchScope === 'city' && searchCity ? [searchCity.latitude, searchCity.longitude] as [number, number] : [49.0, 31.0] as [number, number]
+                        if (!subscriptionId && !points.length && searchScope === 'city' && searchCity) map.setView(origin, 12, { animate: false })
                         else {
                             const bounds = points.length ? L.latLngBounds(points.map((item) => [item.latitude, item.longitude])) : L.latLngBounds([[44, 22], [52.5, 40.5]])
-                            if (searchScope === 'city') bounds.extend(origin)
-                            map.fitBounds(bounds, { padding: [55, 55], maxZoom: searchScope === 'city' ? 12 : 7, animate: false })
+                            if (!subscriptionId && searchScope === 'city') bounds.extend(origin)
+                            map.fitBounds(bounds, { padding: [55, 55], maxZoom: subscriptionId ? 12 : searchScope === 'city' ? 12 : 7, animate: false })
                         }
                         setFocusRevision((value) => value + 1)
                     } else if (map && searchScope === 'nearby' && homeLocation && initialSearch) {
@@ -299,11 +321,11 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     }
                 }
             } catch (caught) {
-                if (!controller.signal.aborted) { setError((caught as Error).message); setMarkers([]); setLoadedKey(requestKey) }
+                if (!controller.signal.aborted) { setError((caught as Error).message); setMarkers([]); if (subscriptionId) setSubscriptionResult(null); setLoadedKey(requestKey) }
             } finally { if (!controller.signal.aborted) setLoading(false) }
         }, 120)
         return () => { window.clearTimeout(timer); controller.abort() }
-    }, [requestKey, focusRevision])
+    }, [requestKey, subscriptionId ? 0 : focusRevision, subscriptionId ? true : Boolean(viewport)])
 
 
     useEffect(() => {
@@ -433,9 +455,19 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             ? 'Кожна картинка категорії — окреме оголошення. Наблизьте мапу, щоб побачити фото. Аватар із числом відкриває кілька оголошень одного продавця.'
             : 'Оберіть категорію або введіть назву, щоб бачити окремі товари. Аватар із числом показує продавця з кількома товарами.'
     return <section className="content map-view">
-        <div className="view-header"><div><span className="eyebrow">Орієнтир</span><h1>Мапа поруч</h1><p className="view-subtitle">Знайдіть товар у місті, поруч з адресою або по всій Україні.</p></div></div>
+        <div className="view-header"><div><span className="eyebrow">Орієнтир</span><h1>{subscriptionId ? 'Пошук за підпискою' : 'Мапа поруч'}</h1><p className="view-subtitle">{subscriptionId ? 'Відповідні запити покупців на мапі та у списку.' : 'Знайдіть товар у місті, поруч з адресою або по всій Україні.'}</p></div></div>
         <div className={'map-layout map-discovery-layout ' + (expanded ? 'map-layout-expanded' : '')}>
             <div className="map-search-controls">
+                {subscriptionId ? <div className="map-search-hint"><h2>Збіги підписки{subscriptionResult ? `: ${subscriptionResult.subscription.category.name}` : ''}</h2><p>Знайдено: {subscriptionResult?.count ?? '…'}. Показано всі відповідні запити покупців.</p>
+                  {subscriptionResult && <div className="demand-subscriptions">
+                    <p>Території: {[...(subscriptionResult.subscription.countryCodes ?? []).map(countryName), ...(subscriptionResult.subscription.regions ?? []), ...(subscriptionResult.subscription.settlements ?? []).map(city => city.name + ' (' + city.region + ')')].join('; ')}</p>
+                    {subscriptionResult.subscription.cityOutsideKm != null && <p>Передмістя: до {subscriptionResult.subscription.cityOutsideKm} км</p>}
+                    <details><summary>Значення пошуку за підпискою</summary><div className="subscription-form"><fieldset disabled>
+                      <CategoryPicker categories={categories} value={subscriptionResult.subscription.category.id} onChange={() => {}} label="Категорія підписки" />
+                      <SubscriptionCriteriaFields value={criteriaDraft(subscriptionResult.subscription)} onChange={() => {}} />
+                    </fieldset></div><a className="text-button" href="/settings/demand-subscriptions">Редагувати критерії підписки</a></details>
+                  </div>}
+                  <a className="outline-button" href="/settings/demand-subscriptions">До підписок</a> <a className="text-button" href="/discover">Звичайний пошук</a></div> : <>
                 <form className="map-search-row" role="search" onSubmit={(event) => { event.preventDefault(); runSearch('city') }}>
                     <label className="map-search-main"><span>{searchIn === 'owner' ? 'Продавець або покупець' : searchCity ? 'Пошук товару в місті' : 'Пошук товару по Україні'}</span><input type="search" value={mapQuery} maxLength={160} onChange={(event) => { setMapQuery(event.target.value); setSelection(null) }} placeholder={searchIn === 'owner' ? 'Ім’я або логін' : 'Наприклад, велосипед Trek'} /></label>
                     <CategoryPicker categories={categories} value={categoryId} onChange={chooseCategory} allowAll className="map-search-category" label="Категорія" />
@@ -455,6 +487,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     {selection && <button type="button" onClick={() => setSelection(null)}>{selectionOwner?.nickname || selectionOwner?.username || 'Обрана точка'} ×</button>}
                 </div>
                 {!filtered && !selection && <p className="map-search-hint">Шукаєте конкретний товар? Оберіть категорію або введіть назву — точки стануть детальнішими.</p>}
+                </>}
             </div>
             <div className="map-canvas-wrapper">
                 <div ref={mapElement} className={'map-canvas' + (pickingPoint ? ' map-picking-point' : '')} aria-label="Мапа товарів, продавців та запитів" />
@@ -465,8 +498,8 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                 <span className="map-displacement-note">Лінія з’єднує оголошення з його місцем</span>
             </div>
             <aside ref={summaryElement} tabIndex={-1} className="map-summary" aria-label="Результати пошуку на мапі" aria-busy={loading}>
-                <div className="map-summary-heading"><span className="eyebrow">{selection ? 'Обрана точка' : 'У видимій області'}</span>{selection && <button type="button" className="text-button" onClick={() => setSelection(null)}>← Усі результати</button>}</div>
-                {activeMarker && <MapListingPreview item={activeMarker} description={previewDetail?.key === activeMarkerKey ? previewDetail.description : undefined} loading={!previewDetail || previewDetail.key !== activeMarkerKey || previewDetail.loading} error={previewDetail?.key === activeMarkerKey ? previewDetail.error : undefined} imageUrl={imageUrl} onOpen={() => openMarker(activeMarker)} onOwner={() => activeMarker.owner && openProfile(activeMarker.owner.username)} onMap={() => { const map = mapInstance.current; if (map && !map.getBounds().contains([activeMarker.latitude, activeMarker.longitude])) map.panTo([activeMarker.latitude, activeMarker.longitude]); mapElement.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); highlight([activeMarker.id], true) }} />}
+                <div className="map-summary-heading"><span className="eyebrow">{selection ? 'Обрана точка' : subscriptionId ? 'За підпискою' : 'У видимій області'}</span>{selection && <button type="button" className="text-button" onClick={() => setSelection(null)}>← Усі результати</button>}</div>
+                {activeMarker && <MapListingPreview hideDistance={Boolean(subscriptionId)} item={activeMarker} description={previewDetail?.key === activeMarkerKey ? previewDetail.description : undefined} loading={!previewDetail || previewDetail.key !== activeMarkerKey || previewDetail.loading} error={previewDetail?.key === activeMarkerKey ? previewDetail.error : undefined} imageUrl={imageUrl} onOpen={() => openMarker(activeMarker)} onOwner={() => activeMarker.owner && openProfile(activeMarker.owner.username)} onMap={() => { const map = mapInstance.current; if (map && !map.getBounds().contains([activeMarker.latitude, activeMarker.longitude])) map.panTo([activeMarker.latitude, activeMarker.longitude]); mapElement.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); highlight([activeMarker.id], true) }} />}
                 {!activeMarker && (sellerProfileLoading || sellerProfile) && <section className="map-seller-profile" aria-live="polite">
                     {sellerProfileLoading ? <p>Завантажуємо профіль продавця…</p> : sellerProfile && <><div>{renderAvatar(sellerProfile)}<span><strong>{sellerProfile.nickname || sellerProfile.username}</strong><small>@{sellerProfile.username}</small></span></div>{sellerProfile.bio && <p>{sellerProfile.bio}</p>}<small>{sellerProfile.exactAddress || sellerProfile.location || 'Місце не вказано'}</small><small>{sellerProfile.statistics.listingsCount} оголошень · {sellerProfile.ratingSummary.count ? `рейтинг ${sellerProfile.ratingSummary.average}` : 'ще без відгуків'}</small><button type="button" className="outline-button compact" onClick={() => openProfile(sellerProfile.username)}>Відкрити профіль →</button></>}
                 </section>}
@@ -474,7 +507,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                 <p className="map-result-count">{selection ? scopedMarkers.length + ' оголошень за вашим пошуком' : sellers.length + ' продавців · ' + (areaMarkers.length - areaProducts.length) + ' запитів'}</p>
                 <button type="button" className="map-back-to-map text-button" onClick={() => mapElement.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>↑ До мапи</button>
                 <p>{guidance}</p>
-                {categorySuggestions.length > 0 && <div className="map-category-suggestions"><strong>{categoryId ? 'Уточнити підкатегорію' : 'Категорії в цій області'}</strong><div>{categorySuggestions.map(({ category, count }) => <button type="button" key={category.id} onClick={() => chooseCategory(category.id)}><CategoryImage category={category} /><span>{category.name}</span><b>{count}</b></button>)}</div></div>}
+                {!subscriptionId && categorySuggestions.length > 0 && <div className="map-category-suggestions"><strong>{categoryId ? 'Уточнити підкатегорію' : 'Категорії в цій області'}</strong><div>{categorySuggestions.map(({ category, count }) => <button type="button" key={category.id} onClick={() => chooseCategory(category.id)}><CategoryImage category={category} /><span>{category.name}</span><b>{count}</b></button>)}</div></div>}
                 {selection && !scopedMarkers.length && !loading && <p>У цього продавця або в цій точці немає оголошень за поточними фільтрами та межами мапи.</p>}
                 {error && <p className="form-error" role="alert">{error}</p>}
                 <div className="map-result-list">{visibleResults.map((item) => {
@@ -488,12 +521,13 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     return <div className={'map-listing-result ' + (markerKey(item) === activeMarkerKey ? 'map-listing-active' : '')} key={item.kind + '-' + item.id}>
                         <button type="button" className="map-result" aria-pressed={markerKey(item) === activeMarkerKey} onClick={() => showMarkerPreview(item, true)} onMouseEnter={() => highlight([item.id], true)} onMouseLeave={() => highlight([item.id], false)} onFocus={() => highlight([item.id], true)} onBlur={() => highlight([item.id], false)}>
                             <span className="map-result-picture">{category && <CategoryImage category={category} />}{item.photoUrl && <img src={imageUrl(item.photoUrl)} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true }} />}</span>
-                            <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{item.distanceBand} · {item.publicAddress || item.geoZone}</small>{item.approximate === false && <small>{item.kind === 'buyRequest' ? 'Публічне місце покупця' : 'Публічне місце продавця'}</small>}</span>
+                            <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{!subscriptionId && <>{item.distanceBand} · </>}{item.publicAddress || item.geoZone}</small>{item.approximate === false && <small>{item.kind === 'buyRequest' ? 'Публічне місце покупця' : 'Публічне місце продавця'}</small>}</span>
                         </button>
                         <div className="map-listing-actions"><button type="button" onClick={() => openMarker(item)}>{item.kind === 'product' ? 'Відкрити товар' : 'Відкрити запит'} →</button>{item.owner && <button type="button" onClick={() => openProfile(item.owner.username)}>Профіль {item.kind === 'product' ? 'продавця' : 'покупця'} →</button>}</div>
                     </div>
                 })}</div>
                 {resultPages > 1 && <div className="map-result-pagination"><button disabled={activePage <= 1} onClick={() => setResultPage(activePage - 1)}>← Назад</button><span>{activePage} / {resultPages}</span><button disabled={activePage >= resultPages} onClick={() => setResultPage(activePage + 1)}>Далі →</button></div>}
+                {subscriptionId && !!subscriptionResult?.unmappedRequests.length && <div className="map-result-list"><h3>Без публічної точки на мапі</h3>{subscriptionResult.unmappedRequests.map(item => <a className="map-result" href={`/buy-requests/${encodeURIComponent(item.id)}`} key={item.id}><span><strong>{item.title}</strong><small>{item.geoArea}</small></span></a>)}</div>}
                 <div className="map-legend"><span><i className="legend-product" /> Товари продавців</span><span><i className="legend-request" /> Запити покупців</span><small>Число — кількість оголошень, що відповідають пошуку.</small></div>
             </aside>
         </div>
@@ -609,7 +643,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
             <ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} errors={errors} />
             <fieldset className="listing-section"><legend>Кількість і бюджет</legend><QuantityFields errors={errors} />
                 <div className="field-row"><label>Ціна від, за одиницю<input name="minPrice" type="number" min="0" step=".01" placeholder="Не вказано" /><FieldError message={errors.minPrice} /></label><label>Ціна до, за одиницю<input name="maxPrice" type="number" min="0" step=".01" placeholder="Не вказано" /><FieldError message={errors.maxPrice} /></label></div>
-                <p className="listing-location-note">Бюджет необов’язковий. Без бюджету запит не підходить для підписок із ціновими обмеженнями.</p>
+                <p className="listing-location-note">Бюджет необов’язковий. Якщо його не вказано, ціну можна узгодити з продавцем.</p>
                 <FieldError message={errors.priceRange} /><CurrencyField error={errors.currency} />
             </fieldset>
             <fieldset className="listing-section"><legend>Як можна виконати запит?</legend>
@@ -769,7 +803,7 @@ function App() {
         if (view === 'map') return <MapView categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} locationReady={authReady} />
         return <><PublicHome locationReady={authReady} categories={categories} request={request} user={null} onAccount={() => enter()} onCreate={() => enter(true)} openProduct={openProductPage} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />{toast && <div className="toast">{toast}</div>}</>
     }
-    return <MessagesContext.Provider value={messagesState}><div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} messageUnreadCount={messageUnreadCount} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{view === 'home' && <Home user={user} products={products} open={openProductPage} explore={() => go('find')} create={() => go('create')} onChat={(product) => startListingChat('products', product)} />}{view === 'find' && <PublicHome locationReady={authReady} categories={categories} request={request} user={user} onAccount={() => go('profile')} onCreate={() => go('create')} openProduct={openProductPage} onChat={(product) => startListingChat('products', product)} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />}{view === 'products' && <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={openProductPage} onChat={(product) => startListingChat('products', product)} />}{view === 'map' && <MapView userId={user.id} city={mapFocus} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />}{view === 'messages' && <MessagesView notify={notify} />}{view === 'notifications' && <NotificationsView notify={notify} scope={notificationScope} onNotificationsChange={syncNotificationUnread} onNavigate={navigate} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} loading={mineLoading} error={mineError} retry={loadMine} remove={removeProduct} open={openProductPage} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} setStatus={async (product, status) => { try { await request(`/api/products/${product.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadMine(); notify('Статус оновлено') } catch (error) { notify((error as Error).message) } }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'requests' && <MyRequests notify={notify} create={() => go('request')} />}{view === 'market' && <RequestsMarket mine={mine} notify={notify} viewerId={user.id} />}{view === 'orders' && <OrdersView notify={notify} viewerId={user.id} />}{view === 'subscriptions' && <DemandSubscriptions categories={categories} http={request} notify={notify} />}{view === 'profile' && <ProfileView logout={logout} notify={notify} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['find', '⌕', 'Знайти'], ['messages', '♧', 'Чати'], ['notifications', '•', 'Події'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}{key === 'messages' && <MessageUnreadBadge count={messageUnreadCount} />}{key === 'notifications' && unreadNotifications > 0 && <b className="sidebar-notification-count" aria-label={`Непрочитані сповіщення: ${unreadNotifications}`}>{unreadNotifications > 99 ? '99+' : unreadNotifications}</b>}</button>)}</nav>{toast && <div className="toast">{toast}</div>}</div></MessagesContext.Provider>
+    return <MessagesContext.Provider value={messagesState}><div className="app-shell"><Sidebar user={user} profileAvatar={profileAvatar} view={view} go={go} logout={logout} messageUnreadCount={messageUnreadCount} unreadCount={unreadNotifications} onNotificationScope={setNotificationScope} /><main className="main-area"><header className="topbar"><button className="mobile-brand" onClick={() => go('find')}><img className="brand-mini" src="/brand/logo-mini.png" alt="" /><span>ДещоТреба</span></button></header>{view === 'home' && <Home user={user} products={products} open={openProductPage} explore={() => go('find')} create={() => go('create')} onChat={(product) => startListingChat('products', product)} />}{view === 'find' && (new URLSearchParams(window.location.search).has('demandSubscription') ? <MapView userId={user.id} locationReady={authReady} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} /> : <PublicHome locationReady={authReady} categories={categories} request={request} user={user} onAccount={() => go('profile')} onCreate={() => go('create')} openProduct={openProductPage} onChat={(product) => startListingChat('products', product)} renderMap={(mapProps) => <MapView {...mapProps} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />} />)}{view === 'products' && <Catalog categories={categories} products={products} loading={loading} search={search} setSearch={setSearch} searchNow={() => loadProducts(1)} page={page} pages={pages} onPage={loadProducts} open={openProductPage} onChat={(product) => startListingChat('products', product)} />}{view === 'map' && <MapView userId={user.id} city={mapFocus} categories={categories} openProduct={openProductPage} openRequest={openRequestPage} openProfile={openProfilePage} notify={notify} />}{view === 'messages' && <MessagesView notify={notify} />}{view === 'notifications' && <NotificationsView notify={notify} scope={notificationScope} onNotificationsChange={syncNotificationUnread} onNavigate={navigate} />}{view === 'request' && <BuyRequestForm categories={categories} onSaved={requestSaved} onCancel={() => go('home')} />}{view === 'mine' && <Mine products={mine} loading={mineLoading} error={mineError} retry={loadMine} remove={removeProduct} open={openProductPage} create={() => go('create')} edit={(product) => { setEditing(product); setView('create') }} setStatus={async (product, status) => { try { await request(`/api/products/${product.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadMine(); notify('Статус оновлено') } catch (error) { notify((error as Error).message) } }} />}{view === 'create' && <ProductForm categories={categories} product={editing} onSaved={saved} onCancel={() => go(editing ? 'mine' : 'home')} />}{view === 'requests' && <MyRequests notify={notify} create={() => go('request')} />}{view === 'market' && <RequestsMarket mine={mine} notify={notify} viewerId={user.id} />}{view === 'orders' && <OrdersView notify={notify} viewerId={user.id} />}{view === 'subscriptions' && <DemandSubscriptions categories={categories} http={request} notify={notify} />}{view === 'profile' && <ProfileView logout={logout} notify={notify} />}</main><nav className="mobile-nav">{[['home', '⌂', 'Головна'], ['find', '⌕', 'Знайти'], ['messages', '♧', 'Чати'], ['notifications', '•', 'Події'], ['request', '↗', 'Запит'], ['profile', '♙', 'Профіль']].map(([key, icon, text]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => go(key as View)}><span>{icon}</span>{text}{key === 'messages' && <MessageUnreadBadge count={messageUnreadCount} />}{key === 'notifications' && unreadNotifications > 0 && <b className="sidebar-notification-count" aria-label={`Непрочитані сповіщення: ${unreadNotifications}`}>{unreadNotifications > 99 ? '99+' : unreadNotifications}</b>}</button>)}</nav>{toast && <div className="toast">{toast}</div>}</div></MessagesContext.Provider>
 }
 
 function Home({ user, products, open, explore, create, onChat }: { user: User; products: Product[]; open: (product: Product) => void; explore: () => void; create: () => void; onChat: (product: Product) => void }) { return <section className="content"><div className="welcome"><div><span className="eyebrow">Понеділок, гарного дня</span><h1>Привіт, {user.username} <span>✦</span></h1><p>Що шукаєте або продаєте сьогодні?</p></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="hero-strip"><div><span className="eyebrow">Локальний маркетплейс</span><h2>Ваш врожай<br /><em>має значення.</em></h2><button className="light-button" onClick={explore}>Переглянути товари <span>→</span></button></div><div className="hero-art">✦</div></div><div className="section-heading"><div><span className="eyebrow">Рекомендоване</span><h2>Товари поруч</h2></div><button className="text-button" onClick={explore}>Дивитись всі →</button></div><div className="product-grid">{products.slice(0, 4).map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} onChat={() => onChat(product)} />)}</div>{!products.length && <Empty text="Поки немає активних товарів" />}</section> }
@@ -786,7 +820,13 @@ type Offer = { id: string; seller: { id: string; username: string }; buyRequestI
 type Order = { id: string; buyRequestId: string; buyer: { id: string; username: string }; seller: { id: string; username: string }; quantity: number | null; unit: string; price: { unit: number | null; currency: string }; subtotal: number; status: string; createdAt?: string; updatedAt?: string; conditionsSnapshot: { productTitle?: string } | null; cancelReason?: string | null; dispute?: { status: string; reason: string; resolution: string | null } | null }
 type ChatMessage = { id: string; senderId: string; senderUsername: string; body: string; createdAt: string }
 
-type Notification = { id: string; type: string; title: string; body: string; context: 'selling' | 'buying' | null; orderId: string | null; conversationId: string | null; buyRequestId: string | null; readAt: string | null; createdAt: string }
+type BuyRequestPreview = { title: string; quantity: number; unit: string; minPrice: number | null; maxPrice: number | null; currency: string; receiptMethod: ReceiptMethod | null; deliveryPreferred: boolean; deadline: string | null; publicPlace: string; description: string }
+function DemandNotificationDetails({ item }: { item: BuyRequestPreview }) {
+    const budget = item.minPrice == null && item.maxPrice == null ? 'Не вказано' : item.minPrice != null && item.maxPrice != null ? item.minPrice === item.maxPrice ? formatPrice(item.minPrice, item.currency) : `${formatPrice(item.minPrice, item.currency)} – ${formatPrice(item.maxPrice, item.currency)}` : item.minPrice != null ? `від ${formatPrice(item.minPrice, item.currency)}` : `до ${formatPrice(item.maxPrice!, item.currency)}`
+    const receipt = item.receiptMethod ? receiptLabels[item.receiptMethod].split(' — ')[0] : item.deliveryPreferred ? 'Можна узгодити' : 'Не вказано'
+    return <div className="demand-notification-details"><dl><div><dt>Кількість</dt><dd>{item.quantity} {unitLabel(item.unit)}</dd></div><div><dt>Бюджет за {unitLabel(item.unit)}</dt><dd>{budget}</dd></div><div><dt>Отримання</dt><dd>{receipt}</dd></div><div><dt>Населений пункт</dt><dd>{item.publicPlace}</dd></div>{item.deadline && <div><dt>Потрібно до</dt><dd>{new Date(item.deadline).toLocaleDateString('uk-UA')}</dd></div>}</dl>{item.description && <><p className="demand-notification-description-desktop">{item.description}</p><details className="demand-notification-description"><summary>Короткий опис</summary><p>{item.description}</p></details></>}</div>
+}
+type Notification = { buyRequestPreview?: BuyRequestPreview | null; id: string; type: string; title: string; body: string; context: 'selling' | 'buying' | null; orderId: string | null; conversationId: string | null; buyRequestId: string | null; readAt: string | null; createdAt: string }
 type NotificationUnreadCounts = { total: number; buying: number; selling: number }
 type NotificationListResponse = { notifications: Notification[]; unreadCounts: NotificationUnreadCounts }
 type PublicProfile = { id: string; username: string; nickname: string | null; avatarUrl: string | null; bio: string | null; countryCode: string; location: string | null; phone: string | null; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number }; createdAt: string; lastSeenAt: string | null }
@@ -1159,7 +1199,7 @@ function NotificationsView({ notify, scope, onNotificationsChange, onNavigate }:
         } catch (caught) { setMutationError((caught as Error).message) }
     }
     const destinationFor = (item: Notification) => item.conversationId ? `/messages/${encodeURIComponent(item.conversationId)}` : item.buyRequestId ? `/buy-requests/${encodeURIComponent(item.buyRequestId)}` : item.orderId ? '/orders' : '/my/requests'
-    return <section className="content notifications-view"><div className="view-header"><div><span className="eyebrow">Центр подій</span><h1>Сповіщення</h1></div>{activeContext !== 'all' && <button className="outline-button" disabled={!contextUnread(activeContext)} onClick={markContextRead}>Прочитати всі</button>}</div><div className="notification-context-tabs" role="tablist" aria-label="Контекст сповіщень"><button role="tab" aria-selected={activeContext === 'buying'} className={activeContext === 'buying' ? 'active' : ''} onClick={() => setActiveContext('buying')}>Купівля {contextUnread('buying') > 0 && <b>{contextUnread('buying')}</b>}</button><button role="tab" aria-selected={activeContext === 'selling'} className={activeContext === 'selling' ? 'active' : ''} onClick={() => setActiveContext('selling')}>Продаж {contextUnread('selling') > 0 && <b>{contextUnread('selling')}</b>}</button><button role="tab" aria-selected={activeContext === 'all'} className={activeContext === 'all' ? 'active' : ''} onClick={() => setActiveContext('all')}>Усі</button></div>{mutationError && <p className="form-error" role="alert">{mutationError} <button className="text-button" onClick={() => void load()}>Оновити список</button></p>}{loading ? <div className="loading" role="status">Завантажуємо сповіщення…</div> : error ? <section className="empty-state" role="alert"><h3>Не вдалося завантажити сповіщення</h3><p>{error}</p><button className="primary-button compact" onClick={() => void load()}>Повторити</button></section> : <div className="notification-list">{contextItems.map((item) => <article className={`notification-row ${item.readAt ? 'read' : 'unread'}`} key={item.id}><div><strong>{item.title}</strong><p>{item.body}</p><small>{item.readAt ? 'Прочитано' : 'Непрочитано'} · {new Date(item.createdAt).toLocaleString('uk-UA')}</small></div><div className="notification-actions">{!item.readAt && <button className="text-button" onClick={() => void markOneRead(item)}>Позначити прочитаним</button>}<button className="text-button" onClick={() => void markOneRead(item, destinationFor(item))}>Переглянути</button></div></article>)}{!contextItems.length && <Empty text={activeContext === 'buying' ? 'У покупках поки немає сповіщень' : activeContext === 'selling' ? 'У продажах поки немає сповіщень' : 'У вас поки немає сповіщень'} />}</div>}</section>
+    return <section className="content notifications-view"><div className="view-header"><div><span className="eyebrow">Центр подій</span><h1>Сповіщення</h1></div>{activeContext !== 'all' && <button className="outline-button" disabled={!contextUnread(activeContext)} onClick={markContextRead}>Прочитати всі</button>}</div><div className="notification-context-tabs" role="tablist" aria-label="Контекст сповіщень"><button role="tab" aria-selected={activeContext === 'buying'} className={activeContext === 'buying' ? 'active' : ''} onClick={() => setActiveContext('buying')}>Купівля {contextUnread('buying') > 0 && <b>{contextUnread('buying')}</b>}</button><button role="tab" aria-selected={activeContext === 'selling'} className={activeContext === 'selling' ? 'active' : ''} onClick={() => setActiveContext('selling')}>Продаж {contextUnread('selling') > 0 && <b>{contextUnread('selling')}</b>}</button><button role="tab" aria-selected={activeContext === 'all'} className={activeContext === 'all' ? 'active' : ''} onClick={() => setActiveContext('all')}>Усі</button></div>{mutationError && <p className="form-error" role="alert">{mutationError} <button className="text-button" onClick={() => void load()}>Оновити список</button></p>}{loading ? <div className="loading" role="status">Завантажуємо сповіщення…</div> : error ? <section className="empty-state" role="alert"><h3>Не вдалося завантажити сповіщення</h3><p>{error}</p><button className="primary-button compact" onClick={() => void load()}>Повторити</button></section> : <div className="notification-list">{contextItems.map((item) => <article className={`notification-row ${item.readAt ? 'read' : 'unread'}`} key={item.id}><div className="notification-content"><strong className="notification-event-title">{item.title}</strong><p className="notification-event-body">{item.body}</p>{item.buyRequestPreview && <div className="notification-request-preview"><strong>{item.buyRequestPreview.title}</strong><DemandNotificationDetails item={item.buyRequestPreview} /></div>}<small>{item.readAt ? 'Прочитано' : 'Непрочитано'} · {new Date(item.createdAt).toLocaleString('uk-UA')}</small></div><div className="notification-actions">{!item.readAt && <button className="text-button" onClick={() => void markOneRead(item)}>Позначити прочитаним</button>}<button className="text-button" onClick={() => void markOneRead(item, destinationFor(item))}>Переглянути</button></div></article>)}{!contextItems.length && <Empty text={activeContext === 'buying' ? 'У покупках поки немає сповіщень' : activeContext === 'selling' ? 'У продажах поки немає сповіщень' : 'У вас поки немає сповіщень'} />}</div>}</section>
 }
 
 function ReviewForm({ order, notify, onDone, onCancel, viewerId }: { viewerId: string; order: Order; notify: (message: string) => void; onDone: () => void; onCancel: () => void }) {

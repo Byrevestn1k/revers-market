@@ -117,7 +117,7 @@ const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     addressVisibility: row.address_visibility,
     countryCode: row.country_code, receiptMethod: row.receipt_method,
     mapLocationMode: row.map_location_mode,
-    geoArea: row.geo_area, settlement: getSettlement(row.settlement_code), coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' || ['pin', 'address'].includes(row.map_location_mode) ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }), deadline: row.deadline?.toISOString() ?? null, status: row.status,
+    geoArea: row.geo_area, settlement: getSettlement(row.settlement_code), coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }), deadline: row.deadline?.toISOString() ?? null, status: row.status,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
 })
 const offerDto = (row: OfferRow) => ({

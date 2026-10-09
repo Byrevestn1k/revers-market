@@ -7,6 +7,21 @@ export const normalizeSettlementName = (value: string) => value.trim().toLocaleL
 const rank = { city: 0, town: 1, village: 2 }
 const ordered = [...data.settlements].sort((a, b) => rank[a.type] - rank[b.type] || a.name.localeCompare(b.name, 'uk') || a.region.localeCompare(b.region, 'uk') || a.district.localeCompare(b.district, 'uk') || a.code.localeCompare(b.code))
 const searchable = ordered.map(item => ({ item, name: normalizeSettlementName(item.name) }))
+const byName = new Map<string, Settlement[]>()
+for (const { item, name } of searchable) byName.set(name, [...(byName.get(name) ?? []), item])
+// Older public Request locations contain a label rather than a directory code.
+// Resolve exact, unambiguous names only; never inspect private addresses or points.
+export function resolvePublicSettlement(label: unknown, countryCode: unknown): Settlement | null {
+    if (typeof label !== 'string' || (countryCode != null && countryCode !== 'UA')) return null
+    const parts = label.split(',').map(normalizeSettlementName)
+    const name = parts.shift()
+    if (!name || parts.some(part => !part)) return null
+    const communityName = (value: string) => value.replace(/\s+(?:(?:міська|селищна|сільська)\s+)?(?:територіальна\s+)?громада$/u, '')
+    const candidates = (byName.get(name) ?? []).filter(item => parts.every(part =>
+        ['україна', 'ukraine', 'ua', normalizeSettlementName(item.region), normalizeSettlementName(item.district)].includes(part)
+        || communityName(part) === normalizeSettlementName(item.community)))
+    return candidates.length === 1 ? candidates[0] : null
+}
 const regions = [...new Set(ordered.map(item => item.region))].sort((a, b) => a.localeCompare(b, 'uk'))
 export const getSettlement = (code: unknown): Settlement | null => typeof code === 'string' ? byCode.get(code) ?? null : null
 export function listSettlementRegions() { return { version: data.version, regions } }

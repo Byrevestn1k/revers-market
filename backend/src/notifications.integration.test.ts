@@ -43,16 +43,20 @@ if (hasDatabase) {
         }, 30000)
 
         afterAll(async () => {
+            await pool.query('DELETE FROM orders WHERE buy_request_id = $1', [requestId])
             await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[buyerId, sellerId, volumeUserId]])
         })
 
         it('persists structured context and references without classifying legacy history', async () => {
             const buyerNotifications = (await buyer.get('/api/notifications')).body.notifications
-            expect(buyerNotifications.find((item: any) => item.title === 'Нова пропозиція')).toMatchObject({ context: 'buying', buyRequestId: requestId })
+            expect(buyerNotifications.find((item: any) => item.title === 'Нова пропозиція')).toMatchObject({ body: 'Продавець відповів на ваш запит', context: 'buying', buyRequestId: requestId })
 
             expect((await buyer.post(`/api/offers/${offerId}/reject`)).status).toBe(204)
             const sellerNotifications = (await seller.get('/api/notifications')).body.notifications
-            expect(sellerNotifications.find((item: any) => item.title === 'Пропозицію відхилено')).toMatchObject({ context: 'selling', buyRequestId: requestId })
+            expect(sellerNotifications.find((item: any) => item.title === 'Пропозицію відхилено')).toMatchObject({
+                body: 'Покупець відхилив вашу пропозицію', context: 'selling', buyRequestId: requestId,
+                buyRequestPreview: { title: 'Запит для сповіщень', quantity: 10, unit: 'kg' },
+            })
 
             await pool.query("INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'system', 'Стара подія', '')", [buyerId])
             const withLegacy = (await buyer.get('/api/notifications')).body.notifications
@@ -70,6 +74,34 @@ if (hasDatabase) {
             expect(after.find((item: any) => item.title === 'Продаж').readAt).toBeTruthy()
             expect(after.find((item: any) => item.title === 'Legacy').readAt).toBeNull()
         })
+
+        it('keeps acceptance, cancellation and completion messages alongside their public Request preview', async () => {
+            const selectOffer = async () => {
+                const offered = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ quantity: 5, unit: 'kg', price: 10, currency: 'UAH', delivery: 'Самовивіз' })
+                expect(offered.status, JSON.stringify(offered.body)).toBe(201)
+                const selected = await buyer.post(`/api/offers/${offered.body.offer.id}/accept`).send({ quantity: 5, selectionKey: randomUUID() })
+                expect(selected.status, JSON.stringify(selected.body)).toBe(201)
+                return selected.body.order.id as string
+            }
+            const findSellerEvent = async (orderId: string, title: string, body: string) => {
+                const response = await seller.get('/api/notifications')
+                expect(response.status).toBe(200)
+                const event = response.body.notifications.find((item: any) => item.orderId === orderId && item.title === title)
+                expect(event).toMatchObject({ title, body, context: 'selling', buyRequestId: requestId, buyRequestPreview: { title: 'Запит для сповіщень', quantity: 10, unit: 'kg' } })
+                expect(event.conversationId).toBeTruthy()
+            }
+            const cancelledId = await selectOffer()
+            await findSellerEvent(cancelledId, 'Вашу пропозицію обрали', 'Підтвердьте актуальність обраної кількості')
+            expect((await seller.post(`/api/orders/${cancelledId}/seller-confirm`)).status).toBe(200)
+            expect((await buyer.patch(`/api/orders/${cancelledId}/status`).send({ status: 'cancelled', reason: 'Потрібна інша дата отримання' })).status).toBe(200)
+            await findSellerEvent(cancelledId, 'Домовленість скасовано', 'Кількість знову доступна для вибору пропозицій.')
+
+            const completedId = await selectOffer()
+            expect((await seller.post(`/api/orders/${completedId}/seller-confirm`)).status).toBe(200)
+            expect((await seller.post(`/api/orders/${completedId}/complete`)).status).toBe(200)
+            expect((await buyer.post(`/api/orders/${completedId}/complete`)).body.order.status).toBe('completed')
+            await findSellerEvent(completedId, 'Угоду підтверджено обома сторонами', '5 kg, 50 UAH. Тепер можна залишити відгук.')
+        }, 30000)
 
         it('returns exact unread counters when history exceeds the visible 100 notifications', async () => {
             const inserted = await pool.query(`INSERT INTO notifications (user_id, type, title, body, context, created_at)

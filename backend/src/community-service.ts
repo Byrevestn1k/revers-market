@@ -1,6 +1,8 @@
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
+import { requestPublicLocationSql } from './request-public-location.js'
+import { getSettlement, resolvePublicSettlement } from './settlements.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 export type NotificationContext = 'buying' | 'selling'
@@ -17,15 +19,31 @@ export const createNotification = async (queryable: Queryable, userId: string, t
 
 export const listNotifications = async (user: AuthUser) => {
     const [result, unreadResult] = await Promise.all([
-        pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.read_at AS "readAt", n.created_at AS "createdAt"
+        pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.read_at AS "readAt", n.created_at AS "createdAt",
+        CASE WHEN r.id IS NOT NULL AND n.context = 'selling' THEN json_build_object(
+            'title', r.title, 'quantity', r.requested_quantity::float8, 'unit', r.unit,
+            'minPrice', r.min_unit_price::float8, 'maxPrice', r.max_unit_price::float8, 'currency', trim(r.currency),
+            'receiptMethod', r.receipt_method, 'deliveryPreferred', r.preferred_delivery = 'preferred', 'deadline', r.deadline,
+            'description', left(regexp_replace(r.description, '\\s+', ' ', 'g'), 280),
+            'geoArea', public_point.geo_area, 'settlementCode', public_point.settlement_code, 'countryCode', r.country_code
+        ) ELSE NULL END AS "buyRequestPreview"
         FROM notifications n
+        LEFT JOIN buy_requests r ON r.id = n.buy_request_id
+        LEFT JOIN users u ON u.id = r.buyer_id
+        ${requestPublicLocationSql}
         WHERE n.user_id = $1 ORDER BY n.created_at DESC LIMIT 100`, [user.id]),
         pool.query(`SELECT COUNT(*) FILTER (WHERE read_at IS NULL)::int AS total,
             COUNT(*) FILTER (WHERE read_at IS NULL AND context = 'buying')::int AS buying,
             COUNT(*) FILTER (WHERE read_at IS NULL AND context = 'selling')::int AS selling
             FROM notifications WHERE user_id = $1`, [user.id])
     ])
-    return { status: 200, body: { notifications: result.rows, unreadCounts: unreadResult.rows[0] } }
+    const notifications = result.rows.map(row => {
+        if (!row.buyRequestPreview) return row
+        const { settlementCode, countryCode, geoArea, ...preview } = row.buyRequestPreview
+        const settlement = getSettlement(settlementCode) ?? (settlementCode == null ? resolvePublicSettlement(geoArea, countryCode) : null)
+        return { ...row, buyRequestPreview: { ...preview, publicPlace: settlement ? `${settlement.name}, ${settlement.region}` : geoArea || 'Не вказано' } }
+    })
+    return { status: 200, body: { notifications, unreadCounts: unreadResult.rows[0] } }
 }
 
 export const markNotificationsRead = async (user: AuthUser, notificationId?: string, context?: NotificationContext) => {
