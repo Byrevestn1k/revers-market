@@ -1,4 +1,4 @@
-export type AppView = 'home' | 'find' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile' | 'subscriptions'
+export type AppView = 'home' | 'find' | 'products' | 'map' | 'mine' | 'create' | 'request' | 'requests' | 'market' | 'orders' | 'messages' | 'notifications' | 'profile' | 'subscriptions' | 'favorites' | 'cabinet'
 
 export const viewRoutes: Record<AppView, string> = {
     home: '/dashboard',
@@ -15,6 +15,8 @@ export const viewRoutes: Record<AppView, string> = {
     notifications: '/notifications',
     profile: '/settings/profile',
     subscriptions: '/settings/demand-subscriptions',
+    favorites: '/favorites',
+    cabinet: '/cabinet',
 }
 
 export const productEditPath = (id: string) => `/my/products/${encodeURIComponent(id)}/edit`

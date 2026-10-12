@@ -86,5 +86,12 @@ export default function PublicHome({ categories, request, user, onAccount, onCre
             </section>
         </main>
         <footer className="market-footer">ДещоТреба · Поруч і для тебе</footer>
+        {!user && <nav className="public-mobile-nav" aria-label="Основна навігація">
+            <a className="active" href="/discover"><span>⌕</span>Знайти</a>
+            <a href={user ? '/favorites' : '/auth/login?return=%2Ffavorites'}><span>♡</span>Обране</a>
+            <button type="button" onClick={onCreate}><span>＋</span>Додати</button>
+            <a href={user ? '/messages' : '/auth/login?return=%2Fmessages'}><span>♧</span>Чати</a>
+            <a href={user ? '/cabinet' : '/auth/login?return=%2Fcabinet'}><span>♙</span>Кабінет</a>
+        </nav>}
     </div>
 }

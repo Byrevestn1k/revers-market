@@ -7,6 +7,8 @@ describe('canonical navigation', () => {
         expect(viewRoutes.market).toBe('/requests')
         expect(viewRoutes.orders).toBe('/orders')
         expect(viewForPath('/my/products')).toBe('mine')
+        expect(viewRoutes.favorites).toBe('/favorites')
+        expect(viewForPath('/cabinet')).toBe('cabinet')
     })
 
     it('restores an individual conversation from its path', () => {

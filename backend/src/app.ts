@@ -21,6 +21,7 @@ import { confirmPhoneVerification, requestPhoneChange } from './phone-verificati
 import { externalAuthRouter } from './external-auth.js'
 import type { exchangeProfile } from './external-auth-providers.js'
 import { deleteDemandSubscription, getDemandSubscriptionMatches, getDemandSubscription, listDemandSubscriptions, saveDemandSubscription } from './demand-subscriptions.js'
+import { listFavorites, removeFavorite, setFavorite } from './favorites.js'
 
 const mapService = new MapService()
 
@@ -155,6 +156,10 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     }))
 
     app.get('/api/products', withResult((request) => listProducts(request.query, request.authUser)))
+
+    app.get('/api/favorites', requireAuth, withResult((request) => listFavorites(request.authUser!)))
+    app.put('/api/favorites', requireAuth, withResult((request) => setFavorite(request.authUser!, request.body ?? {})))
+    app.delete('/api/favorites/:type/:id', requireAuth, withResult((request) => removeFavorite(request.authUser!, String(request.params.type), String(request.params.id))))
 
     app.get('/api/products/mine', requireAuth, withResult((request) => listProducts({ ...request.query, mine: 'true' }, request.authUser)))
 
