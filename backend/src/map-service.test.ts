@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MapService, adaptiveRadius, approximatePoint, clampRadius, syncMapFilters, viewportConditions, type MapProviderAdapter } from './map-service.js'
+import { MapService, adaptiveRadius, approximatePoint, clampRadius, regionCondition, syncMapFilters, viewportConditions, type MapProviderAdapter } from './map-service.js'
 
 describe('MapService primitives', () => {
     it('keeps real addresses private while retaining precise demo locations and previews', async () => {
@@ -32,7 +32,16 @@ describe('MapService primitives', () => {
     })
 
     it('keeps filter and map state synchronized', () => {
-        expect(syncMapFilters({ geoZone: '  Kyiv  ', showProducts: false })).toEqual({ geoZone: 'Kyiv', radiusKm: 25, showProducts: false, showBuyRequests: true })
+        expect(syncMapFilters({ geoZone: '  Kyiv  ', region: ' Рівненська область ', showProducts: false })).toEqual({ geoZone: 'Kyiv', region: 'Рівненська область', radiusKm: 25, showProducts: false, showBuyRequests: true })
+    })
+
+    it('filters a region by its settlement codes instead of its text label', () => {
+        const values: unknown[] = []
+        const condition = regionCondition('p.settlement_code', 'p.geo_zone', 'Рівненська область', values)
+        expect(condition).toContain('p.settlement_code = ANY($1::text[])')
+        expect(condition).toContain('p.geo_zone')
+        expect(values[0]).toContain('UA56060470010041018')
+        expect(values[1]).toBe('Рівненська область')
     })
 
     it('allows replacing the map provider through the adapter contract', () => {

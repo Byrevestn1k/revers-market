@@ -1,10 +1,10 @@
-import { getSettlement } from './settlements.js'
+import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
-import { approximatePoint, settlementCondition } from './map-service.js'
+import { approximatePoint, regionCondition, settlementCondition } from './map-service.js'
 import { ExternalUrlPhotoStorage, type PhotoStorage, type StoredPhoto } from './photo-storage.js'
 import { validateProductInput, type ProductInput, type ProductStatus } from './product-validation.js'
 
@@ -151,6 +151,11 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
         const settlement = getSettlement(query.settlementCode)
         if (!settlement) return invalid(['settlementCode'])
         conditions.push(settlementCondition('p.settlement_code', 'p.geo_zone', { settlementCode: settlement.code, cityName: settlement.name }, parameters))
+    }
+    if (typeof query.region === 'string' && query.region.trim()) {
+        const region = query.region.trim()
+        if (!settlementCodesInRegion(region).length) return invalid(['region'])
+        conditions.push(regionCondition('p.settlement_code', 'p.geo_zone', region, parameters))
     }
     if (typeof query.geoZone === 'string' && query.geoZone.trim()) { parameters.push(query.geoZone.trim()); conditions.push(`p.geo_zone ILIKE $${parameters.length}`) }
     conditions.push(...textSearchConditions(query.searchIn === 'title' ? ['p.title'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, parameters))

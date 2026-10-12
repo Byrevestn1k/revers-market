@@ -72,7 +72,9 @@ describe('Google and Telegram ID tokens through provider exchange', () => {
         it(`${provider} accepts iat within clock skew and rejects a future iat`, async () => {
             const now = Math.floor(Date.now() / 1000)
             await expect(exchange(provider, await sign(provider, { iat: now + 60, exp: now + 360 }))).resolves.toMatchObject({ provider })
-            await expect(exchange(provider, await sign(provider, { iat: now + 61, exp: now + 361 }))).rejects.toThrow()
+            // Keep a full extra skew window between this token and the accepted boundary.
+            // A +61 token can become exactly +60 while the signature is verified on the next second.
+            await expect(exchange(provider, await sign(provider, { iat: now + 120, exp: now + 420 }))).rejects.toThrow()
         })
 
         it.each([

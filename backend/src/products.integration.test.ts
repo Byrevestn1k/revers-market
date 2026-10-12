@@ -22,11 +22,18 @@ if (hasDatabase) {
                 expect(category).toBeDefined()
                 const created = await seller.post('/api/products').send({
                     categoryId: category.id, title: 'Пшениця', description: 'Сортова', quantity: 12.5, unit: 'ton', price: 250, currency: 'UAH',
-                    deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active', photos: [{ url: 'https://cdn.example.com/wheat.jpg', alt: 'Зерно' }],
+                    deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active', photos: [{ url: 'https://cdn.example.com/wheat.jpg', alt: 'Зерно' }, { url: 'https://cdn.example.com/wheat-2.jpg', alt: 'Інше зерно' }],
                 })
                 expect(created.status).toBe(201)
                 productId = created.body.product.id
-                expect(created.body.product.photos).toHaveLength(1)
+                expect(created.body.product.photos).toHaveLength(2)
+                const titleOnly = await seller.patch(`/api/products/${productId}`).send({ title: 'Назва без втрати даних' })
+                expect(titleOnly.status).toBe(200)
+                expect(titleOnly.body.product).toMatchObject({ description: 'Сортова', quantity: 12.5, unit: 'ton', price: { amount: 250, currency: 'UAH' }, deliveryMode: 'pickup', geoZone: 'Київська область' })
+                expect(titleOnly.body.product.photos).toHaveLength(2)
+                const clearedPhotos = await seller.patch(`/api/products/${productId}`).send({ photos: [] })
+                expect(clearedPhotos.status).toBe(200)
+                expect(clearedPhotos.body.product.photos).toEqual([])
 
                 // Guests can search both titles and descriptions without signing in.
                 await seller.patch(`/api/products/${productId}`).send({ title: `Public title ${suffix}`, description: `Public description ${suffix}` })

@@ -29,6 +29,10 @@ export function listSettlementsInRegion(region: string, offset = 0, limit = 100)
     const settlements = ordered.filter(item => item.region === region).sort((a, b) => a.name.localeCompare(b.name, 'uk') || a.district.localeCompare(b.district, 'uk') || a.code.localeCompare(b.code))
     return { version: data.version, settlements: settlements.slice(offset, offset + limit), total: settlements.length }
 }
+
+export function settlementCodesInRegion(region: string) {
+    return ordered.filter((item) => item.region === region).map((item) => item.code)
+}
 export function searchSettlements(query: string) {
     const term = normalizeSettlementName(query)
     // Do not truncate: even common names must include every matching village.

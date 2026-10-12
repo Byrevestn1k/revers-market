@@ -17,11 +17,20 @@ export const viewRoutes: Record<AppView, string> = {
     subscriptions: '/settings/demand-subscriptions',
 }
 
+export const productEditPath = (id: string) => `/my/products/${encodeURIComponent(id)}/edit`
+
 const routeViews = new Map(Object.entries(viewRoutes).map(([view, route]) => [route, view as AppView]))
 
 export function viewForPath(pathname: string): AppView | null {
     if (/^\/messages\/[^/]+$/.test(pathname)) return 'messages'
+    if (/^\/my\/products\/[^/]+\/edit$/.test(pathname)) return 'create'
     return routeViews.get(pathname) ?? null
+}
+
+export function productEditIdForPath(pathname: string): string | null {
+    const match = pathname.match(/^\/my\/products\/([^/]+)\/edit$/)
+    if (!match) return null
+    try { return decodeURIComponent(match[1]) } catch { return null }
 }
 
 export function conversationIdForPath(pathname: string): string | null {

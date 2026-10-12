@@ -3,12 +3,12 @@ import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
 import { withinCityOrDistance, type CityBoundary } from './city-boundaries.js'
-import { getSettlement } from './settlements.js'
+import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import { requestPublicLocationSql } from './request-public-location.js'
 
 export type MapPoint = { latitude: number; longitude: number }
 export type MapViewport = { south: number; north: number; west: number; east: number }
-export type MapFilterState = { buyRequestIds?: string[]; nationwide?: boolean; includeOwnerListings?: boolean; exactDistance?: boolean; settlementCode?: string; geoSettlementCode?: string; cityName?: string; cityBoundary?: CityBoundary; cityOutsideKm?: number; categoryId?: string; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
+export type MapFilterState = { buyRequestIds?: string[]; nationwide?: boolean; includeOwnerListings?: boolean; exactDistance?: boolean; settlementCode?: string; geoSettlementCode?: string; region?: string; cityName?: string; cityBoundary?: CityBoundary; cityOutsideKm?: number; categoryId?: string; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
 export type MapMarker = MapPoint & {
     id: string
     kind: 'product' | 'buyRequest'
@@ -68,6 +68,7 @@ export const syncMapFilters = (filters: Partial<MapFilterState>, mapCenter?: Map
     ...(filters.cityName?.trim() ? { cityName: filters.cityName.trim() } : {}),
     ...(filters.settlementCode ? { settlementCode: filters.settlementCode } : {}),
     ...(filters.geoSettlementCode ? { geoSettlementCode: filters.geoSettlementCode } : {}),
+    ...(filters.region?.trim() ? { region: filters.region.trim() } : {}),
     ...(filters.cityBoundary ? { cityBoundary: filters.cityBoundary } : {}),
     ...(filters.cityOutsideKm !== undefined ? { cityOutsideKm: filters.cityOutsideKm } : {}),
     ...(filters.nationwide ? { nationwide: true } : {}),
@@ -90,6 +91,14 @@ export function settlementCondition(codeColumn: string, nameColumn: string, filt
     if (!filters.settlementCode) return nameMatch
     const index = parameters.push(filters.settlementCode)
     return `(${codeColumn} = $${index} OR (${codeColumn} IS NULL AND ${nameMatch}))`
+}
+
+export function regionCondition(codeColumn: string, nameColumn: string, region: string, parameters: unknown[]) {
+    const codes = settlementCodesInRegion(region)
+    if (!codes.length) return 'false'
+    const codesIndex = parameters.push(codes)
+    const legacyIndex = parameters.push(region)
+    return `(${codeColumn} = ANY($${codesIndex}::text[]) OR (${codeColumn} IS NULL AND lower(trim(${nameColumn})) = lower(trim($${legacyIndex}))))`
 }
 
 export function viewportConditions(table: string, viewport: MapViewport | undefined, parameters: unknown[], precision?: string) {
@@ -126,6 +135,7 @@ export class MapService {
         conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_zone ILIKE $${parameters.length}`) }
+        if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_zone', filters.region, parameters))
         if (filters.geoSettlementCode) conditions.push(settlementCondition('public_point.settlement_code', 'public_point.geo_zone', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['p.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], filters.q, parameters))
         const result = await this.queryable.query(`SELECT p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode,
@@ -159,6 +169,7 @@ export class MapService {
         conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('r.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_area ILIKE $${parameters.length}`) }
+        if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_area', filters.region, parameters))
         if (filters.geoSettlementCode) conditions.push(settlementCondition('public_point.settlement_code', 'public_point.geo_area', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['r.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['r.title', 'r.description', 'u.username', 'u.nickname'], filters.q, parameters))
         const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index,

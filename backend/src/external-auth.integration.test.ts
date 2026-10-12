@@ -216,3 +216,6 @@ if (hasDatabase) {
 
     })
 }
+else {
+    describe.skip('external auth HTTP and database (requires DATABASE_URL)', () => { })
+}

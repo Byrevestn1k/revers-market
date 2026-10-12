@@ -97,3 +97,6 @@ if (process.env.DATABASE_URL) {
         }, 120000)
     })
 }
+else {
+    describe.skip('explicit external account choice (requires DATABASE_URL)', () => { })
+}

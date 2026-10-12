@@ -1,4 +1,5 @@
-import { getSettlement } from './settlements.js'
+import { getSettlement, settlementCodesInRegion } from './settlements.js'
+import { regionCondition, settlementCondition } from './map-service.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
@@ -203,6 +204,17 @@ export const listBuyRequests = async (query: Record<string, unknown>, user?: Aut
     const conditions = [user && query.mine === 'true' ? `r.buyer_id = $${params.push(user.id)}` : `r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`]
     if (typeof query.buyerUsername === 'string' && query.buyerUsername.trim()) { params.push(query.buyerUsername.trim().toLowerCase()); conditions.push(`u.username_normalized = $${params.length}`) }
     if (typeof query.categoryId === 'string' && uuid(query.categoryId)) conditions.push(categoryFilterSql('r.category_id', params.push(query.categoryId)))
+    if (typeof query.countryCode === 'string' && query.countryCode.trim()) conditions.push(`r.country_code = $${params.push(query.countryCode.trim().toUpperCase())}`)
+    if (typeof query.settlementCode === 'string' && query.settlementCode.trim()) {
+        const settlement = getSettlement(query.settlementCode)
+        if (!settlement) return invalid(['settlementCode'])
+        conditions.push(settlementCondition('r.settlement_code', 'r.geo_area', { settlementCode: settlement.code, cityName: settlement.name }, params))
+    }
+    if (typeof query.region === 'string' && query.region.trim()) {
+        const region = query.region.trim()
+        if (!settlementCodesInRegion(region).length) return invalid(['region'])
+        conditions.push(regionCondition('r.settlement_code', 'r.geo_area', region, params))
+    }
     const mine = Boolean(user && query.mine === 'true')
     const page = mine ? Math.max(1, Number.parseInt(String(query.page ?? '1'), 10) || 1) : 1
     const limit = 50

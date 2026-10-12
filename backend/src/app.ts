@@ -16,7 +16,7 @@ import { recordOfferView } from './buy-requests.js'
 import { blockUser, createReport, createReview, deleteConversationForParticipant, getBlockStatus, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateConversationArchived, updateConversationPinned, updateReportModeration } from './community-service.js'
 import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
-import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements } from './settlements.js'
+import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements, settlementCodesInRegion } from './settlements.js'
 import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
 import { externalAuthRouter } from './external-auth.js'
 import type { exchangeProfile } from './external-auth-providers.js'
@@ -114,8 +114,10 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         const cityName = typeof request.query.cityName === 'string' ? request.query.cityName.trim() : undefined
         const settlement = getSettlement(request.query.settlementCode)
         const geoSettlement = getSettlement(request.query.geoSettlementCode)
+        const region = typeof request.query.region === 'string' ? request.query.region.trim() : undefined
         if (request.query.geoSettlementCode !== undefined && !geoSettlement) return { status: 400, body: { error: 'INVALID_SETTLEMENT' } }
         if (request.query.settlementCode !== undefined && !settlement) return { status: 400, body: { error: 'INVALID_SETTLEMENT' } }
+        if (request.query.region !== undefined && (!region || !settlementCodesInRegion(region).length)) return { status: 400, body: { error: 'INVALID_REGION' } }
         if (settlement && (!cityName || cityName !== settlement.name)) return { status: 400, body: { error: 'INVALID_SEARCH_CITY' } }
         const nationwide = request.query.nationwide === 'true'
         const nearby = request.query.nearby === 'true'
@@ -137,6 +139,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
             cityName,
             settlementCode: settlement?.code,
             geoSettlementCode: geoSettlement?.code,
+            region,
             cityBoundary: boundary ?? undefined,
             cityOutsideKm,
             categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,

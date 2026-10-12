@@ -239,7 +239,7 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
         catch (caught) { setError((caught as Error).message) } finally { setLoading(false) }
     }
     useEffect(() => { void load() }, [item.id, item.remainingQuantity])
-    const contact = async (offer: DealOffer) => { if (busy) return; setBusy(true); try { const data = await http(`/api/offers/${offer.id}/conversation`, post({})); setChat({ conversationId: data.conversation.id, title: offer.seller.username }) } catch (caught) { notify((caught as Error).message) } finally { setBusy(false) } }
+    const contact = async (offer: DealOffer) => { if (busy) return; setBusy(true); try { const data = await http(`/api/offers/${offer.id}/conversation`, post({})); window.history.pushState({}, '', `/messages/${encodeURIComponent(data.conversation.id)}`); window.dispatchEvent(new PopStateEvent('popstate')); window.scrollTo(0, 0) } catch (caught) { notify((caught as Error).message) } finally { setBusy(false) } }
     const selectable = (offer: DealOffer) => activeRequest(item) && item.remainingQuantity > 0 && ['submitted','partially_accepted'].includes(offer.status) && (!offer.validUntil || new Date(offer.validUntil) > new Date()) && offer.quantity > offer.acceptedQuantity && (item.fulfillmentMode !== 'single_seller' || (item.selectedQuantity === 0 && offer.quantity - offer.acceptedQuantity >= item.remainingQuantity))
     const sorted = [...offers].filter(o => !onlyAvailable || selectable(o)).sort((a,b) => sort === 'price' ? a.price.amount - b.price.amount : sort === 'rating' ? (b.seller.rating ?? 0) - (a.seller.rating ?? 0) : 0)
     return <section className="request-offers">
