@@ -68,6 +68,48 @@ if (hasDatabase) {
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [firstPayload.username.toLowerCase(), secondPayload.username.toLowerCase()])
             }
         }, 30000)
+
+        it('returns exact private editor data only to the owner, including paused and sold products', async () => {
+            const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+            const ownerPayload = { username: `pown_${suffix}`, email: `pown_${suffix}@example.com`, countryCode: 'UA', phone: `+38067${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
+            const outsiderPayload = { username: `pout_${suffix}`, email: `pout_${suffix}@example.com`, countryCode: 'UA', phone: `+38063${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
+            const owner = request.agent(createApp())
+            const outsider = request.agent(createApp())
+            const guest = request(createApp())
+            try {
+                expect((await owner.post('/api/auth/register').send(ownerPayload)).status).toBe(201)
+                expect((await outsider.post('/api/auth/register').send(outsiderPayload)).status).toBe(201)
+                const category = (await guest.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
+                const address = `Приватна адреса ${suffix}`
+                const latitude = 50.619912
+                const longitude = 26.251612
+                const created = await owner.post('/api/products').send({ categoryId: category.id, title: `Приватний товар ${suffix}`, description: 'Не змінювати адресу', quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', address, latitude, longitude, addressVisibility: 'private', mapLocationMode: 'address', status: 'active' })
+                expect(created.status).toBe(201)
+                const id = created.body.product.id
+                const exact = { address, coordinates: { latitude, longitude } }
+                expect((await owner.get(`/api/products/${id}`)).body.product).toMatchObject(exact)
+                for (const reader of [guest, outsider]) {
+                    const publicProduct = await reader.get(`/api/products/${id}`)
+                    expect(publicProduct.status).toBe(200)
+                    expect(publicProduct.body.product.address).toBeNull()
+                    expect(publicProduct.body.product.coordinates).toEqual({ latitude: 50.62, longitude: 26.25 })
+                    expect(JSON.stringify(publicProduct.body)).not.toContain(address)
+                }
+                const titleOnly = await owner.patch(`/api/products/${id}`).send({ title: `Нова назва ${suffix}` })
+                expect(titleOnly.status).toBe(200)
+                expect(titleOnly.body.product).toMatchObject(exact)
+                expect((await owner.get(`/api/products/${id}`)).body.product).toMatchObject({ title: `Нова назва ${suffix}`, ...exact })
+                expect((await owner.patch(`/api/products/${id}`).send({ status: 'paused' })).status).toBe(200)
+                expect((await owner.get(`/api/products/${id}`)).body.product).toMatchObject({ status: 'paused', ...exact })
+                expect((await guest.get(`/api/products/${id}`)).status).toBe(404)
+                expect((await outsider.get(`/api/products/${id}`)).status).toBe(404)
+                expect((await owner.patch(`/api/products/${id}`).send({ status: 'sold' })).status).toBe(200)
+                expect((await owner.get(`/api/products/${id}`)).body.product).toMatchObject({ status: 'sold', ...exact })
+                expect((await outsider.patch(`/api/products/${id}`).send({ title: 'Немає прав' })).status).toBe(404)
+            } finally {
+                await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [ownerPayload.username.toLowerCase(), outsiderPayload.username.toLowerCase()])
+            }
+        }, 30000)
     })
 } else {
     describe.skip('products HTTP integration (requires DATABASE_URL)', () => { })

@@ -408,9 +408,13 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         if (existing.status !== 'submitted' || Number(existing.accepted_quantity) > 0) return { status: 409, body: { error: 'OFFER_TERMS_LOCKED' } }
         if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
         if ((input.unit !== undefined && input.unit !== request.unit) || (input.currency !== undefined && input.currency !== request.currency)) return invalid(['unit','currency'])
-        if (input.productId) {
+        if (input.productId !== undefined && input.productId !== existing.product_id) {
+            if (input.productId === null) {
+                // Removing an existing link is allowed by the current editable-offer rules.
+            } else {
             const product = await client.query("SELECT id FROM products WHERE id=$1 AND owner_id=$2 AND category_id=$3 AND status='active' AND quantity > reserved_quantity", [input.productId, user.id, request.category_id])
             if (!product.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
+            }
         }
         const { idParam, ownerParam } = withOwnerConditions(values, offerId, user.id)
         await client.query(`UPDATE offers SET ${assignments.join(', ')}, updated_at = now() WHERE id = ${idParam} AND seller_id = ${ownerParam}`, values)

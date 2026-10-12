@@ -43,9 +43,10 @@ import type { Conversation } from './messages-state'
 import { conversationIdForPath, legacyDestination, productEditIdForPath, productEditPath, viewForPath, viewRoutes, type AppView } from './navigation'
 import { activityGroup, activityGroups, activityItems, canEditSellerOffer, canWithdrawSellerOffer, isActiveRequest, type ActivityGroup, type ActivityKind } from './activity'
 import { ExternalAuthOptions, ExternalSignup, LoginMethods, externalAuthMessage, safeClientReturn } from './external-auth-ui'
+import { buildOfferUpdatePayload } from './offer-update'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
-export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; address?: string | null; coordinates?: MapPoint | null; status: string; createdAt?: string; updatedAt?: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
+export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; settlement?: Settlement | null; address?: string | null; coordinates?: MapPoint | null; status: string; createdAt?: string; updatedAt?: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
 type View = AppView
 type MapPoint = { latitude: number; longitude: number }
 type MapMarker = SellerProductPoint & { approximate: boolean }
@@ -592,12 +593,27 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
         if (!location.city.trim()) { setErrors({ location: 'Оберіть населений пункт.' }); return }
         if (photoChanged && photos.some((photo) => photo && !/^(https?:\/\/|data:image\/)/i.test(photo))) { setErrors({ photos: 'Вкажіть URL https:// або завантажте зображення.' }); return }
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
-        const payload = {
+        const next = {
             categoryId, title: title.trim(), description: data.description, quantity: Number(data.quantity), unit: data.unit,
             price: Number(data.price), currency: data.currency, deliveryMode: data.deliveryMode, geoZone: location.city.trim(),
             ...addressFields(location), status,
             ...((photoChanged || !product) ? { photos: photos.filter(Boolean).map((photo) => ({ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: title.trim() })) } : {}),
         }
+        const locationChanged = !product || next.geoZone !== product.geoZone || next.settlementCode !== (product.settlement?.code ?? null) || next.address !== (product.address ?? null) || next.addressVisibility !== (product.addressVisibility ?? 'private') || next.mapLocationMode !== (product.mapLocationMode ?? 'profile') || next.latitude !== (product.coordinates?.latitude ?? null) || next.longitude !== (product.coordinates?.longitude ?? null)
+        const payload = !product ? next : {
+            ...(next.categoryId !== product.category.id ? { categoryId: next.categoryId } : {}),
+            ...(next.title !== product.title ? { title: next.title } : {}),
+            ...(next.description !== product.description ? { description: next.description } : {}),
+            ...(next.quantity !== product.quantity ? { quantity: next.quantity } : {}),
+            ...(next.unit !== product.unit ? { unit: next.unit } : {}),
+            ...(next.price !== product.price.amount ? { price: next.price } : {}),
+            ...(next.currency !== product.price.currency ? { currency: next.currency } : {}),
+            ...(next.deliveryMode !== product.deliveryMode ? { deliveryMode: next.deliveryMode } : {}),
+            ...(locationChanged ? { geoZone: next.geoZone, ...addressFields(location) } : {}),
+            ...(next.status !== product.status ? { status: next.status } : {}),
+            ...(photoChanged ? { photos: next.photos } : {}),
+        }
+        if (product && !Object.keys(payload).length) { setError('Змін немає.'); return }
         setBusy(true)
         try { await request(product ? '/api/products/' + product.id : '/api/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); onSaved(location) }
         catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)) }
@@ -967,7 +983,9 @@ function OfferEditForm({ offer, products, notify, onDone }: { offer: Offer; prod
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); setBusy(true); setError('')
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
-        try { await request(`/api/offers/${offer.id}`, { method: 'PATCH', body: JSON.stringify({ productId: data.productId || null, quantity: Number(data.quantity), price: Number(data.price), delivery: data.delivery, deliveryPrice: Number(data.deliveryPrice || 0), availableAt: data.availableAt || '', note: data.note || '', additionalPhotoUrl: data.additionalPhotoUrl || null, validUntil: data.validUntil ? new Date(data.validUntil + 'T23:59:59').toISOString() : null }) }); notify('Пропозицію оновлено'); onDone() } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
+        const payload = buildOfferUpdatePayload(offer, data)
+        if (!Object.keys(payload).length) { setError('Змін немає.'); setBusy(false); return }
+        try { await request(`/api/offers/${offer.id}`, { method: 'PATCH', body: JSON.stringify(payload) }); notify('Пропозицію оновлено'); onDone() } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
     }
     return <DealDialog title="Редагувати пропозицію" onClose={onDone} busy={busy}><form className="offer-form" onSubmit={submit}>
         <div className="field-row"><label>Кількість ({offer.unit})<input name="quantity" type="number" min=".001" step=".001" defaultValue={offer.quantity} required /></label><label>Ціна за {offer.unit}<input name="price" type="number" min="0" step="0.01" defaultValue={offer.price.amount} required /></label></div>

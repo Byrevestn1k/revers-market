@@ -42,7 +42,7 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
     addressVisibility: row.address_visibility,
     mapLocationMode: row.map_location_mode,
     address: includeAddress || row.address_visibility === 'public' ? row.pickup_address : null,
-    coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' || ['pin', 'address'].includes(row.map_location_mode) ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
+    coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' || row.map_location_mode === 'pin' ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }),
     status: row.status,
     expiresAt: row.expires_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),

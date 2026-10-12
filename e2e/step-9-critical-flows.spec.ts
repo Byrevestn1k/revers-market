@@ -219,3 +219,64 @@ test('region changes keep the product and request list aligned with map markers 
     await page.close()
   } finally { await cleanup(actors) }
 })
+
+test('owner keeps private Product editor data after refresh and seller offer edits omit an unchanged Product link', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const stamp = Date.now().toString(36)
+  const actors: Actor[] = []
+  try {
+    const owner = await register(browser, 'private_editor', stamp); actors.push(owner)
+    const buyer = await register(browser, 'offer_buyer', stamp); actors.push(buyer)
+    const categories = await owner.context.request.get('/api/categories')
+    const categoryId = (await categories.json() as { categories: Array<{ id: string }> }).categories[0].id
+    const address = `Private editor address ${stamp}`
+    const coordinates = { latitude: 50.619912, longitude: 26.251612 }
+    const created = await owner.context.request.post('/api/products', { data: { categoryId, title: `Private editor Product ${stamp}`, description: 'Private location must survive a title-only save.', quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', address, ...coordinates, addressVisibility: 'private', mapLocationMode: 'address', status: 'active' } })
+    expect(created.status()).toBe(201)
+    const productId = (await created.json() as { product: { id: string } }).product.id
+    const page = await owner.context.newPage()
+    const ownerGet = page.waitForResponse(response => response.url().endsWith(`/api/products/${productId}`) && response.request().method() === 'GET')
+    await page.goto(`/my/products/${productId}/edit`)
+    const ownerProduct = (await ownerGet).json() as Promise<{ product: { address: string | null; coordinates: { latitude: number; longitude: number } | null } }>
+    await expect(page.getByRole('heading', { name: 'Редагувати товар' })).toBeVisible()
+    await expect(page.getByLabel('Назва товару')).toHaveValue(`Private editor Product ${stamp}`)
+    expect((await ownerProduct).product).toMatchObject({ address, coordinates })
+    await page.getByLabel('Назва товару').fill(`Private editor updated ${stamp}`)
+    await page.getByRole('button', { name: 'Зберегти зміни' }).click()
+    await expect(page).toHaveURL(/\/my\/products$/)
+    const afterTitleOnly = await owner.context.request.get(`/api/products/${productId}`)
+    expect((await afterTitleOnly.json()).product).toMatchObject({ title: `Private editor updated ${stamp}`, address, coordinates })
+    expect((await owner.context.request.patch(`/api/products/${productId}`, { data: { status: 'paused' } })).status()).toBe(200)
+    await page.goto(`/my/products/${productId}/edit`)
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Редагувати товар' })).toBeVisible()
+    const paused = await owner.context.request.get(`/api/products/${productId}`)
+    expect((await paused.json()).product).toMatchObject({ status: 'paused', address, coordinates })
+    expect((await owner.context.request.patch(`/api/products/${productId}`, { data: { status: 'sold' } })).status()).toBe(200)
+    await page.goto(`/my/products/${productId}/edit`)
+    await expect(page.getByRole('heading', { name: 'Редагувати товар' })).toBeVisible()
+
+    const requestResult = await buyer.context.request.post('/api/buy-requests', { data: { categoryId, title: `Offer request ${stamp}`, description: '', quantity: 5, unit: 'kg', currency: 'UAH', minPrice: 90, maxPrice: 110, receiptMethod: 'SELF_PICKUP', countryCode: 'UA', geoArea: 'Рівне', fulfillmentMode: 'multiple_sellers' } })
+    expect(requestResult.status()).toBe(201)
+    const requestId = (await requestResult.json() as { buyRequest: { id: string } }).buyRequest.id
+    const available = await owner.context.request.post('/api/products', { data: { categoryId, title: `Offer product ${stamp}`, description: '', quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status: 'active' } })
+    const offerProductId = (await available.json() as { product: { id: string } }).product.id
+    const offerResult = await owner.context.request.post(`/api/buy-requests/${requestId}/offers`, { data: { productId: offerProductId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз', note: 'Original note' } })
+    expect(offerResult.status()).toBe(201)
+    const offerId = (await offerResult.json() as { offer: { id: string } }).offer.id
+    expect((await owner.context.request.patch(`/api/products/${offerProductId}`, { data: { status: 'paused' } })).status()).toBe(200)
+    await page.goto('/requests')
+    const offerCard = page.getByRole('article').filter({ hasText: 'Моя пропозиція на запит' }).filter({ hasText: `Offer request ${stamp}` })
+    await expect(offerCard).toBeVisible()
+    await offerCard.getByRole('button', { name: 'Редагувати', exact: true }).click()
+    await page.locator('textarea[name="note"]').fill('Updated note without relinking')
+    const patchRequest = page.waitForRequest(request => request.url().endsWith(`/api/offers/${offerId}`) && request.method() === 'PATCH')
+    await page.getByRole('button', { name: 'Зберегти пропозицію' }).click()
+    const sent = JSON.parse((await patchRequest).postData() ?? '{}') as Record<string, unknown>
+    expect(sent).toEqual({ note: 'Updated note without relinking' })
+    await expect(page.getByText('Пропозицію оновлено')).toBeVisible()
+    const ownOffers = await owner.context.request.get('/api/offers/mine')
+    expect((await ownOffers.json() as { offers: Array<{ id: string; note: string; existingProduct: { id: string } | null }> }).offers.find(item => item.id === offerId)).toMatchObject({ note: 'Updated note without relinking', existingProduct: { id: offerProductId } })
+    await page.close()
+  } finally { await cleanup(actors) }
+})

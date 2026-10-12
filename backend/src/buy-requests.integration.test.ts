@@ -165,6 +165,54 @@ if (hasDatabase) {
                 await pool.query('DELETE FROM users WHERE username_normalized = ANY($1::text[])', [names])
             }
         }, 30000)
+
+        it('edits submitted offers without revalidating an unchanged unavailable product link', async () => {
+            const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+            const buyerPayload = { username: `offer_buyer_${suffix}`, email: `offer_buyer_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
+            const sellerPayload = { username: `offer_seller_${suffix}`, email: `offer_seller_${suffix}@example.com`, countryCode: 'UA', phone: `+38067${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
+            const buyer = request.agent(createApp())
+            const seller = request.agent(createApp())
+            try {
+                expect((await buyer.post('/api/auth/register').send(buyerPayload)).status).toBe(201)
+                expect((await seller.post('/api/auth/register').send(sellerPayload)).status).toBe(201)
+                const category = (await buyer.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
+                const createProduct = async (title: string, status = 'active') => {
+                    const result = await seller.post('/api/products').send({ categoryId: category.id, title, quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status })
+                    expect(result.status).toBe(201)
+                    return result.body.product.id as string
+                }
+                const pausedProduct = await createProduct(`Призупинений ${suffix}`)
+                const reservedProduct = await createProduct(`Зарезервований ${suffix}`)
+                const availableProduct = await createProduct(`Доступний ${suffix}`)
+                const unavailableProduct = await createProduct(`Недоступний ${suffix}`, 'paused')
+                const createdRequest = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: `Запит ${suffix}`, description: '', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 90, maxPrice: 110, receiptMethod: 'SELF_PICKUP', countryCode: 'UA', geoArea: 'Рівне', fulfillmentMode: 'multiple_sellers' })
+                expect(createdRequest.status).toBe(201)
+                const requestId = createdRequest.body.buyRequest.id
+                const createOffer = async (productId: string) => {
+                    const result = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз', note: 'Початкова примітка' })
+                    expect(result.status).toBe(201)
+                    return result.body.offer.id as string
+                }
+                const pausedOffer = await createOffer(pausedProduct)
+                expect((await seller.patch(`/api/products/${pausedProduct}`).send({ status: 'paused' })).status).toBe(200)
+                const pausedNote = await seller.patch(`/api/offers/${pausedOffer}`).send({ productId: pausedProduct, note: 'Коментар для paused товару' })
+                expect(pausedNote.status).toBe(200)
+                expect(pausedNote.body.offer).toMatchObject({ existingProduct: { id: pausedProduct }, note: 'Коментар для paused товару', quantity: 5, price: { amount: 100 } })
+
+                const reservedOffer = await createOffer(reservedProduct)
+                await pool.query('UPDATE products SET reserved_quantity = quantity WHERE id = $1', [reservedProduct])
+                expect((await seller.patch(`/api/offers/${reservedOffer}`).send({ productId: reservedProduct, note: 'Коментар для зарезервованого товару', price: 101 })).status).toBe(200)
+                const switched = await seller.patch(`/api/offers/${reservedOffer}`).send({ productId: availableProduct })
+                expect(switched.status).toBe(200)
+                expect(switched.body.offer.existingProduct).toMatchObject({ id: availableProduct })
+                const refused = await seller.patch(`/api/offers/${reservedOffer}`).send({ productId: unavailableProduct })
+                expect(refused).toMatchObject({ status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } })
+                await pool.query("UPDATE offers SET status = 'withdrawn' WHERE id = $1", [reservedOffer])
+                expect((await seller.patch(`/api/offers/${reservedOffer}`).send({ note: 'Запізнілий коментар' })).body.error).toBe('OFFER_TERMS_LOCKED')
+            } finally {
+                await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [buyerPayload.username.toLowerCase(), sellerPayload.username.toLowerCase()])
+            }
+        }, 30000)
     })
 } else {
     describe.skip('buy requests and offers HTTP integration (requires DATABASE_URL)', () => { })

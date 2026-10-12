@@ -158,7 +158,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
 
     app.get('/api/products/mine', requireAuth, withResult((request) => listProducts({ ...request.query, mine: 'true' }, request.authUser)))
 
-    app.get('/api/products/:id', withResult((request) => getProduct(String(request.params.id), request.authUser)))
+    app.get('/api/products/:id', optionalAuth, withResult((request) => getProduct(String(request.params.id), request.authUser)))
 
     app.post('/api/products', requireAuth, withResult((request) => createProduct(request.authUser!, request.body ?? {})))
 
