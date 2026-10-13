@@ -29,6 +29,16 @@ export function viewForPath(pathname: string): AppView | null {
     return routeViews.get(pathname) ?? null
 }
 
+export type MobileTab = 'find' | 'favorites' | 'add' | 'messages' | 'cabinet'
+
+export function mobileTabForPath(pathname: string): MobileTab {
+    if (pathname === '/favorites') return 'favorites'
+    if (pathname === '/my/products/new' || pathname === '/my/requests/new') return 'add'
+    if (pathname === '/messages' || /^\/messages\/[^/]+$/.test(pathname)) return 'messages'
+    if (pathname === '/discover' || pathname === '/products' || /^\/products\/[^/]+$/.test(pathname) || pathname === '/requests' || pathname === '/buy-requests' || /^\/buy-requests\/[^/]+$/.test(pathname) || pathname === '/map' || /^\/profiles\/[^/]+$/.test(pathname)) return 'find'
+    return 'cabinet'
+}
+
 export function productEditIdForPath(pathname: string): string | null {
     const match = pathname.match(/^\/my\/products\/([^/]+)\/edit$/)
     if (!match) return null

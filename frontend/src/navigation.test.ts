@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conversationIdForPath, legacyDestination, productEditIdForPath, productEditPath, viewForPath, viewRoutes } from './navigation'
+import { conversationIdForPath, legacyDestination, mobileTabForPath, productEditIdForPath, productEditPath, viewForPath, viewRoutes } from './navigation'
 
 describe('canonical navigation', () => {
     it('maps list destinations to one stable path', () => {
@@ -28,5 +28,16 @@ describe('canonical navigation', () => {
         expect(legacyDestination('?view=messages&conversation=chat-1')).toBe('/messages/chat-1')
         expect(legacyDestination('?view=messages&filter=buying')).toBe('/messages?filter=buying')
         expect(legacyDestination('?view=orders')).toBe('/orders')
+    })
+
+    it('keeps the mobile tab active for nested and creation routes', () => {
+        expect(mobileTabForPath('/products/product-1')).toBe('find')
+        expect(mobileTabForPath('/buy-requests')).toBe('find')
+        expect(mobileTabForPath('/buy-requests/request-1')).toBe('find')
+        expect(mobileTabForPath('/profiles/seller')).toBe('find')
+        expect(mobileTabForPath('/my/products/new')).toBe('add')
+        expect(mobileTabForPath('/my/requests/new')).toBe('add')
+        expect(mobileTabForPath('/messages/conversation-1')).toBe('messages')
+        expect(mobileTabForPath('/my/requests')).toBe('cabinet')
     })
 })

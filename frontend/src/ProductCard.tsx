@@ -21,18 +21,9 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
     product: ProductCardData; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: string) => void; onChat?: () => void; favorite?: boolean; onFavorite?: () => void
 }) {
     const status = product.status ?? 'active'
-    const [isFavorite, setIsFavorite] = useState(favorite)
-    useEffect(() => setIsFavorite(favorite), [favorite])
-    const toggleFavorite = async () => {
+    const toggleFavorite = () => {
         if (onFavorite) { onFavorite(); return }
-        const api = import.meta.env.VITE_API_URL ?? ''
-        const response = await fetch(`${api}/api/favorites${isFavorite ? `/product/${encodeURIComponent(product.id)}` : ''}`, {
-            method: isFavorite ? 'DELETE' : 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-            body: isFavorite ? undefined : JSON.stringify({ targetType: 'product', targetId: product.id }),
-        })
-        if (response.status === 401) { window.location.assign(`/auth/login?return=${encodeURIComponent(window.location.pathname + window.location.search)}`); return }
-        if (!response.ok) return
-        setIsFavorite(value => !value)
+        window.location.assign(`/auth/login?return=${encodeURIComponent(window.location.pathname + window.location.search)}`)
     }
     return <article className="product-card listing-card">
         <button type="button" className="listing-card-open" onClick={onOpen} aria-label={'Відкрити: ' + product.title}>
@@ -44,7 +35,7 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
                 {product.owner?.username && <small className="listing-owner">{product.owner.nickname || product.owner.username}</small>}
             </div>
         </button>
-        <button type="button" className="listing-favorite" onClick={() => void toggleFavorite()} aria-label={isFavorite ? 'Прибрати з обраного' : 'Додати в обране'}>{isFavorite ? '♥' : '♡'}</button>
+        <button type="button" className="listing-favorite" onClick={toggleFavorite} aria-label={favorite ? 'Прибрати з обраного' : 'Додати в обране'}>{favorite ? '♥' : '♡'}</button>
         {(onChat || onEdit || onDelete || onStatus) && <div className="listing-card-actions">
             {onChat && <button type="button" className="primary-button compact" onClick={onChat}>♧ Написати продавцю</button>}
             {onEdit && <button type="button" className="outline-button compact" onClick={onEdit}>Редагувати</button>}
