@@ -4,8 +4,8 @@ import { mapFocusPlan } from './map-interactions'
 describe('mobile map selection', () => {
     const point = { latitude: 50.45, longitude: 30.52 }
 
-    it('centers a marker without scrolling away from the map', () => {
-        expect(mapFocusPlan(point, 12, 'marker')).toEqual({ center: [50.45, 30.52], zoom: 12, scrollToMap: false })
+    it('centers a selected marker at street-level zoom without scrolling away from the map', () => {
+        expect(mapFocusPlan(point, 12, 'marker')).toEqual({ center: [50.45, 30.52], zoom: 19, scrollToMap: false })
     })
 
     it('centers and expands a cluster', () => {

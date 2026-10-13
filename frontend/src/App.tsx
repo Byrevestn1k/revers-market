@@ -450,7 +450,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             tooltip.textContent = label
             marker.bindTooltip(tooltip)
             marker.on('click', () => {
-                if (node.type === 'product' || node.type === 'request') { showMarkerPreview(node.items[0]); return }
+                if (node.items.length === 1 || node.type === 'product' || node.type === 'request') { showMarkerPreview(node.items[0]); return }
                 showGroupPreview(node.items)
                 if (node.type === 'seller' && node.items[0].owner) {
                     const points = markers.filter(item => item.owner?.id === node.items[0].owner.id && item.kind === node.items[0].kind)
