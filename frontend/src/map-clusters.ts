@@ -48,7 +48,10 @@ export function buildMapNodes(points: SellerProductPoint[], project: (point: Sel
     for (const kind of ['product', 'buyRequest'] as const) {
         const items = points.filter((point) => point.kind === kind).sort((a, b) => a.id.localeCompare(b.id))
         if (stage === 'count' && options.mode !== 'products') {
-            for (const group of clusterMapProducts(items, options.zoom, project, 'count')) candidates.push(makeNode(group.products, 'cluster'))
+            for (const group of clusterMapProducts(items, options.zoom, project, 'count')) {
+                const type = group.products.length === 1 ? (kind === 'product' ? 'product' : 'request') : 'cluster'
+                candidates.push(makeNode(group.products, type))
+            }
             continue
         }
         const locations = new Map<string, SellerProductPoint[]>()

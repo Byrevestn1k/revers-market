@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CategoryImage } from './CategoryPicker'
 import { DELIVERY_LABELS, LISTING_STATUS, listingPrice, unitLabel } from './listing-options'
+import FavoriteButton from './FavoriteButton'
 import './listing-ui.css'
 
 export type ProductCardData = {
@@ -17,14 +18,10 @@ export function ListingPicture({ product, className = '' }: { product: ProductCa
     useEffect(() => setFailed(false), [url])
     return <span className={'listing-picture ' + className}>{url && !failed ? <img src={url.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${url}` : url} alt={product.photos?.[0]?.alt || product.title} loading="lazy" onError={() => setFailed(true)} /> : <CategoryImage category={{ ...product.category, parentId: null }} />}</span>
 }
-export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatus, onChat, favorite = false, onFavorite }: {
-    product: ProductCardData; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: string) => void; onChat?: () => void; favorite?: boolean; onFavorite?: () => void
+export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatus, onChat, favorite = false, onFavorite, showFavorite = true }: {
+    product: ProductCardData; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: string) => void; onChat?: () => void; favorite?: boolean; onFavorite?: () => void; showFavorite?: boolean
 }) {
     const status = product.status ?? 'active'
-    const toggleFavorite = () => {
-        if (onFavorite) { onFavorite(); return }
-        window.location.assign(`/auth/login?return=${encodeURIComponent(window.location.pathname + window.location.search)}`)
-    }
     return <article className="product-card listing-card">
         <button type="button" className="listing-card-open" onClick={onOpen} aria-label={'Відкрити: ' + product.title}>
             <div className="product-image"><ListingPicture product={product} /><span className={'status status-' + status}>{LISTING_STATUS[status] ?? status}</span></div>
@@ -35,7 +32,7 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
                 {product.owner?.username && <small className="listing-owner">{product.owner.nickname || product.owner.username}</small>}
             </div>
         </button>
-        <button type="button" className="listing-favorite" onClick={toggleFavorite} aria-label={favorite ? 'Прибрати з обраного' : 'Додати в обране'}>{favorite ? '♥' : '♡'}</button>
+        {showFavorite && <FavoriteButton targetType="product" targetId={product.id} favorite={favorite} onFavorite={onFavorite ? () => onFavorite() : undefined} />}
         {(onChat || onEdit || onDelete || onStatus) && <div className="listing-card-actions">
             {onChat && <button type="button" className="primary-button compact" onClick={onChat}>♧ Написати продавцю</button>}
             {onEdit && <button type="button" className="outline-button compact" onClick={onEdit}>Редагувати</button>}
