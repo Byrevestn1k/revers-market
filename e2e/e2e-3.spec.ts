@@ -278,10 +278,10 @@ test('E2E №3: two partial Deals complete, publish reviews and preserve account
     expect((await getOrder(buyer, scenario.orderB)).status).toBe('selected');
     await buyer.page.goto('/?view=requests');
     const requestCard = buyer.page.getByRole('article').filter({ hasText: scenario.title });
-    await expect(requestCard).toContainText('Потрібно: 20 kg');
-    await expect(requestCard).toContainText('Домовлено: 12 kg');
-    await expect(requestCard).toContainText('Отримано: 8 kg');
-    await expect(requestCard).toContainText('Ще можна обрати: 0 kg');
+    await expect(requestCard).toContainText('20 кг');
+    await expect(requestCard).toContainText('Домовлено: 12 кг');
+    await expect(requestCard).toContainText('Отримано: 8 кг');
+    await expect(requestCard).toContainText('Залишилось: 0 кг');
 
     await openOrders(buyer, 'completed');
     cardA = dealCard(buyer, scenario.title, sellerA.username);

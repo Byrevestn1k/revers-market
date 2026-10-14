@@ -15,6 +15,13 @@ describe('buy request and offer validation', () => {
         expect(validateBuyRequestInput({ ...withoutQuantity, quantity })).toEqual([])
         expect(validateBuyRequestInput(withoutQuantity)).toContain('quantity')
     })
+    it('accepts up to eight uploaded photos and rejects invalid files or counts', () => {
+        const photo = { dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', alt: 'Фото' }
+        expect(validateBuyRequestInput({ ...request, photos: Array(8).fill(photo) })).toEqual([])
+        expect(validateBuyRequestInput({ ...request, photos: Array(9).fill(photo) })).toContain('photos')
+        expect(validateBuyRequestInput({ ...request, photos: [{ dataUrl: 'data:text/html;base64,aGVsbG8=' }] })).toContain('photos')
+        expect(validateBuyRequestInput({ ...request, photos: [{ url: 'https://example.com/image.png' }] })).toContain('photos')
+    })
     it('requires explicit supported receipt methods to agree with legacy fields', () => {
         expect(validateBuyRequestInput({ receiptMethod: 'SELF_PICKUP' }, true)).toEqual([])
         expect(validateBuyRequestInput({ receiptMethod: 'SELLER_DELIVERY' }, true)).toEqual([])

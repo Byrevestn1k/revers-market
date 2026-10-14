@@ -43,6 +43,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     const allowedFrontendUrls = [...new Set([frontendUrl, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174', 'http://127.0.0.1:5174'])]
 
     app.use(cors({ origin: allowedFrontendUrls, credentials: true }))
+    app.use('/api/buy-requests', express.json({ limit: '56mb' }))
     app.use(express.json({ limit: '8mb' }))
     app.use('/uploads', express.static(fileURLToPath(new URL('../uploads', import.meta.url))))
     app.use('/api/auth/external', externalAuthRouter(options.providerExchange))

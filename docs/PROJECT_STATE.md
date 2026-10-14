@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 11 — DONE`.
+**Current step:** `STEP 12 — READY FOR INDEPENDENT REVIEW`.
 
 **Last updated:** 2026-10-14
 
@@ -92,11 +92,14 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
 | `DONE` | STEP 8 — Seller demand subscription corrections | Independent final re-review PASS. Exact decimal conversions; country/region/city union; optional verified-boundary suburbs; both receipt defaults and preferred-delivery compatibility. Owned CRUD, immediate selling alerts and dedup retained. |
 | `DONE` | STEP 11 — Mobile UX corrections | Independent review PASS. Favorites for Products, Buy Requests and Profiles, responsive cards, map marker/cluster behavior and single-result markers were verified with the real local API and database. A direct single marker centers at maximum zoom and opens its object; multi-object clusters open their list in one click. Physical-device keyboard language switching remains a separate P1 `UNRESOLVED`. |
+| `READY FOR REVIEW` | STEP 12 — Buy Request UX parity | Creation/editing, up to 8 uploaded photos, cards, category fallback and detail gallery implemented. Independent review and main integration are pending. |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
+
+**STEP 12 READY FOR INDEPENDENT REVIEW.** Implementation is on `codex/step-12-buy-request-ux`; independent review and main integration have not occurred. The backend suite passed 209 tests (1 skipped); the real-browser request/offer/favorites flow and separate bilateral Deal/review/notification flow passed. See [STEP_12_REVIEW.md](STEP_12_REVIEW.md) for the implementation differences and review focus. The physical-device keyboard language-switch issue remains separate.
 
 **STEP 11 DONE.** Independent review passed against the real local frontend, API and database. The correction commits are `8426278` and `419df04`. Product, Buy Request and Profile favorites were added, opened from Favorites, then removed successfully. On desktop, a single filtered map result renders as an individual marker; selecting it centers the map at zoom 19 and opens the correct object. A real five-object cluster opened its object list in one click; the targeted map test covers exact same-coordinate results. `npm run typecheck` passes; `backend/` is identical to `main`, so the previously reported favorites integration type errors do not reproduce and are not Step 11 regressions. The physical-device keyboard language-switch issue remains a separate P1 `UNRESOLVED`; no PASS is claimed for it.
 

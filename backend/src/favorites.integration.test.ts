@@ -21,7 +21,7 @@ if (hasDatabase) {
                 const ownerMe = await owner.get('/api/auth/me')
                 ownerId = ownerMe.body.user.id
                 expect((await viewer.post('/api/auth/register').send(viewerData)).status).toBe(201)
-                const category = (await owner.get('/api/categories')).body.categories.find(item => item.code === 'grains')
+                const category = (await owner.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
                 const product = await owner.post('/api/products').send({ categoryId: category.id, title: `Favorite product ${suffix}`, description: 'Public favorite', quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київ', status: 'active', photos: [] })
                 expect(product.status).toBe(201); productId = product.body.product.id
                 const buyRequest = await owner.post('/api/buy-requests').send({ categoryId: category.id, title: `Favorite request ${suffix}`, description: 'Public demand', quantity: 1, unit: 'kg', minPrice: 10, maxPrice: 20, currency: 'UAH', geoArea: 'Київ', deliveryRequired: false, fulfillmentMode: 'single_seller' })
@@ -35,8 +35,8 @@ if (hasDatabase) {
                 const saved = await viewer.get('/api/favorites')
                 expect(saved.status).toBe(200)
                 expect(saved.body.favorites).toHaveLength(3)
-                expect(saved.body.favorites.map(item => item.targetType).sort()).toEqual(['buy_request', 'product', 'profile'])
-                expect(saved.body.favorites.some(item => item.phone || item.exactAddress)).toBe(false)
+                expect(saved.body.favorites.map((item: { targetType: string }) => item.targetType).sort()).toEqual(['buy_request', 'product', 'profile'])
+                expect(saved.body.favorites.some((item: { phone?: string; exactAddress?: string }) => item.phone || item.exactAddress)).toBe(false)
                 expect((await owner.get('/api/favorites')).body.favorites).toEqual([])
                 expect((await viewer.delete(`/api/favorites/product/${productId}`)).status).toBe(204)
                 expect((await viewer.get('/api/favorites')).body.favorites).toHaveLength(2)

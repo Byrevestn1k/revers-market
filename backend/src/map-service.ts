@@ -172,12 +172,12 @@ export class MapService {
         if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_area', filters.region, parameters))
         if (filters.geoSettlementCode) conditions.push(settlementCondition('public_point.settlement_code', 'public_point.geo_area', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['r.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['r.title', 'r.description', 'u.username', 'u.nickname'], filters.q, parameters))
-        const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index,
+        const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index, photo.url AS photo_url,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
             (r.address_visibility = 'public') AS is_public_point,
             CASE WHEN r.address_visibility = 'public' THEN r.delivery_address ELSE NULL END AS public_address,
             ${distanceSql(distancePoint)} AS distance_km FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id
-            ${requestPublicLocationSql} WHERE ${conditions.join(' AND ')}`, parameters)
+            ${requestPublicLocationSql} LEFT JOIN LATERAL (SELECT url FROM buy_request_photos WHERE buy_request_id = r.id ORDER BY sort_order, id LIMIT 1) photo ON true WHERE ${conditions.join(' AND ')}`, parameters)
         return result.rows.map((row) => this.marker(row, 'buyRequest'))
     }
 
@@ -187,6 +187,6 @@ export class MapService {
         const point = row.is_public_point ? coordinates : approximatePoint(coordinates, row.is_demo ? 5 : 2)
         const distance = Number(row.distance_km)
         const distanceBand = distance <= 1 ? 'до 1 км' : distance <= 3 ? '1–3 км' : distance <= 5 ? '3–5 км' : distance <= 10 ? '5–10 км' : distance <= 20 ? '10–20 км' : 'понад 20 км'
-        return { id: row.id, kind, title: row.title, geoZone: row.geo_zone ?? row.geo_area, category: { id: row.category_id, name: row.category_name, imageIndex: row.image_index }, ...(row.owner_id ? { owner: { id: row.owner_id, username: row.owner_username, nickname: row.owner_nickname ?? null, avatarUrl: row.owner_avatar_url ?? null } } : {}), ...(row.public_address ? { publicAddress: row.public_address } : {}), ...(kind === 'product' ? { photoUrl: row.photo_url ?? null, price: { amount: Number(row.price), currency: row.currency }, quantity: Number(row.quantity) - Number(row.reserved_quantity ?? 0), unit: row.unit, deliveryMode: row.delivery_mode } : { quantity: Number(row.quantity), unit: row.unit }), ...point, approximate: !row.is_public_point, distanceBand }
+        return { id: row.id, kind, title: row.title, geoZone: row.geo_zone ?? row.geo_area, category: { id: row.category_id, name: row.category_name, imageIndex: row.image_index }, ...(row.owner_id ? { owner: { id: row.owner_id, username: row.owner_username, nickname: row.owner_nickname ?? null, avatarUrl: row.owner_avatar_url ?? null } } : {}), ...(row.public_address ? { publicAddress: row.public_address } : {}), ...(kind === 'product' ? { photoUrl: row.photo_url ?? null, price: { amount: Number(row.price), currency: row.currency }, quantity: Number(row.quantity) - Number(row.reserved_quantity ?? 0), unit: row.unit, deliveryMode: row.delivery_mode } : { photoUrl: row.photo_url ?? null, quantity: Number(row.quantity), unit: row.unit }), ...point, approximate: !row.is_public_point, distanceBand }
     }
 }

@@ -8,9 +8,9 @@ export function CategoryImage({ category, className = '' }: { category: Category
     return <span className={`category-image ${className}`} aria-hidden="true" style={{ backgroundPosition: `${(index % 5) * 25}% ${Math.floor(index / 5) * (100 / 3)}%` }} />
 }
 
-type Props = { categories: Category[]; value?: string; defaultValue?: string; onChange?: (id: string) => void; name?: string; required?: boolean; allowAll?: boolean; className?: string; label?: string; inlineTree?: boolean }
+type Props = { categories: Category[]; value?: string; defaultValue?: string; onChange?: (id: string) => void; name?: string; required?: boolean; allowAll?: boolean; className?: string; label?: string; inlineTree?: boolean; disabled?: boolean }
 
-export default function CategoryPicker({ categories, value, defaultValue = '', onChange, name = 'categoryId', required = false, allowAll = false, className = '', label, inlineTree = false }: Props) {
+export default function CategoryPicker({ categories, value, defaultValue = '', onChange, name = 'categoryId', required = false, allowAll = false, className = '', label, inlineTree = false, disabled = false }: Props) {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [query, setQuery] = useState('')
     const [open, setOpen] = useState(false)
@@ -54,8 +54,8 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         <input type="hidden" name={name} value={selectedId} />
         {label && <label htmlFor={`${id}-search`}>{label}</label>}
         <div className="category-picker-control">
-            <input ref={input} id={`${id}-search`} type="text" role="combobox" autoComplete="off" value={open ? query : selectedLabel} onFocus={showMenu} onChange={(event) => { setQuery(event.target.value); setOpen(true); setHoveredIds([]) }} onKeyDown={(event) => { if (event.key === 'Escape') { close(); input.current?.blur() }; if (event.key === 'ArrowDown') showMenu(); if (event.key === 'Enter' && normalized && matchingCategories.length === 1) { event.preventDefault(); choose(matchingCategories[0].id) } }} placeholder="Введіть або оберіть категорію" aria-label="Пошук або вибір категорії" aria-expanded={open} aria-controls={`${id}-menu`} required={required} disabled={!categories.length} />
-            <button type="button" className={`category-picker-toggle ${open ? 'is-open' : ''}`} onClick={() => open ? close() : (showMenu(), input.current?.focus())} aria-label={open ? 'Закрити список категорій' : 'Відкрити список категорій'} aria-expanded={open} disabled={!categories.length}><span aria-hidden="true" /></button>
+            <input ref={input} id={`${id}-search`} type="text" role="combobox" autoComplete="off" value={open ? query : selectedLabel} onFocus={showMenu} onChange={(event) => { setQuery(event.target.value); setOpen(true); setHoveredIds([]) }} onKeyDown={(event) => { if (event.key === 'Escape') { close(); input.current?.blur() }; if (event.key === 'ArrowDown') showMenu(); if (event.key === 'Enter' && normalized && matchingCategories.length === 1) { event.preventDefault(); choose(matchingCategories[0].id) } }} placeholder="Введіть або оберіть категорію" aria-label="Пошук або вибір категорії" aria-expanded={open} aria-controls={`${id}-menu`} required={required} disabled={disabled || !categories.length} />
+            <button type="button" className={`category-picker-toggle ${open ? 'is-open' : ''}`} onClick={() => open ? close() : (showMenu(), input.current?.focus())} aria-label={open ? 'Закрити список категорій' : 'Відкрити список категорій'} aria-expanded={open} disabled={disabled || !categories.length}><span aria-hidden="true" /></button>
         </div>
         {open && <div id={`${id}-menu`} className="category-picker-menu">
             {matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
+import { ExternalUrlPhotoStorage } from './photo-storage.js'
 
 const hasDatabase = Boolean(process.env.DATABASE_URL)
 
@@ -9,6 +10,7 @@ if (hasDatabase) {
 
     describe('buy requests and offers HTTP integration', () => {
         it('keeps product terms unchanged and supports several partial deals', async () => {
+            const uploadedPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const buyerPayload = { username: `buyer_${suffix}`, email: `buyer_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
             const sellerOnePayload = { username: `seller_one_${suffix}`, email: `seller_one_${suffix}@example.com`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
@@ -16,6 +18,7 @@ if (hasDatabase) {
             const buyer = request.agent(createApp())
             const sellerOne = request.agent(createApp())
             const sellerTwo = request.agent(createApp())
+            let requestId = ''
             try {
                 expect((await buyer.post('/api/auth/register').send(buyerPayload)).status).toBe(201)
                 expect((await sellerOne.post('/api/auth/register').send(sellerOnePayload)).status).toBe(201)
@@ -24,12 +27,23 @@ if (hasDatabase) {
                 const product = await sellerOne.post('/api/products').send({ categoryId: category.id, title: 'Базова пшениця', description: 'Базові умови', quantity: 1000, unit: 'kg', price: 250, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active' })
                 expect(product.status).toBe(201)
                 const baseProduct = product.body.product
-                const created = await buyer.post('/api/buy-requests').send({ categoryId: category.id, productId: baseProduct.id, title: 'Потрібна пшениця', description: 'Для двох складів', quantity: 500, unit: 'kg', currency: 'UAH', minPrice: 200, maxPrice: 260, delivery: 'preferred', preferredDelivery: 'До складу', geoArea: 'Київська область', address: 'Приватна адреса', deadline: '2030-01-01T00:00:00.000Z' })
+                const created = await buyer.post('/api/buy-requests').send({ categoryId: category.id, productId: baseProduct.id, title: 'Потрібна пшениця', description: 'Для двох складів', quantity: 500, unit: 'kg', currency: 'UAH', minPrice: 200, maxPrice: 260, delivery: 'preferred', preferredDelivery: 'До складу', geoArea: 'Київська область', address: 'Приватна адреса', deadline: '2030-01-01T00:00:00.000Z', photos: [{ dataUrl: uploadedPhoto, alt: 'Зразок' }] })
                 expect(created.status).toBe(201)
-                const requestId = created.body.buyRequest.id
+                requestId = created.body.buyRequest.id
+                expect(created.body.buyRequest.category.imageIndex).toBe(category.imageIndex)
+                expect(created.body.buyRequest.photos).toHaveLength(1)
+                expect(created.body.buyRequest.photos[0].url).toMatch(/^\/uploads\/buy-requests\//)
                 const descriptionOnly = await buyer.patch(`/api/buy-requests/${requestId}`).send({ description: 'Змінений опис без втрати умов' })
                 expect(descriptionOnly.status).toBe(200)
                 expect(descriptionOnly.body.buyRequest).toMatchObject({ title: 'Потрібна пшениця', quantity: 500, unit: 'kg', fulfillmentMode: 'multiple_sellers', price: { min: 200, max: 260, currency: 'UAH' }, geoArea: 'Київська область', delivery: { required: true, preferred: 'До складу', address: 'Приватна адреса' } })
+                expect(descriptionOnly.body.buyRequest.photos).toEqual(created.body.buyRequest.photos)
+                const secondPhoto = await buyer.patch(`/api/buy-requests/${requestId}`).send({ photos: [{ url: created.body.buyRequest.photos[0].url }, { dataUrl: uploadedPhoto, alt: 'Другий зразок' }] })
+                expect(secondPhoto.status).toBe(200)
+                expect(secondPhoto.body.buyRequest.photos).toHaveLength(2)
+                const reordered = await buyer.patch(`/api/buy-requests/${requestId}`).send({ photos: [secondPhoto.body.buyRequest.photos[1], secondPhoto.body.buyRequest.photos[0]] })
+                expect(reordered.status).toBe(200)
+                expect(reordered.body.buyRequest.photos[0].url).toBe(secondPhoto.body.buyRequest.photos[1].url)
+                expect((await sellerOne.patch(`/api/buy-requests/${requestId}`).send({ photos: [] })).status).toBe(404)
                 const clearMaximum = await buyer.patch(`/api/buy-requests/${requestId}`).send({ maxPrice: null })
                 expect(clearMaximum.status).toBe(200)
                 expect(clearMaximum.body.buyRequest.price).toMatchObject({ min: 200, max: null, currency: 'UAH' })
@@ -38,6 +52,8 @@ if (hasDatabase) {
                 const offerTwo = await sellerTwo.post(`/api/buy-requests/${requestId}/offers`).send({ quantity: 200, unit: 'kg', price: 245, currency: 'UAH', delivery: 'Самовивіз', note: 'Умова B' })
                 expect(offerOne.status).toBe(201)
                 expect(offerTwo.status).toBe(201)
+                expect((await buyer.patch(`/api/buy-requests/${requestId}`).send({ quantity: 600 })).status).toBe(409)
+                expect((await buyer.patch(`/api/buy-requests/${requestId}`).send({ photos: [reordered.body.buyRequest.photos[0]] })).status).toBe(200)
                 expect(offerOne.body.offer).toMatchObject({ quantity: 300, price: { amount: 240 }, note: 'Умова A' })
                 const noteOnly = await sellerOne.patch(`/api/offers/${offerOne.body.offer.id}`).send({ note: 'Оновлена умова A' })
                 expect(noteOnly.status).toBe(200)
@@ -65,6 +81,9 @@ if (hasDatabase) {
                 const dealTwo = await buyer.post(`/api/offers/${offerTwo.body.offer.id}/accept`).send({ quantity: 100 })
                 expect(dealOne.status).toBe(201)
                 expect(dealTwo.status).toBe(201)
+                const agreedTerms = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id = $1', [dealOne.body.order.id])).rows[0].conditions_snapshot
+                expect((await buyer.patch(`/api/buy-requests/${requestId}`).send({ minPrice: 210 })).status).toBe(200)
+                expect((await pool.query('SELECT conditions_snapshot FROM orders WHERE id = $1', [dealOne.body.order.id])).rows[0].conditions_snapshot).toEqual(agreedTerms)
                 expect((await buyer.get(`/api/buy-requests/${requestId}`)).body.buyRequest).toMatchObject({ quantity: 500, selectedQuantity: 400, completedQuantity: 0, remainingQuantity: 100, status: 'partially_selected' })
                 expect((await sellerOne.post(`/api/orders/${dealOne.body.order.id}/seller-confirm`)).status).toBe(200)
                 expect((await buyer.post(`/api/orders/${dealOne.body.order.id}/complete`)).status).toBe(200)
@@ -85,6 +104,10 @@ if (hasDatabase) {
                 expect(selectedSingle.status).toBe(201)
                 expect(selectedSingle.body.order).toMatchObject({ quantity: 100, status: 'selected' })
             } finally {
+                if (requestId) {
+                    const photoRows = await pool.query<{ storage_key: string }>('SELECT storage_key FROM buy_request_photos WHERE buy_request_id = $1', [requestId])
+                    for (const photo of photoRows.rows) await new ExternalUrlPhotoStorage('buy-requests').remove(photo.storage_key)
+                }
                 await pool.query(
                     `DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))
                      OR seller_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))`,

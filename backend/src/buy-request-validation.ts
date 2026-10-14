@@ -10,6 +10,26 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const validPrice = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0
 const validQuantity = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value > 0
 const validDate = (value: unknown) => typeof value === 'string' && !Number.isNaN(Date.parse(value))
+const requestPhotoPattern = /^data:image\/(jpeg|png|webp|gif);base64,[a-z0-9+/=]+$/i
+const validImageBytes = (dataUrl: string) => {
+    const match = dataUrl.match(requestPhotoPattern)
+    if (!match) return false
+    const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
+    if (!bytes.length || bytes.length > 5 * 1024 * 1024) return false
+    const type = match[1].toLowerCase()
+    if (type === 'png') return bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+    if (type === 'jpeg') return bytes.subarray(0, 3).equals(Buffer.from('ffd8ff', 'hex'))
+    if (type === 'gif') return ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii'))
+    return bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+}
+
+export const validRequestPhotos = (value: unknown): boolean => Array.isArray(value) && value.length <= 8 && value.every((photo) => {
+    if (!photo || typeof photo !== 'object') return false
+    const item = photo as Record<string, unknown>
+    if (item.alt !== undefined && (typeof item.alt !== 'string' || item.alt.length > 200)) return false
+    if (typeof item.url === 'string') return /^\/uploads\/buy-requests\/[0-9a-f-]+\/[0-9a-f-]+\/\d+\.(jpg|png|webp|gif)$/i.test(item.url) && item.dataUrl === undefined
+    return typeof item.dataUrl === 'string' && item.dataUrl.length <= 7_000_000 && validImageBytes(item.dataUrl) && item.url === undefined
+})
 
 export const validateBuyRequestInput = (input: Record<string, unknown>, partial = false): string[] => {
     const errors: string[] = validateSettlement(input, 'geoArea')
@@ -49,6 +69,7 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
     if (input.deadline !== undefined && input.deadline !== null && !validDate(input.deadline)) errors.push('deadline')
     if (input.status !== undefined && !BUY_REQUEST_STATUSES.includes(input.status as typeof BUY_REQUEST_STATUSES[number])) errors.push('status')
     if (input.fulfillmentMode !== undefined && !FULFILLMENT_MODES.includes(input.fulfillmentMode as typeof FULFILLMENT_MODES[number])) errors.push('fulfillmentMode')
+    if (input.photos !== undefined && !validRequestPhotos(input.photos)) errors.push('photos')
     return [...new Set(errors)]
 }
 

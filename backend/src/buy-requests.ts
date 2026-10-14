@@ -11,11 +11,35 @@ import { audit, createNotification, usersAreBlocked } from './community-service.
 import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
 import { categoryFilterSql } from './category-filter.js'
 import { notifyDemandSubscriptions } from './demand-subscriptions.js'
+import { randomUUID } from 'node:crypto'
+import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './photo-storage.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 const number = (value: string | number | null) => value === null ? null : Number(value)
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані запиту', fields } })
+const requestPhotoStorage = new ExternalUrlPhotoStorage('buy-requests')
+type RequestPhoto = { url: string; alt: string; storage_key: string }
+
+const saveRequestPhotos = async (client: Queryable, id: string, photos: PhotoUpload[], stored: StoredPhoto[]) => {
+    const existing = await client.query<RequestPhoto>('SELECT url, alt, storage_key FROM buy_request_photos WHERE buy_request_id = $1 ORDER BY sort_order, id', [id])
+    const retained = new Set(photos.filter((photo) => photo.url).map((photo) => photo.url))
+    if (photos.some((photo) => photo.url && !existing.rows.some((old) => old.url === photo.url))) return invalid(['photos'])
+    const rows: RequestPhoto[] = []
+    for (const [index, photo] of photos.entries()) {
+        if (photo.url) {
+            const old = existing.rows.find((item) => item.url === photo.url)!
+            rows.push({ ...old, alt: photo.alt ?? old.alt })
+        } else {
+            const saved = await requestPhotoStorage.store(`${id}/${randomUUID()}`, photo, index)
+            stored.push(saved)
+            rows.push({ url: saved.url, storage_key: saved.storageKey, alt: photo.alt ?? '' })
+        }
+    }
+    await client.query('DELETE FROM buy_request_photos WHERE buy_request_id = $1', [id])
+    for (const [index, photo] of rows.entries()) await client.query('INSERT INTO buy_request_photos (buy_request_id, storage_key, url, alt, sort_order) VALUES ($1,$2,$3,$4,$5)', [id, photo.storage_key, photo.url, photo.alt, index])
+    return existing.rows.filter((photo) => !retained.has(photo.url)).map((photo) => photo.storage_key)
+}
 
 const asNumberOrNull = (value: unknown): number | null => {
     if (value === undefined || value === null) return null
@@ -28,8 +52,9 @@ const asDateOrNull = (value: unknown): string | null => {
     return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
-const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_name, u.username AS buyer_username,
-    (SELECT count(*)::int FROM offers ro WHERE ro.buy_request_id = r.id) AS offer_count
+const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index, u.username AS buyer_username,
+    (SELECT count(*)::int FROM offers ro WHERE ro.buy_request_id = r.id) AS offer_count,
+    COALESCE((SELECT jsonb_agg(jsonb_build_object('url', rp.url, 'alt', rp.alt) ORDER BY rp.sort_order, rp.id) FROM buy_request_photos rp WHERE rp.buy_request_id = r.id), '[]'::jsonb) AS photos
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id`
 const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.status AS request_status,
     CASE WHEN u.rating_count > 0 THEN round(u.rating_sum / u.rating_count, 2) ELSE NULL END AS seller_rating,
@@ -48,9 +73,11 @@ interface BuyRequestRow {
     buyer_id: string
     buyer_username: string
     offer_count: number
+    photos: { url: string; alt: string }[]
     category_id: string
     category_code: string
     category_name: string
+    category_image_index: number | null
     product_id: string | null
     title: string
     description: string
@@ -110,8 +137,8 @@ interface OfferRow {
 
 const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     id: row.id, buyer: { id: row.buyer_id, username: row.buyer_username }, ...(includeAddress ? { offerCount: row.offer_count } : {}),
-    category: { id: row.category_id, code: row.category_code, name: row.category_name },
-    productId: row.product_id, title: row.title, description: row.description,
+    category: { id: row.category_id, code: row.category_code, name: row.category_name, imageIndex: row.category_image_index },
+    productId: row.product_id, title: row.title, description: row.description, photos: row.photos ?? [],
     quantity: Number(row.requested_quantity), fulfilledQuantity: Number(row.fulfilled_quantity), selectedQuantity: Number(row.selected_quantity ?? 0), completedQuantity: Number(row.completed_quantity ?? row.fulfilled_quantity), remainingQuantity: Number(row.requested_quantity) - Number(row.selected_quantity ?? 0) - Number(row.completed_quantity ?? row.fulfilled_quantity), fulfillmentMode: row.fulfillment_mode, unit: row.unit,
     price: { min: number(row.min_unit_price), max: number(row.max_unit_price), currency: row.currency },
     delivery: { required: row.delivery_required, preferred: row.preferred_delivery, address: includeAddress || row.address_visibility === 'public' ? row.delivery_address : null },
@@ -155,6 +182,7 @@ const validateAcceptance = (
 export const createBuyRequest = async (user: AuthUser, input: Record<string, unknown>) => {
     const errors = validateBuyRequestInput(input)
     if (errors.length) return invalid(errors)
+    if (Array.isArray(input.photos) && input.photos.some((photo: PhotoUpload) => photo.url)) return invalid(['photos'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
     const exactPrice = asNumberOrNull(input.exactPrice)
     const minPrice = asNumberOrNull(input.minPrice)
@@ -175,6 +203,7 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     const receiptMethod = input.receiptMethod ?? (preferredDelivery === 'pickup' && !deliveryRequired ? 'SELF_PICKUP' : preferredDelivery === 'seller_delivery' ? 'SELLER_DELIVERY' : null)
     const client = await pool.connect()
     let requestId: string
+    const storedPhotos: StoredPhoto[] = []
     try {
     await client.query('BEGIN')
     const created = await client.query<{ id: string }>(
@@ -182,10 +211,12 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
         [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'multiple_sellers', input.countryCode ?? 'UA', receiptMethod],
     )
     requestId = created.rows[0].id
+    if (Array.isArray(input.photos)) await saveRequestPhotos(client, requestId, input.photos as PhotoUpload[], storedPhotos)
     await notifyDemandSubscriptions(client, requestId)
     await client.query('COMMIT')
     } catch (error) {
         await client.query('ROLLBACK')
+        for (const photo of storedPhotos) await requestPhotoStorage.remove(photo.storageKey)
         throw error
     } finally { client.release() }
     const response = await getBuyRequest(requestId, user)
@@ -243,12 +274,14 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     if (input.delivery !== undefined && input.receiptMethod === undefined) { normalizedInput.deliveryRequired = input.delivery !== 'no'; if (input.delivery === 'preferred') normalizedInput.preferredDelivery = input.preferredDelivery ?? 'preferred' }
     const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', countryCode: 'country_code', receiptMethod: 'receipt_method', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', fulfillmentMode: 'fulfillment_mode', status: 'status' }
     const { assignments, values } = buildUpdate(allowed, normalizedInput)
-    if (!assignments.length) return invalid(['buyRequest'])
+    if (!assignments.length && input.photos === undefined) return invalid(['buyRequest'])
     const client = await pool.connect()
     let committed = false
+    const storedPhotos: StoredPhoto[] = []
+    let removedPhotos: string[] = []
     try {
     await client.query('BEGIN')
-    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
+    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code, requested_quantity, selected_quantity, completed_quantity FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const country = 'countryCode' in input ? input.countryCode : current.rows[0].country_code
     const settlement = 'settlementCode' in input ? input.settlementCode : current.rows[0].settlement_code
@@ -257,18 +290,26 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     if (input.categoryId !== undefined && !(await categoryExists(client, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
     const immutableAfterOffers = ['categoryId', 'productId', 'quantity', 'unit', 'currency']
     const hasOffers = Boolean((await client.query('SELECT 1 FROM offers WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
-    if (hasOffers && Object.keys(normalizedInput).some((key) => key in allowed && immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }
+    const hasDeals = Boolean((await client.query('SELECT 1 FROM orders WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
+    if ((hasOffers || hasDeals) && Object.keys(normalizedInput).some((key) => key in allowed && immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }
+    if (input.quantity !== undefined && Number(input.quantity) < Number(current.rows[0].selected_quantity) + Number(current.rows[0].completed_quantity)) return { status: 409, body: { error: 'REQUEST_QUANTITY_BELOW_ALLOCATED' } }
     if (input.status !== undefined && !['cancelled', 'expired'].includes(String(input.status))) return { status: 409, body: { error: 'REQUEST_STATUS_MANAGED_BY_DEALS' } }
     const { idParam, ownerParam } = withOwnerConditions(values, id, user.id)
-    const result = await client.query(`UPDATE buy_requests SET ${assignments.join(', ')}, closed_at = CASE WHEN status = 'cancelled' THEN now() ELSE closed_at END, updated_at = now() WHERE id = ${idParam} AND buyer_id = ${ownerParam} AND status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled') RETURNING id`, values)
+    const result = await client.query(`UPDATE buy_requests SET ${assignments.length ? assignments.join(', ') + ', ' : ''}closed_at = CASE WHEN status = 'cancelled' THEN now() ELSE closed_at END, updated_at = now() WHERE id = ${idParam} AND buyer_id = ${ownerParam} AND status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled') RETURNING id`, values)
     if (!result.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
+    if (Array.isArray(input.photos)) {
+        const photoResult = await saveRequestPhotos(client, id, input.photos as PhotoUpload[], storedPhotos)
+        if (!Array.isArray(photoResult)) return photoResult
+        removedPhotos = photoResult
+    }
     if (input.status === 'cancelled' || input.status === 'expired') {
         await client.query('UPDATE buy_requests SET closed_at = now() WHERE id = $1', [id])
         await client.query("UPDATE negotiation_proposals SET status = 'expired', responded_at = now() WHERE offer_id IN (SELECT id FROM offers WHERE buy_request_id = $1) AND status = 'pending'", [id])
     }
     await client.query('COMMIT'); committed = true
+    for (const storageKey of removedPhotos) await requestPhotoStorage.remove(storageKey)
     return getBuyRequest(id, user)
-    } finally { if (!committed) await client.query('ROLLBACK'); client.release() }
+    } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await requestPhotoStorage.remove(photo.storageKey) } client.release() }
 }
 
 export const listOffers = async (user: AuthUser, requestId: string) => {
