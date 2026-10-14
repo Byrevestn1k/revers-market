@@ -1,6 +1,6 @@
 # Step 12 — Buy Request UX parity: review notes
 
-**Status:** READY FOR INDEPENDENT REVIEW; no merge or push to `main`.
+**Status:** Independent REVIEW PASS after correction `4d81bb7`; integrated into `main`.
 
 ## Actual differences found before implementation
 
@@ -22,4 +22,5 @@
 - Check photo storage and cleanup on transaction failure, retaining/removing photos, and the 56 MB Buy Request request-body limit.
 - Check owner, seller, guest and unrelated-user visibility, plus agreement snapshots after request edits.
 - Check `/my/requests`, `/requests`, `/favorites`, request detail and mobile controls. Map clustering and keyboard language switching were not redesigned.
-- Independent REVIEW PASS and integration into `main` are still required before Step 12 can be called complete.
+- Independent re-review passed: HTTP 409 protects `fulfillmentMode` after an Offer, a withdrawn Offer, or a Deal; unchanged mode permits other edits. A focused real-DB test confirms that rejected edits leave request and agreed Offer/Deal terms unchanged. Request editing and Offer creation lock the same request row.
+- The focused regression test and typecheck passed. Earlier Step 12 Chromium creation/editing/Offer/Deal QA passed at 1440/1280/1024/768/390/320 px. Live Step 8 subscription Browser E2E requires its isolated database, and opening a Request from a single map marker or cluster remains UNVERIFIED; focused subscription DB and map logic tests passed. These remaining browser checks do not block integration.
