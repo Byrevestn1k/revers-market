@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 8 — DONE`.
+**Current step:** `STEP 11 — DONE`.
 
-**Last updated:** 2026-10-09
+**Last updated:** 2026-10-14
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -91,13 +91,14 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 4 — Messages/Chats UX completion | Independent final re-review PASS; incorporated into main. |
 | `DONE` | Activity organisation | Independent final re-review PASS; integrated into main. |
 | `DONE` | STEP 8 — Seller demand subscription corrections | Independent final re-review PASS. Exact decimal conversions; country/region/city union; optional verified-boundary suburbs; both receipt defaults and preferred-delivery compatibility. Owned CRUD, immediate selling alerts and dedup retained. |
+| `DONE` | STEP 11 — Mobile UX corrections | Independent review PASS. Favorites for Products, Buy Requests and Profiles, responsive cards, map marker/cluster behavior and single-result markers were verified with the real local API and database. A direct single marker centers at maximum zoom and opens its object; multi-object clusters open their list in one click. Physical-device keyboard language switching remains a separate P1 `UNRESOLVED`. |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 8 DONE.** Independent final re-review passed. The verified correction commit is `9541513`. Final corrections address the latest reviewer FAIL: Rivne's actual OSM city polygon was wrongly rejected by administrative-only metadata checks; search and subscriptions now share verified directory-bound geometry. Real DB saving with 10 km, inside/suburb/outside matching, Rivne + Kyiv and public-coordinate privacy passed. Missing buyer budget now matches a seller price minimum/range; known budget retains existing comparisons. Notification Center preserves each event title and explanation while displaying the public Request preview as supplementary information. The user's final privacy clarification is implemented for Requests: private points stay visible with rounding and no address text; public consent retains exact location. City-only subscription matches reuse the existing verified HERE locality resolver for an explicitly approximate city marker, without substituting it into suburb matching. Complete authenticated Chromium seller subscription → buyer Request → seller selling alert/counter → canonical Request → read counter passed without API stubs at all five required widths. The independent P2 re-review also passed the real authenticated Offer rejection flow.
+**STEP 11 DONE.** Independent review passed against the real local frontend, API and database. The correction commits are `8426278` and `419df04`. Product, Buy Request and Profile favorites were added, opened from Favorites, then removed successfully. On desktop, a single filtered map result renders as an individual marker; selecting it centers the map at zoom 19 and opens the correct object. A real five-object cluster opened its object list in one click; the targeted map test covers exact same-coordinate results. `npm run typecheck` passes; `backend/` is identical to `main`, so the previously reported favorites integration type errors do not reproduce and are not Step 11 regressions. The physical-device keyboard language-switch issue remains a separate P1 `UNRESOLVED`; no PASS is claimed for it.
 
 Earlier exact decimal conversion, country/region/city union, repeated territory input, unlimited unit/currency, both receipt defaults, SELF_PICKUP/SELLER_DELIVERY and preferred-delivery compatibility are retained. Main migrations 040–043 remain applied; this correction needs no new migration. Tests use an isolated PostgreSQL/PostGIS database. Implementer validation: 203/203 backend tests in 29 files, real provider suburbs test, 2/2 real authenticated browser flows without API stubs, typecheck/build and diff checks passed. Independent final re-review: notification backend 4/4, notification UI 6/6, focused subscription notification checks 2/2, authenticated Offer rejection E2E 1/1 and provider/token tests 26/26 passed. The known `iat = now + 61` boundary failure was confirmed as timing-dependent test instability, not a production regression. Both notification details and real matches map were checked at 1440/1024/768/390/320. Full evidence and remaining provider/HERE street/house risks are in DEMAND_SUBSCRIPTIONS.md. Step 7 remains DONE. Step 9 has not been started.
 
