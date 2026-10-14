@@ -281,16 +281,16 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     let removedPhotos: string[] = []
     try {
     await client.query('BEGIN')
-    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code, requested_quantity, selected_quantity, completed_quantity FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
+    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code, requested_quantity, selected_quantity, completed_quantity, fulfillment_mode FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const country = 'countryCode' in input ? input.countryCode : current.rows[0].country_code
     const settlement = 'settlementCode' in input ? input.settlementCode : current.rows[0].settlement_code
     if (settlement != null && country != null && country !== 'UA') return invalid(['countryCode'])
-    if (input.fulfillmentMode !== undefined && Boolean((await client.query("SELECT 1 FROM orders WHERE buy_request_id = $1 AND status IN ('accepted', 'selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed', 'disputed', 'completed') LIMIT 1", [id])).rowCount)) return { status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED' } }
     if (input.categoryId !== undefined && !(await categoryExists(client, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
     const immutableAfterOffers = ['categoryId', 'productId', 'quantity', 'unit', 'currency']
     const hasOffers = Boolean((await client.query('SELECT 1 FROM offers WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
     const hasDeals = Boolean((await client.query('SELECT 1 FROM orders WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
+    if (input.fulfillmentMode !== undefined && input.fulfillmentMode !== current.rows[0].fulfillment_mode && (hasOffers || hasDeals)) return { status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED', message: 'Режим виконання не можна змінити після появи пропозиції або угоди.' } }
     if ((hasOffers || hasDeals) && Object.keys(normalizedInput).some((key) => key in allowed && immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }
     if (input.quantity !== undefined && Number(input.quantity) < Number(current.rows[0].selected_quantity) + Number(current.rows[0].completed_quantity)) return { status: 409, body: { error: 'REQUEST_QUANTITY_BELOW_ALLOCATED' } }
     if (input.status !== undefined && !['cancelled', 'expired'].includes(String(input.status))) return { status: 409, body: { error: 'REQUEST_STATUS_MANAGED_BY_DEALS' } }
