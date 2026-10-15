@@ -20,6 +20,8 @@ const number = (value: string | number | null) => value === null ? null : Number
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані запиту', fields } })
 const requestPhotoStorage = new ExternalUrlPhotoStorage('buy-requests')
 const offerPhotoStorage = new ExternalUrlPhotoStorage('offers')
+// Serialize reference creation with the final reference check and file removal.
+const offerPhotoLock = [13, 45]
 type RequestPhoto = { url: string; alt: string; storage_key: string }
 
 const saveRequestPhotos = async (client: Queryable, id: string, photos: PhotoUpload[], stored: StoredPhoto[]) => {
@@ -43,6 +45,7 @@ const saveRequestPhotos = async (client: Queryable, id: string, photos: PhotoUpl
 }
 
 const saveOfferPhotos = async (client: Queryable, id: string, productId: string | null, photos: PhotoUpload[], stored: StoredPhoto[]) => {
+    await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
     const old = (await client.query<RequestPhoto>('SELECT url, alt, storage_key FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [id])).rows
     if (productId) await client.query('SELECT 1 FROM products WHERE id=$1 FOR SHARE', [productId])
     const product = productId ? (await client.query<RequestPhoto>('SELECT url, alt, storage_key FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id', [productId])).rows : []
@@ -469,6 +472,7 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const goodsTotal = Math.round(selectionQuantity * unitPrice * 100) / 100
         const subtotal = goodsTotal + delivery.price
         const title = row.title ?? product.rows[0]?.title ?? request.rows[0].title
+        await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
         const photoSnapshot = (await client.query('SELECT url, alt FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [offerId])).rows
         const order = await client.query<{ id: string }>('INSERT INTO orders (buy_request_id, offer_id, buyer_id, seller_id, status, currency, subtotal, quantity, unit, unit_price, conditions_snapshot, selection_key, negotiation_proposal_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id', [row.buy_request_id, row.id, user.id, row.seller_id, 'selected', row.currency, subtotal, selectionQuantity, row.unit, unitPrice, JSON.stringify({ offerId: row.id, productTitle: title, description: row.description, characteristics: row.characteristics, photos: photoSnapshot, originalOffer: { price: Number(row.unit_price), quantity: Number(row.offered_quantity), delivery: row.delivery, note: row.note }, terms: row.terms, delivery, goodsTotal, grandTotal: subtotal, negotiated: agreed ? { id: agreed.id, price: unitPrice, quantity: selectionQuantity, delivery } : null }), input.selectionKey ?? null, agreed?.id ?? null])
         await client.query('INSERT INTO order_items (order_id, offer_id, product_id, quantity, unit, unit_price, currency, product_title_snapshot, offer_terms_snapshot, delivery_terms_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [order.rows[0].id, row.id, row.product_id, selectionQuantity, row.unit, unitPrice, row.currency, title, JSON.stringify({ ...row.terms, description: row.description, characteristics: row.characteristics, photos: photoSnapshot }), JSON.stringify(delivery)])
@@ -528,9 +532,23 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         const result = await client.query(`${offerSelect} WHERE o.id = $1`, [offerId])
         await audit(client, user.id, 'offer.updated', 'offer', offerId)
         await client.query('COMMIT'); committed = true
-        for (const photo of removedPhotos) {
-            const stillUsed = await pool.query('SELECT 1 FROM offer_photos WHERE storage_key=$1 LIMIT 1', [photo])
-            if (!stillUsed.rowCount) await offerPhotoStorage.remove(photo)
+        if (removedPhotos.length) {
+            await client.query('SELECT pg_advisory_lock($1, $2)', offerPhotoLock)
+            try {
+                for (const photo of removedPhotos) {
+                    const url = `/uploads/offers/${photo}`
+                    const stillUsed = await client.query<{ in_use: boolean }>(`SELECT
+                        EXISTS (SELECT 1 FROM offer_photos WHERE storage_key=$1 OR url=$2)
+                        OR EXISTS (SELECT 1 FROM offers WHERE additional_photo_url=$2 OR terms->>'additionalPhotoUrl'=$2)
+                        OR EXISTS (SELECT 1 FROM orders WHERE conditions_snapshot @> jsonb_build_object('photos', jsonb_build_array(jsonb_build_object('url', $2::text)))
+                            OR conditions_snapshot->'terms'->>'additionalPhotoUrl'=$2)
+                        OR EXISTS (SELECT 1 FROM order_items WHERE offer_terms_snapshot @> jsonb_build_object('photos', jsonb_build_array(jsonb_build_object('url', $2::text)))
+                            OR offer_terms_snapshot->>'additionalPhotoUrl'=$2) AS in_use`, [photo, url])
+                    if (!stillUsed.rows[0].in_use) await offerPhotoStorage.remove(photo)
+                }
+            } finally {
+                await client.query('SELECT pg_advisory_unlock($1, $2)', offerPhotoLock)
+            }
         }
         return { status: 200, body: { offer: offerDto(result.rows[0]) } }
     } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await offerPhotoStorage.remove(photo.storageKey) } client.release() }
