@@ -110,7 +110,7 @@ Earlier exact decimal conversion, country/region/city union, repeated territory 
 
 ## REQUIRED CONTEXT
 
-For Step 8 review: this file; [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md); [NOTIFICATIONS.md](NOTIFICATIONS.md) CURRENT; migrations 040/041/042/043; backend subscriptions, demand-matching, city-boundaries and its tests, shared Request public projection, Request validation/creation and integration tests; frontend DemandSubscriptions, SubscriptionCriteriaFields, criteria types/CSS, explicit Request receipt UI, CategoryPicker inline mode and settings navigation; `e2e/demand-subscriptions.spec.ts`, `e2e/demand-subscriptions-live.spec.ts`, live suburbs integration and Notification Center public-preview changes. Do not load historical documents by default.
+For Step 14 planning: this file; [STEP_14_HANDOFF.md](STEP_14_HANDOFF.md); [PRODUCT.md](PRODUCT.md); [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md) CURRENT; Request/Offer validation and creation, Product delivery mode, demand matching and city boundaries. Open deeper files only for a concrete product decision. No Step 14 implementation has begun; do not load historical documents by default.
 
 ## AI WORKFLOW
 
