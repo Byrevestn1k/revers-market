@@ -31,6 +31,14 @@ export const validRequestPhotos = (value: unknown): boolean => Array.isArray(val
     return typeof item.dataUrl === 'string' && item.dataUrl.length <= 7_000_000 && validImageBytes(item.dataUrl) && item.url === undefined
 })
 
+export const validOfferPhotos = (value: unknown): boolean => Array.isArray(value) && value.length <= 8 && value.every((photo) => {
+    if (!photo || typeof photo !== 'object') return false
+    const item = photo as Record<string, unknown>
+    if (item.alt !== undefined && (typeof item.alt !== 'string' || item.alt.length > 200)) return false
+    if (typeof item.url === 'string') return item.url.length <= 2048 && (/^\/uploads\/offers\/[0-9a-f-]+\/[0-9a-z-]+\/\d+\.(jpg|png|webp|gif)$/i.test(item.url) || /^\/uploads\/products\/[0-9a-f-]+\/\d+\.(jpg|png|webp|gif)$/i.test(item.url) || /^https:\/\//i.test(item.url)) && item.dataUrl === undefined
+    return typeof item.dataUrl === 'string' && item.dataUrl.length <= 7_000_000 && validImageBytes(item.dataUrl) && item.url === undefined
+})
+
 export const validateBuyRequestInput = (input: Record<string, unknown>, partial = false): string[] => {
     const errors: string[] = validateSettlement(input, 'geoArea')
     // For a create every required field must be present; for PATCH validate
@@ -89,5 +97,10 @@ export const validateOfferInput = (input: Record<string, unknown>, partial = fal
         try { const url = new URL(String(input.additionalPhotoUrl)); if (!['http:', 'https:'].includes(url.protocol) || String(input.additionalPhotoUrl).length > 2048) errors.push('additionalPhotoUrl') } catch { errors.push('additionalPhotoUrl') }
     }
     if (input.validUntil !== undefined && input.validUntil !== null && !validDate(input.validUntil)) errors.push('validUntil')
+    if (input.title !== undefined && (typeof input.title !== 'string' || input.title.trim().length < 2 || input.title.trim().length > 160)) errors.push('title')
+    if (input.description !== undefined && (typeof input.description !== 'string' || input.description.length > 5000)) errors.push('description')
+    if (input.characteristics !== undefined && (typeof input.characteristics !== 'string' || input.characteristics.length > 3000)) errors.push('characteristics')
+    if (input.creationMode !== undefined && !['product', 'manual', 'request_terms'].includes(String(input.creationMode))) errors.push('creationMode')
+    if (input.photos !== undefined && !validOfferPhotos(input.photos)) errors.push('photos')
     return [...new Set(errors)]
 }

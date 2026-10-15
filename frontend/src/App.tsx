@@ -44,7 +44,7 @@ import DemandSubscriptions from './DemandSubscriptions'
 import { countryName, criteriaDraft, receiptLabel, receiptLabels, type ReceiptMethod, type SubscriptionCriteria } from './subscription-criteria'
 import SubscriptionCriteriaFields from './SubscriptionCriteriaFields'
 import { COUNTRIES } from './countries'
-import { RequestOffers, DealChat, ChatActions, closeChatActionMenus, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
+import { RequestOffers, OfferDetails, DealChat, ChatActions, closeChatActionMenus, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
 import { MessagesContext, MessageUnreadBadge } from './messages-state'
 import type { Conversation } from './messages-state'
 import { conversationIdForPath, legacyDestination, mobileTabForPath, productEditIdForPath, productEditPath, viewForPath, viewRoutes, type AppView } from './navigation'
@@ -821,7 +821,7 @@ function BuyRequestPage({ id, user, mine, notify, onAccount, onCreate, onChat, f
         <div className="detail-facts"><span>⌖ <b>{item.geoArea}</b><small>Приблизне місце</small></span><span>▧ <b>{item.quantity} {unitLabel(item.unit)}</b><small>Потрібно</small></span><span>₴ <b>{requestBudget(item.price)}</b><small>Бажана ціна за одиницю</small></span></div>
         <section className="listing-description"><h2>Що потрібно покупцеві</h2><p>{item.description || 'Покупець ще не додав опис.'}</p><p><b>Спосіб виконання:</b> {item.fulfillmentMode === 'single_seller' ? 'Один продавець' : 'Можна кількома продавцями'}</p><p><b>Отримання:</b> {receiptLabel(item.receiptMethod)}</p>{item.deadline && <p><b>Потрібно до:</b> {date(item.deadline)}</p>}</section>
         {user && item.buyer?.id === user.id && <RequestOffers item={item} http={request} notify={notify} onRefresh={load} />}
-        {item.buyer?.id !== user?.id && isActiveRequest(item.status) && (user ? (offerOpen ? <OfferForm buyRequest={item} products={mine} notify={notify} onDone={() => { setOfferOpen(false); load() }} /> : <div className="deal-actions"><button className="primary-button" onClick={() => setOfferOpen(true)}>Запропонувати товар</button><button className="outline-button" onClick={() => onChat(item)}>♧ Написати покупцю</button></div>) : <div className="deal-actions"><button className="primary-button" onClick={() => onAccount(pathWithIntent('offer'))}>Запропонувати товар</button><button className="outline-button" onClick={() => onAccount(pathWithIntent('message'))}>♧ Написати покупцю</button></div>)}
+        {item.buyer?.id !== user?.id && isActiveRequest(item.status) && (user ? (offerOpen ? <OfferForm buyRequest={item} viewerId={user.id} products={mine} notify={notify} onDone={() => { setOfferOpen(false); load() }} /> : <div className="deal-actions"><button className="primary-button" onClick={() => setOfferOpen(true)}>Запропонувати товар</button><button className="outline-button" onClick={() => onChat(item)}>♧ Написати покупцю</button></div>) : <div className="deal-actions"><button className="primary-button" onClick={() => onAccount(pathWithIntent('offer'))}>Запропонувати товар</button><button className="outline-button" onClick={() => onAccount(pathWithIntent('message'))}>♧ Написати покупцю</button></div>)}
     </div></article><CompactPersonCard profile={buyer} role="Покупець" favorite={Boolean(buyer && favoriteKeys.has(favoriteKey('profile', buyer.id)))} onFavorite={user ? onFavorite : undefined} /></div>}</PublicPage>
 }
 
@@ -963,7 +963,7 @@ function Mine({ products, loading, error, retry, open, create, edit, remove, set
         {loading ? <div className="loading">Завантажуємо ваші товари…</div> : error ? <div className="empty-state" role="alert"><h3>Не вдалося завантажити товари</h3><p>{error}</p><button className="primary-button compact" onClick={retry}>Спробувати ще раз</button></div> : <><ActivityTabs kind="product" items={products} active={selectedGroup} onChange={setGroup} /><div className="product-grid">{visible.map(product => <Card key={product.id} product={product} onOpen={() => open(product)} onEdit={() => edit(product)} onDelete={() => remove(product)} onStatus={status => setStatus(product, status)} showFavorite={false} />)}</div>{!visible.length && <Empty text={products.length ? activityGroups.product.find(item => item.id === selectedGroup)!.empty : 'У вас ще немає товарів'} action={!products.length ? 'Створити перший товар' : undefined} onAction={create} />}</>}
     </section>
 }
-type Offer = { id: string; seller: { id: string; username: string }; buyRequestId: string; requestTitle: string; requestStatus: string; existingProduct: { id: string; title: string } | null; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; additionalPhotoUrl?: string | null; validUntil?: string | null; termsSnapshot?: { availableAt?: string }; deliverySnapshot?: { price?: number }; status: string; createdAt: string; updatedAt?: string; pendingNegotiation?: boolean; waitingConfirmation?: boolean }
+type Offer = { id: string; seller: { id: string; username: string }; buyRequestId: string; requestTitle: string; requestStatus: string; existingProduct: { id: string; title: string } | null; title: string; description: string; characteristics: string; creationMode?: string | null; photos: { url: string; alt: string }[]; request?: { title: string; description: string; quantity: number; unit: string; minPrice: number | null; maxPrice: number | null; delivery: string | null; receiptMethod: string | null; category?: { id: string; name: string; parentId: null; imageIndex?: number | null } }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; additionalPhotoUrl?: string | null; validUntil?: string | null; termsSnapshot?: { availableAt?: string }; deliverySnapshot?: { price?: number }; status: string; createdAt: string; updatedAt?: string; pendingNegotiation?: boolean; waitingConfirmation?: boolean }
 type Order = { id: string; buyRequestId: string; buyer: { id: string; username: string }; seller: { id: string; username: string }; quantity: number | null; unit: string; price: { unit: number | null; currency: string }; subtotal: number; status: string; createdAt?: string; updatedAt?: string; conditionsSnapshot: { productTitle?: string } | null; cancelReason?: string | null; dispute?: { status: string; reason: string; resolution: string | null } | null }
 type ChatMessage = { id: string; senderId: string; senderUsername: string; body: string; createdAt: string }
 
@@ -982,31 +982,74 @@ const OFFER_STATUS: Record<string, string> = { submitted: 'Очікує', accept
 const ORDER_STATUS: Record<string, string> = { accepted: 'Прийняте', selected: 'Очікує продавця', in_progress: 'У процесі', buyer_marked_completed: 'Очікує продавця', seller_marked_completed: 'Очікує покупця', completed: 'Завершене', failed: 'Не відбулося', cancelled: 'Скасоване', rejected: 'Відхілене', expired: 'Закінчене', disputed: 'Спір' }
 const REQUEST_STATUS: Record<string, string> = { open: 'Відкритий', partially_selected: 'Частину обрано', partially_completed: 'Частково виконаний', completed: 'Виконаний', partially_fulfilled: 'Частково виконаний', fulfilled: 'Виконаний', cancelled: 'Скасований', expired: 'Строк минув' }
 
-function OfferForm({ buyRequest, products, notify, onDone }: { buyRequest: BuyRequest; products: Product[]; notify: (message: string) => void; onDone: () => void }) {
+function OfferForm({ buyRequest, viewerId, products, notify, onDone }: { buyRequest: BuyRequest; viewerId: string; products: Product[]; notify: (message: string) => void; onDone: () => void }) {
+    const draftKey = `seller-offer-draft:${viewerId}:${buyRequest.id}`
+    const [draft] = useState(() => { try { return JSON.parse(sessionStorage.getItem(draftKey) ?? '{}') as Record<string, unknown> } catch { return {} as Record<string, unknown> } })
+    const savedText = (field: string, fallback = '') => typeof draft[field] === 'string' ? draft[field] as string : fallback
+    const [mode, setMode] = useState<'product' | 'manual' | 'request_terms'>(['product', 'manual', 'request_terms'].includes(String(draft.mode)) ? draft.mode as 'product' | 'manual' | 'request_terms' : 'request_terms')
+    const [productId, setProductId] = useState(savedText('productId'))
+    const [title, setTitle] = useState(savedText('title', buyRequest.title))
+    const [description, setDescription] = useState(savedText('description'))
+    const [characteristics, setCharacteristics] = useState(savedText('characteristics'))
+    const [quantity, setQuantity] = useState(savedText('quantity', String(buyRequest.remainingQuantity || buyRequest.quantity)))
+    const [price, setPrice] = useState(savedText('price', buyRequest.price.max != null ? String(buyRequest.price.max) : buyRequest.price.min != null ? String(buyRequest.price.min) : ''))
+    const [delivery, setDelivery] = useState(savedText('delivery', buyRequest.receiptMethod === 'SELF_PICKUP' ? 'Самовивіз' : buyRequest.receiptMethod === 'SELLER_DELIVERY' ? 'Доставка продавцем' : ''))
+    const [deliveryPrice, setDeliveryPrice] = useState(savedText('deliveryPrice', '0'))
+    const [availableAt, setAvailableAt] = useState(savedText('availableAt'))
+    const [note, setNote] = useState(savedText('note'))
+    const [photos, setPhotos] = useState<string[]>(Array.isArray(draft.photos) ? draft.photos.filter((value): value is string => typeof value === 'string').slice(0, 8) : [])
+    const [review, setReview] = useState(false)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
     const sending = useRef(false)
+    useEffect(() => {
+        const next = { mode, productId, title, description, characteristics, quantity, price, delivery, deliveryPrice, availableAt, note, photos }
+        try { sessionStorage.setItem(draftKey, JSON.stringify(next)) }
+        catch { try { sessionStorage.setItem(draftKey, JSON.stringify({ ...next, photos: [] })) } catch { /* Storage can be disabled. */ } }
+    }, [mode, productId, title, description, characteristics, quantity, price, delivery, deliveryPrice, availableAt, note, photos])
+    const availableProducts = products.filter(product => product.status === 'active' && product.category.id === buyRequest.category.id && product.unit === buyRequest.unit && product.price.currency === buyRequest.price.currency && (product.availableQuantity ?? product.quantity) > 0)
+    const chooseMode = (next: typeof mode) => {
+        setMode(next); setReview(false); setProductId(''); setPhotos([]); setDescription(''); setCharacteristics('')
+        setTitle(next === 'request_terms' ? buyRequest.title : '')
+        setQuantity(String(buyRequest.remainingQuantity || buyRequest.quantity))
+        setPrice(next === 'request_terms' ? String(buyRequest.price.max ?? buyRequest.price.min ?? '') : '')
+        setDelivery(next === 'request_terms' ? buyRequest.receiptMethod === 'SELF_PICKUP' ? 'Самовивіз' : buyRequest.receiptMethod === 'SELLER_DELIVERY' ? 'Доставка продавцем' : '' : '')
+    }
+    const chooseProduct = (id: string) => {
+        setProductId(id); const product = availableProducts.find(item => item.id === id)
+        if (!product) return
+        setTitle(product.title); setDescription(product.description); setQuantity(String(Math.min(product.availableQuantity ?? product.quantity, buyRequest.remainingQuantity || buyRequest.quantity)))
+        setPrice(String(product.price.amount)); setDelivery(DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode)
+        setPhotos(product.photos.slice(0, 8).map(photo => photo.url)); setReview(false)
+    }
     const submit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault(); if (sending.current) return; sending.current = true; setBusy(true); setError('')
-        const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
+        event.preventDefault(); if (sending.current) return
+        if (mode === 'product' && !productId) { setError('Оберіть свій активний товар.'); return }
+        if (!review) { setReview(true); setError(''); return }
+        sending.current = true; setBusy(true); setError('')
         try {
-            await request(`/api/buy-requests/${buyRequest.id}/offers`, { method: 'POST', body: JSON.stringify({ quantity: Number(data.quantity), unit: buyRequest.unit, price: Number(data.price), currency: buyRequest.price.currency, delivery: data.delivery, deliveryPrice: Number(data.deliveryPrice || 0), availableAt: data.availableAt || '', note: data.note || '', productId: data.productId || undefined }) })
+            await request(`/api/buy-requests/${buyRequest.id}/offers`, { method: 'POST', body: JSON.stringify({ creationMode: mode, productId: productId || undefined, title: title.trim(), description, characteristics, photos: photos.map(photo => ({ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: title.trim() })), quantity: Number(quantity), unit: buyRequest.unit, price: Number(price), currency: buyRequest.price.currency, delivery, deliveryPrice: Number(deliveryPrice || 0), availableAt, note }) })
+            sessionStorage.removeItem(draftKey)
             notify('Пропозицію надіслано'); onDone()
         } catch (caught) { setError((caught as Error).message) } finally { sending.current = false; setBusy(false) }
     }
-    const remaining = buyRequest.quantity - buyRequest.fulfilledQuantity
-    return <form className="offer-form" onSubmit={submit}>
-        <div className="field-row">
-            <label>Кількість ({buyRequest.unit})<input name="quantity" type="number" min=".001" step=".001" max={remaining} defaultValue={remaining} required /></label>
-            <label>Ціна за {buyRequest.unit}<input name="price" type="number" min="0" step=".01" required /></label>
-        </div>
-        <div className="field-row">
-            <label>Доставка<input name="delivery" placeholder="Самовивіз / перевізник" maxLength={160} required /></label>
-            <label>Мій товар<select name="productId"><option value="">Без прив’язки</option>{products.map((product) => <option key={product.id} value={product.id}>{product.title}</option>)}</select></label>
-        </div>
-        <label>Коментар<input name="note" placeholder="Умови, деталі" maxLength={500} /></label>
-        {error && <p className="form-error">{error}</p>}
-        <button className="primary-button" disabled={busy}>{busy ? 'Надсилання…' : 'Запропонувати'}</button>
+    return <form className="offer-form seller-offer-form" onSubmit={submit} onChange={() => { if (review) setReview(false) }}>
+        <fieldset className="offer-modes"><legend>Як створити пропозицію?</legend>
+            <label><input type="radio" name="mode" checked={mode === 'product'} onChange={() => chooseMode('product')} /> Свій товар</label>
+            <label><input type="radio" name="mode" checked={mode === 'manual'} onChange={() => chooseMode('manual')} /> Вручну</label>
+            <label><input type="radio" name="mode" checked={mode === 'request_terms'} onChange={() => chooseMode('request_terms')} /> Погодитися з умовами покупця</label>
+        </fieldset>
+        {mode === 'product' && <><label>Мій активний товар<select value={productId} onChange={event => chooseProduct(event.target.value)} required><option value="">Оберіть товар</option>{availableProducts.map(product => <option key={product.id} value={product.id}>{product.title} · доступно {product.availableQuantity ?? product.quantity} {unitLabel(product.unit)}</option>)}</select></label>{!availableProducts.length && <p className="form-hint">Немає доступних товарів цієї категорії з потрібною одиницею й валютою. Можна створити пропозицію вручну.</p>}{productId && <p className="form-hint">Дані й фото взято з вашого товару. Зміни нижче стосуватимуться тільки цієї пропозиції.</p>}</>}
+        {mode === 'request_terms' && <p className="form-hint">Запит: {buyRequest.title} · {buyRequest.quantity} {unitLabel(buyRequest.unit)} · бюджет {requestBudget(buyRequest.price)} · {receiptLabel(buyRequest.receiptMethod)}. Перед надсиланням підтвердьте заповнені умови.</p>}
+        {mode !== 'request_terms' && <><label>Назва товару<input value={title} onChange={event => setTitle(event.target.value)} minLength={2} maxLength={160} required /></label><label>Короткий опис<textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={5000} /></label><label>Характеристики<textarea value={characteristics} onChange={event => setCharacteristics(event.target.value)} maxLength={3000} placeholder="Розмір, сорт, стан або інші важливі деталі" /></label></>}
+        <div className="field-row"><label>Кількість ({unitLabel(buyRequest.unit)})<input type="number" min=".001" step=".001" value={quantity} onChange={event => setQuantity(event.target.value)} required /></label><label>Ціна за {unitLabel(buyRequest.unit)}<input type="number" min="0" step="0.01" value={price} onChange={event => setPrice(event.target.value)} required /></label></div>
+        <label>Умови отримання<input value={delivery} onChange={event => setDelivery(event.target.value)} placeholder="Самовивіз / доставка продавцем" maxLength={160} required /></label>
+        <div className="field-row"><label>Вартість доставки<input name="deliveryPrice" type="number" min="0" step="0.01" value={deliveryPrice} onChange={event => setDeliveryPrice(event.target.value)} /></label><label>Доступно з<input name="availableAt" maxLength={160} value={availableAt} onChange={event => setAvailableAt(event.target.value)} /></label></div>
+        <label>Коментар покупцю<textarea name="note" maxLength={5000} value={note} onChange={event => setNote(event.target.value)} /></label>
+        <fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={setPhotos} max={8} /></fieldset>
+        {review && <div className="offer-review" role="status"><strong>Перевірте перед надсиланням</strong><p>{title} · {quantity} {unitLabel(buyRequest.unit)} · {formatPrice(Number(price), buyRequest.price.currency)} за {unitLabel(buyRequest.unit)}</p><p>Отримання: {delivery}. Фото: {photos.length}.</p><p>Покупець зможе прийняти або відхилити пропозицію. Угода зараз не створюється.</p></div>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="primary-button" disabled={busy}>{busy ? 'Надсилання…' : review ? 'Надіслати пропозицію' : 'Переглянути умови'}</button>
     </form>
 }
 
@@ -1042,10 +1085,12 @@ function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>
     return <section className="content"><div className="view-header"><div><span className="eyebrow">Продаю</span><h1>Мої пропозиції</h1><p className="view-subtitle">Стежте за відповідями на запити покупців і домовленостями.</p></div><button className="outline-button" onClick={load}>↻ Оновити</button></div>
         {loading ? <div className="loading">Завантаження запитів і пропозицій…</div> : loadError ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити пропозиції</h3><p>{loadError}</p><button className="primary-button compact" onClick={load}>Спробувати ще раз</button></div> : <>
         <ActivityTabs kind="offer" items={myOffers} active={selectedOfferGroup} onChange={next => { setOfferGroup(next); setEditingOffer('') }} />
-        <div className="request-list">{activityItems('offer', myOffers, selectedOfferGroup).map((offer) => <article key={offer.id} className="request-card"><header><div><span className="eyebrow">Моя пропозиція на запит</span><h3><a href={isActiveRequest(offer.requestStatus) ? '/buy-requests/' + encodeURIComponent(offer.buyRequestId) : '/requests?offer=' + encodeURIComponent(offer.id)}>{offer.requestTitle}</a></h3>{offer.existingProduct && <small>Мій товар: {offer.existingProduct.title}</small>}</div><span className="status status-paused">{OFFER_STATUS[offer.status] ?? offer.status}</span></header>
+        <div className="request-list">{activityItems('offer', myOffers, selectedOfferGroup).map((offer) => <article key={offer.id} className="request-card"><header><div><span className="eyebrow">Моя пропозиція на запит</span><h3>{offer.title || offer.requestTitle}</h3><a href={isActiveRequest(offer.requestStatus) ? '/buy-requests/' + encodeURIComponent(offer.buyRequestId) : '/requests?offer=' + encodeURIComponent(offer.id)}>Запит: {offer.requestTitle}</a>{offer.existingProduct && <small>Мій товар: {offer.existingProduct.title}</small>}</div><span className="status status-paused">{OFFER_STATUS[offer.status] ?? offer.status}</span></header>
             {!isActiveRequest(offer.requestStatus) && <p className="form-hint">Запит: {REQUEST_STATUS[offer.requestStatus] ?? offer.requestStatus}. Пропозиція збережена в історії.</p>}
             {focusedOfferId === offer.id && <div className="offer-history" aria-label="Історія власної пропозиції"><strong>Історія моєї пропозиції</strong><p>Запит: {offer.requestTitle} · {REQUEST_STATUS[offer.requestStatus] ?? offer.requestStatus}. Пропозиція: {OFFER_STATUS[offer.status] ?? offer.status}.</p><a href="/requests">← До пропозицій</a></div>}
+            {offer.photos?.[0] && <img className="deal-offer-photo" src={imageUrl(offer.photos[0].url)} alt={offer.title} />}
             {offer.pendingNegotiation && <p className="form-hint">Покупець запропонував змінити умови. Перегляньте їх у чаті.</p>}{offer.waitingConfirmation ? <p><a href="/orders">Покупець обрав пропозицію. Підтвердьте домовленість.</a></p> : offer.acceptedQuantity > 0 && <p><a href="/orders">Переглянути пов’язані угоди та їхній стан →</a></p>}<div className="card-meta"><span>{offer.quantity} {offer.unit}</span><span>{formatPrice(offer.price.amount, offer.price.currency)} / {offer.unit}</span><span>Прийнято: {offer.acceptedQuantity}</span></div>
+            <details><summary>Деталі та порівняння</summary><OfferDetails offer={offer} /></details>
             <div className="request-actions">
                 <button className="outline-button compact" onClick={() => openOfferChat(offer)}>♧ Чат</button>
                 {canEditSellerOffer(offer) && <button className="outline-button compact" onClick={() => setEditingOffer(editingOffer === offer.id ? '' : offer.id)}>Редагувати</button>}
@@ -1054,7 +1099,7 @@ function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>
             {editingOffer === offer.id && canEditSellerOffer(offer) && <OfferEditForm offer={offer} products={mine} notify={notify} onDone={() => { setEditingOffer(''); load() }} />}
         </article>)}{!activityItems('offer', myOffers, selectedOfferGroup).length && <Empty text={myOffers.length ? activityGroups.offer.find(item => item.id === selectedOfferGroup)!.empty : 'Ви ще не надсилали пропозицій'} />}</div>
         <div className="view-header" style={{ marginTop: '2rem' }}><div><span className="eyebrow">Попит</span><h2>Запити покупців</h2><p className="view-subtitle">Відгукніться своєю пропозицією на запити поруч.</p></div></div>
-        <div className="request-list">{requests.map((item) => <BuyRequestCard key={item.id} item={item} onOpen={() => window.location.assign('/buy-requests/' + encodeURIComponent(item.id))} favorite={favoriteKeys.has(favoriteKey('buy_request', item.id))} onFavorite={onFavorite}>{openForm === item.id ? <OfferForm buyRequest={item} products={mine} notify={notify} onDone={() => { setOpenForm(''); load() }} /> : <div className="request-actions"><button className="primary-button compact" onClick={() => setOpenForm(item.id)}>Запропонувати</button><button className="outline-button compact" onClick={() => openRequestChat(item)}>♧ Написати покупцю</button></div>}</BuyRequestCard>)}{!requests.length && <Empty text="Відкритих запитів поки немає" />}</div></>}
+        <div className="request-list">{requests.map((item) => <BuyRequestCard key={item.id} item={item} onOpen={() => window.location.assign('/buy-requests/' + encodeURIComponent(item.id))} favorite={favoriteKeys.has(favoriteKey('buy_request', item.id))} onFavorite={onFavorite}>{openForm === item.id ? <OfferForm buyRequest={item} viewerId={viewerId} products={mine} notify={notify} onDone={() => { setOpenForm(''); load() }} /> : <div className="request-actions"><button className="primary-button compact" onClick={() => setOpenForm(item.id)}>Запропонувати</button><button className="outline-button compact" onClick={() => openRequestChat(item)}>♧ Написати покупцю</button></div>}</BuyRequestCard>)}{!requests.length && <Empty text="Відкритих запитів поки немає" />}</div></>}
         {chat && <ChatPanel chat={chat} onClose={() => setChat(null)} notify={notify} />}
         {withdrawingOffer && <ConfirmationDialog title="Відкликати пропозицію?" confirmLabel="Відкликати пропозицію" destructive onClose={() => setWithdrawingOffer(null)} onConfirm={async () => { try { await request(`/api/offers/${withdrawingOffer.id}`, { method: 'DELETE' }); notify('Пропозицію відкликано'); setWithdrawingOffer(null); load() } catch (error) { notify((error as Error).message) } }}><p>Покупець більше не зможе обрати цю пропозицію. Її попередні домовленості не змінюються.</p></ConfirmationDialog>}
     </section>
@@ -1063,18 +1108,24 @@ function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>
 function OfferEditForm({ offer, products, notify, onDone }: { offer: Offer; products: Product[]; notify: (message: string) => void; onDone: () => void }) {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    const [photos, setPhotos] = useState(() => offer.photos?.map(photo => photo.url) ?? [])
+    const [photosChanged, setPhotosChanged] = useState(false)
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); setBusy(true); setError('')
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
         const payload = buildOfferUpdatePayload(offer, data)
+        if (photosChanged) payload.photos = photos.map(photo => ({ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: data.title || offer.title }))
         if (!Object.keys(payload).length) { setError('Змін немає.'); setBusy(false); return }
         try { await request(`/api/offers/${offer.id}`, { method: 'PATCH', body: JSON.stringify(payload) }); notify('Пропозицію оновлено'); onDone() } catch (caught) { setError((caught as Error).message) } finally { setBusy(false) }
     }
     return <DealDialog title="Редагувати пропозицію" onClose={onDone} busy={busy}><form className="offer-form" onSubmit={submit}>
+        <label>Назва товару<input name="title" defaultValue={offer.title} minLength={2} maxLength={160} required /></label>
+        <label>Короткий опис<textarea name="description" defaultValue={offer.description} maxLength={5000} /></label>
+        <label>Характеристики<textarea name="characteristics" defaultValue={offer.characteristics} maxLength={3000} /></label>
         <div className="field-row"><label>Кількість ({offer.unit})<input name="quantity" type="number" min=".001" step=".001" defaultValue={offer.quantity} required /></label><label>Ціна за {offer.unit}<input name="price" type="number" min="0" step="0.01" defaultValue={offer.price.amount} required /></label></div>
         <p className="form-hint">Валюта: {offer.price.currency}</p><label>Мій товар<select name="productId" defaultValue={offer.existingProduct?.id ?? ''}><option value="">Без прив’язки</option>{products.map((product) => <option key={product.id} value={product.id}>{product.title}</option>)}</select></label>
         <label>Доставка<input name="delivery" defaultValue={offer.delivery} maxLength={160} required /></label><div className="field-row"><label>Вартість доставки<input name="deliveryPrice" type="number" min="0" step=".01" defaultValue={offer.deliverySnapshot?.price ?? 0} /></label><label>Доступно з<input name="availableAt" defaultValue={offer.termsSnapshot?.availableAt ?? ''} maxLength={160} /></label></div>
-        <label>Коментар<textarea name="note" defaultValue={offer.note} maxLength={5000} /></label><label>Фото до пропозиції<input name="additionalPhotoUrl" type="url" defaultValue={offer.additionalPhotoUrl ?? ''} placeholder="https://…" /></label><label>Чинна до<input name="validUntil" type="date" defaultValue={offer.validUntil?.slice(0, 10) ?? ''} /></label>
+        <label>Коментар<textarea name="note" defaultValue={offer.note} maxLength={5000} /></label><label>Посилання на додаткове фото<input name="additionalPhotoUrl" type="url" defaultValue={offer.additionalPhotoUrl ?? ''} placeholder="https://…" /></label><fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={next => { setPhotos(next); setPhotosChanged(true) }} max={8} /></fieldset><label>Чинна до<input name="validUntil" type="date" defaultValue={offer.validUntil?.slice(0, 10) ?? ''} /></label>
         {error && <p className="form-error">{error}</p>}
         <div className="deal-actions"><button type="button" className="outline-button" disabled={busy} onClick={onDone}>Скасувати</button><button className="primary-button" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти пропозицію'}</button></div>
     </form></DealDialog>

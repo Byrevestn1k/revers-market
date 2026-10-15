@@ -3,12 +3,13 @@ import { createPortal } from 'react-dom'
 import { MessagesContext } from './messages-state'
 import type { Conversation } from './messages-state'
 import { unitLabel } from './listing-options'
+import { CategoryImage } from './CategoryPicker'
 import './deal-interaction.css'
 
 type Http = (path: string, options?: RequestInit) => Promise<any>
 type Notify = (message: string) => void
 export type DealRequest = { id: string; title: string; quantity: number; selectedQuantity: number; completedQuantity: number; remainingQuantity: number; fulfillmentMode: string; unit: string; status: string; deadline?: string | null }
-export type DealOffer = { id: string; buyRequestId: string; seller: { id: string; username: string; rating?: number | null; completedDeals?: number; avatarUrl?: string }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; status: string; validUntil?: string | null; additionalPhotoUrl?: string; termsSnapshot?: {availableAt?: string}; deliverySnapshot?: {price?: number}; existingProduct?: { title: string }; photos?: { url: string }[] }
+export type DealOffer = { id: string; buyRequestId: string; seller: { id: string; username: string; rating?: number | null; completedDeals?: number; avatarUrl?: string }; title?: string; description?: string; characteristics?: string; creationMode?: string | null; request?: { title: string; description: string; quantity: number; unit: string; minPrice: number | null; maxPrice: number | null; delivery: string | null; receiptMethod: string | null; category?: { id: string; name: string; parentId: null; imageIndex?: number | null } }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; status: string; validUntil?: string | null; additionalPhotoUrl?: string; termsSnapshot?: {availableAt?: string}; deliverySnapshot?: {price?: number}; existingProduct?: { title: string }; photos?: { url: string; alt?: string }[] }
 type Proposal = { id: string; createdBy: string; price: number; quantity: number; delivery: string; deliveryPrice: number; status: string; comment: string; createdAt: string }
 type Context = { offerId: string; requestId: string; title: string; buyerId: string; sellerId: string; unit: string; currency: string; price: number; offeredQuantity: number; quantity: number; remaining: number; delivery: string; deliveryPrice: number; fulfillmentMode: string; available: boolean }
 type ChatInfo = Partial<Pick<Conversation, 'title' | 'type' | 'productId' | 'buyRequestId' | 'imageUrl' | 'categoryName' | 'otherUserId' | 'otherUsername' | 'price' | 'currency' | 'pinnedAt' | 'archivedAt'>> & { id?: string }
@@ -23,6 +24,35 @@ const amount = (value: number, currency: string) => `${new Intl.NumberFormat('uk
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 const patch = (body: unknown): RequestInit => ({ method: 'PATCH', body: JSON.stringify(body) })
 const activeRequest = (item: DealRequest) => ['open','partially_selected','partially_completed','partially_fulfilled'].includes(item.status) && (!item.deadline || new Date(item.deadline) > new Date())
+const offerStatuses: Record<string, string> = { draft: 'Чернетка', submitted: 'Активна', accepted: 'Прийнята', partially_accepted: 'Частково прийнята', rejected: 'Відхилена', withdrawn: 'Відкликана', expired: 'Строк минув' }
+const offerImage = (url: string) => url.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${url}` : url
+const buyerBudget = (offer: DealOffer) => {
+    const request = offer.request
+    if (!request || request.minPrice == null && request.maxPrice == null) return 'Ціна не вказана'
+    if (request.minPrice != null && request.maxPrice != null) return request.minPrice === request.maxPrice ? amount(request.minPrice, offer.price.currency) : `${amount(request.minPrice, offer.price.currency)} – ${amount(request.maxPrice, offer.price.currency)}`
+    return request.minPrice != null ? `від ${amount(request.minPrice, offer.price.currency)}` : `до ${amount(request.maxPrice!, offer.price.currency)}`
+}
+
+export function OfferDetails({ offer }: { offer: DealOffer }) {
+    const [selected, setSelected] = useState(0)
+    const photos = offer.photos ?? []
+    const request = offer.request
+    const receipt = request?.receiptMethod === 'SELF_PICKUP' ? 'Самовивіз' : request?.receiptMethod === 'SELLER_DELIVERY' ? 'Доставка продавцем' : request?.delivery || 'Не вказано'
+    const rows = [
+        ['Товар', request?.title ?? 'Не вказано', offer.title ?? offer.existingProduct?.title ?? 'Не вказано'],
+        ['Ціна за одиницю', buyerBudget(offer), amount(offer.price.amount, offer.price.currency)],
+        ['Кількість', request ? `${request.quantity} ${unitLabel(request.unit)}` : 'Не вказано', `${offer.quantity} ${unitLabel(offer.unit)}`],
+        ['Одиниця', request ? unitLabel(request.unit) : 'Не вказано', unitLabel(offer.unit)],
+        ['Отримання', receipt, offer.delivery],
+        ['Характеристики', request?.description || 'Не вказано', offer.characteristics || 'Не вказано'],
+    ]
+    return <div className="seller-offer-details">
+        {photos.length > 0 ? <div className="seller-offer-gallery"><img src={offerImage(photos[Math.min(selected, photos.length - 1)].url)} alt={photos[selected]?.alt || offer.title || 'Фото пропозиції'} />{photos.length > 1 && <div>{photos.map((photo, index) => <button type="button" key={`${photo.url}-${index}`} aria-label={`Показати фото ${index + 1}`} aria-current={selected === index} onClick={() => setSelected(index)}><img src={offerImage(photo.url)} alt="" /></button>)}</div>}</div> : request?.category && <div className="seller-offer-gallery-fallback"><CategoryImage category={request.category} /></div>}
+        <h5>Порівняння умов</h5><div className="seller-offer-comparison" role="table" aria-label="Порівняння умов покупця і продавця"><div className="seller-offer-compare-head" role="row"><span>Параметр</span><span>Покупець шукає</span><span>Продавець пропонує</span></div>{rows.map(([label, buyer, seller]) => <div className="seller-offer-compare-row" role="row" key={label}><b>{label}</b><span>{buyer}</span><span className={buyer !== seller ? 'seller-offer-difference' : ''}>{seller}</span></div>)}</div>
+        {offer.description && <p><b>Опис товару:</b> {offer.description}</p>}{offer.note && <p><b>Коментар продавця:</b> {offer.note}</p>}
+        <p><b>Статус:</b> {offerStatuses[offer.status] ?? offer.status}{offer.acceptedQuantity > 0 && ` · обрано ${offer.acceptedQuantity} ${unitLabel(offer.unit)}`}</p>
+    </div>
+}
 
 export function OrderContact({ id, http }: { id: string; http: Http }) {
     const [contact, setContact] = useState<{phone: string | null; message: string | null} | null>(null)
@@ -212,7 +242,7 @@ export function SelectOfferDialog({ offer, item, http, onClose, onDone }: { offe
         finally { sending.current = false; setBusy(false) }
     }
     return <DealDialog title="Домовитися з продавцем?" onClose={onClose} busy={busy}><form onSubmit={submit}>
-        <p><strong>{offer.seller.username}</strong><br />{item.title}</p>
+        <p><strong>{offer.seller.username}</strong><br />{offer.title ?? item.title}</p>
         {agreed && <p className="form-hint">Використовуємо погоджені в чаті умови.</p>}
         <label>Кількість ({unitLabel(offer.unit)})<input type="number" min="0.001" step="0.001" max={maximum} value={quantity} readOnly={item.fulfillmentMode === 'single_seller' || Boolean(agreed)} onChange={e => setQuantity(Number(e.target.value))} required /></label>
         <small>Зараз можна обрати до {maximum} {unitLabel(offer.unit)}.</small>
@@ -248,14 +278,15 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
         <div className="deal-actions"><h3>Пропозиції ({offers.length})</h3><label>Сортування<select value={sort} onChange={e => setSort(e.target.value)}><option value="new">За часом</option><option value="price">Найдешевші</option><option value="rating">За рейтингом</option></select></label><label><input type="checkbox" checked={onlyAvailable} onChange={e => setOnlyAvailable(e.target.checked)} /> Доступні для вибору</label></div>
         {loading && <p role="status">Завантажуємо пропозиції…</p>}{error && <p role="alert" className="form-error">{error}</p>}
         {!loading && !offers.length && <p>Пропозицій поки немає. Ми повідомимо, коли продавці відгукнуться.</p>}
-        {sorted.map(offer => <article key={offer.id} className="deal-offer"><header><div><a href={`/profiles/${encodeURIComponent(offer.seller.username)}`}><strong>{offer.seller.username}</strong></a><small>★ {offer.seller.rating ?? '—'}/12 · {offer.seller.completedDeals ?? 0} підтверджених угод</small></div><strong>{amount(offer.price.amount, offer.price.currency)} / {unitLabel(offer.unit)}</strong></header>
-            <h4>{offer.existingProduct?.title ?? item.title}</h4>{offer.additionalPhotoUrl && <img className="deal-offer-photo" src={offer.additionalPhotoUrl} alt="Фото пропозиції" />}
-            <p>Пропонує {offer.quantity} {unitLabel(offer.unit)} · {offer.delivery}</p><p>{offer.note}</p>
+        {sorted.map(offer => <article key={offer.id} className="deal-offer"><header><div><a href={`/profiles/${encodeURIComponent(offer.seller.username)}`}><strong>{offer.seller.username}</strong></a><small>★ {offer.seller.rating ?? '—'}/12 · {offer.seller.completedDeals ?? 0} підтверджених угод</small></div><div><strong>{amount(offer.price.amount, offer.price.currency)} / {unitLabel(offer.unit)}</strong><small>{offerStatuses[offer.status] ?? offer.status}</small></div></header>
+            {offer.photos?.[0] ? <img className="deal-offer-photo" src={offerImage(offer.photos[0].url)} alt={offer.title || 'Фото пропозиції'} /> : offer.additionalPhotoUrl ? <img className="deal-offer-photo" src={offer.additionalPhotoUrl} alt="Фото пропозиції" /> : offer.request?.category ? <CategoryImage category={offer.request.category} className="deal-offer-photo" /> : <div className="deal-offer-photo seller-offer-placeholder" aria-hidden="true">▧</div>}
+            <h4>{offer.title ?? offer.existingProduct?.title ?? item.title}</h4>
+            <p>Пропонує {offer.quantity} {unitLabel(offer.unit)} · {offer.delivery}</p>
             {item.fulfillmentMode === 'multiple_sellers' && <p>Ви можете обрати до {Math.max(0, Math.min(offer.quantity - offer.acceptedQuantity, item.remainingQuantity))} {unitLabel(offer.unit)}.</p>}
             {item.fulfillmentMode === 'single_seller' && offer.quantity - offer.acceptedQuantity < item.remainingQuantity && <p className="form-hint">Ця пропозиція не покриває весь потрібний обсяг. Для цього запиту ви обрали покупку в одного продавця.</p>}
             {!selectable(offer) && !(item.fulfillmentMode === 'single_seller' && offer.quantity - offer.acceptedQuantity < item.remainingQuantity) && <p className="form-hint">{item.remainingQuantity <= 0 ? 'Увесь обсяг уже погоджено.' : 'Зараз ця пропозиція недоступна для вибору.'}</p>}
             <div className="deal-actions"><button className="outline-button" disabled={busy} onClick={() => contact(offer)}>Написати продавцю</button><button className="primary-button" disabled={!selectable(offer)} onClick={() => setSelection(offer)}>Обрати пропозицію</button></div>
-            <details onToggle={e => {if (e.currentTarget.open) void http(`/api/offers/${offer.id}/view`, post({})).catch(() => undefined)}}><summary>Детальніше та інші дії</summary><p>Доставка: {offer.delivery}. {offer.validUntil ? `Актуальна до ${new Date(offer.validUntil).toLocaleDateString('uk-UA')}` : 'Строк не вказано.'}</p><button className="text-button" onClick={() => contact(offer)}>Запропонувати інші умови</button>{['submitted','partially_accepted'].includes(offer.status) && offer.acceptedQuantity === 0 && <button className="text-button" onClick={() => setRejecting(offer)}>Відхилити пропозицію</button>}<ParticipantActions id={offer.seller.id} http={http} notify={notify} /></details>
+            <details onToggle={e => {if (e.currentTarget.open) void http(`/api/offers/${offer.id}/view`, post({})).catch(() => undefined)}}><summary>Детальніше та інші дії</summary><OfferDetails offer={offer} /><p>Доставка: {offer.delivery}. {offer.validUntil ? `Актуальна до ${new Date(offer.validUntil).toLocaleDateString('uk-UA')}` : 'Строк не вказано.'}</p><button className="text-button" onClick={() => contact(offer)}>Запропонувати інші умови</button>{['submitted','partially_accepted'].includes(offer.status) && offer.acceptedQuantity === 0 && <button className="text-button" onClick={() => setRejecting(offer)}>Відхилити пропозицію</button>}<ParticipantActions id={offer.seller.id} http={http} notify={notify} /></details>
         </article>)}
         {selection && <SelectOfferDialog offer={selection} item={item} http={http} onClose={() => setSelection(null)} onDone={() => { setSelection(null); notify('Ви обрали пропозицію. Очікуємо підтвердження продавця.'); onRefresh(); void load() }} />}
         {chat && <DealChat chat={chat} http={http} notify={notify} onClose={() => { setChat(null); onRefresh(); void load() }} />}

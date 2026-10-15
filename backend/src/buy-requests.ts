@@ -19,6 +19,7 @@ const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9
 const number = (value: string | number | null) => value === null ? null : Number(value)
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані запиту', fields } })
 const requestPhotoStorage = new ExternalUrlPhotoStorage('buy-requests')
+const offerPhotoStorage = new ExternalUrlPhotoStorage('offers')
 type RequestPhoto = { url: string; alt: string; storage_key: string }
 
 const saveRequestPhotos = async (client: Queryable, id: string, photos: PhotoUpload[], stored: StoredPhoto[]) => {
@@ -41,6 +42,26 @@ const saveRequestPhotos = async (client: Queryable, id: string, photos: PhotoUpl
     return existing.rows.filter((photo) => !retained.has(photo.url)).map((photo) => photo.storage_key)
 }
 
+const saveOfferPhotos = async (client: Queryable, id: string, productId: string | null, photos: PhotoUpload[], stored: StoredPhoto[]) => {
+    const old = (await client.query<RequestPhoto>('SELECT url, alt, storage_key FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [id])).rows
+    const product = productId ? (await client.query<RequestPhoto>('SELECT url, alt, storage_key FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id', [productId])).rows : []
+    const rows: RequestPhoto[] = []
+    for (const [index, photo] of photos.entries()) {
+        const previous = old.find(item => item.url === photo.url)
+        if (previous) { rows.push({ ...previous, alt: photo.alt ?? previous.alt }); continue }
+        const source = product.find(item => item.url === photo.url)
+        if (photo.url && !source) return invalid(['photos'])
+        const saved = source
+            ? await offerPhotoStorage.copyProductPhoto(id, source.url, index)
+            : await offerPhotoStorage.store(`${id}/${randomUUID()}`, photo, index)
+        stored.push(saved)
+        rows.push({ url: saved.url, storage_key: saved.storageKey, alt: photo.alt ?? source?.alt ?? '' })
+    }
+    await client.query('DELETE FROM offer_photos WHERE offer_id=$1', [id])
+    for (const [index, photo] of rows.entries()) await client.query('INSERT INTO offer_photos (offer_id, storage_key, url, alt, sort_order) VALUES ($1,$2,$3,$4,$5)', [id, photo.storage_key, photo.url, photo.alt, index])
+    return old.filter(photo => !rows.some(current => current.storage_key === photo.storage_key)).map(photo => photo.storage_key)
+}
+
 const asNumberOrNull = (value: unknown): number | null => {
     if (value === undefined || value === null) return null
     const parsed = Number(value)
@@ -56,14 +77,19 @@ const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_n
     (SELECT count(*)::int FROM offers ro WHERE ro.buy_request_id = r.id) AS offer_count,
     COALESCE((SELECT jsonb_agg(jsonb_build_object('url', rp.url, 'alt', rp.alt) ORDER BY rp.sort_order, rp.id) FROM buy_request_photos rp WHERE rp.buy_request_id = r.id), '[]'::jsonb) AS photos
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id`
-const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.status AS request_status,
+const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.description AS request_description,
+    r.category_id, r.requested_quantity AS request_quantity, r.unit AS request_unit, r.min_unit_price AS request_min_price, r.max_unit_price AS request_max_price,
+    r.preferred_delivery AS request_delivery, r.receipt_method AS request_receipt_method, r.status AS request_status,
+    c.name AS request_category_name, c.image_index AS request_category_image_index,
     CASE WHEN u.rating_count > 0 THEN round(u.rating_sum / u.rating_count, 2) ELSE NULL END AS seller_rating,
     u.avatar_url AS seller_avatar,
-    (SELECT jsonb_agg(jsonb_build_object('url', pp.url) ORDER BY pp.sort_order) FROM product_photos pp WHERE pp.product_id = o.product_id) AS product_photos,
+    COALESCE((SELECT jsonb_agg(jsonb_build_object('url', op.url, 'alt', op.alt) ORDER BY op.sort_order, op.id) FROM offer_photos op WHERE op.offer_id = o.id),
+        CASE WHEN o.creation_mode IS NULL THEN (SELECT jsonb_agg(jsonb_build_object('url', pp.url, 'alt', pp.alt) ORDER BY pp.sort_order, pp.id) FROM product_photos pp WHERE pp.product_id = o.product_id) ELSE NULL END,
+        '[]'::jsonb) AS offer_photos,
     EXISTS (SELECT 1 FROM negotiation_proposals np WHERE np.offer_id = o.id AND np.status = 'pending' AND np.created_by <> o.seller_id) AS pending_negotiation,
     EXISTS (SELECT 1 FROM orders so WHERE so.offer_id = o.id AND so.status = 'selected') AS waiting_confirmation,
     (SELECT count(*)::int FROM orders d WHERE (d.seller_id = u.id OR d.buyer_id = u.id) AND d.status = 'completed' AND d.buyer_completed_at IS NOT NULL AND d.seller_completed_at IS NOT NULL) AS seller_deals
-    FROM offers o JOIN users u ON u.id = o.seller_id JOIN buy_requests r ON r.id = o.buy_request_id LEFT JOIN products p ON p.id = o.product_id`
+    FROM offers o JOIN users u ON u.id = o.seller_id JOIN buy_requests r ON r.id = o.buy_request_id JOIN categories c ON c.id = r.category_id LEFT JOIN products p ON p.id = o.product_id`
 
 interface BuyRequestRow {
     country_code: string | null
@@ -105,7 +131,21 @@ interface BuyRequestRow {
 }
 
 interface OfferRow {
-    product_photos?: { url: string }[]
+    offer_photos?: { url: string; alt: string }[]
+    title: string | null
+    description: string
+    characteristics: string
+    creation_mode: string | null
+    request_description: string
+    request_quantity: string | number
+    request_unit: string
+    request_min_price: string | number | null
+    request_max_price: string | number | null
+    request_delivery: string | null
+    request_receipt_method: string | null
+    category_id: string
+    request_category_name: string
+    request_category_image_index: number | null
     pending_negotiation?: boolean
     waiting_confirmation?: boolean
     seller_rating?: string | null
@@ -151,10 +191,12 @@ const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
 const offerDto = (row: OfferRow) => ({
     id: row.id, seller: { id: row.seller_id, username: row.seller_username, rating: row.seller_rating == null ? null : Number(row.seller_rating), avatarUrl: row.seller_avatar, completedDeals: row.seller_deals ?? 0 }, buyRequestId: row.buy_request_id, requestTitle: row.request_title, requestStatus: row.request_status,
     existingProduct: row.product_id ? { id: row.product_id, title: row.product_title } : null,
+    title: row.title ?? row.product_title ?? row.request_title, description: row.description, characteristics: row.characteristics, creationMode: row.creation_mode,
+    request: { title: row.request_title, description: row.request_description, quantity: Number(row.request_quantity), unit: row.request_unit, minPrice: number(row.request_min_price), maxPrice: number(row.request_max_price), delivery: row.request_delivery, receiptMethod: row.request_receipt_method, category: { id: row.category_id, name: row.request_category_name, imageIndex: row.request_category_image_index, parentId: null } },
     quantity: Number(row.offered_quantity), acceptedQuantity: Number(row.accepted_quantity), unit: row.unit,
     price: { amount: Number(row.unit_price), currency: row.currency }, delivery: row.delivery, note: row.note,
     additionalPhotoUrl: row.additional_photo_url, termsSnapshot: row.terms, deliverySnapshot: row.delivery_terms,
-    photos: row.product_photos ?? [], pendingNegotiation: row.pending_negotiation, waitingConfirmation: row.waiting_confirmation,
+    photos: row.offer_photos ?? [], pendingNegotiation: row.pending_negotiation, waitingConfirmation: row.waiting_confirmation,
     status: row.status, validUntil: row.valid_until?.toISOString() ?? null, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
 })
 
@@ -340,32 +382,40 @@ export const recordOfferView = async (user: AuthUser, offerId: string) => {
 export const createOffer = async (user: AuthUser, requestId: string, input: Record<string, unknown>) => {
     const errors = validateOfferInput(input)
     if (errors.length) return invalid(errors)
+    if (input.creationMode === 'manual' && !input.title) return invalid(['title'])
+    if (input.creationMode === 'product' && !input.productId) return invalid(['productId'])
     const client = await pool.connect()
     let committed = false
+    const storedPhotos: StoredPhoto[] = []
     try {
     await client.query('BEGIN')
-    const request = await client.query('SELECT buyer_id, category_id, requested_quantity, unit, currency, status, deadline FROM buy_requests WHERE id = $1 FOR UPDATE', [requestId])
+    const request = await client.query('SELECT buyer_id, category_id, title, requested_quantity, unit, currency, status, deadline FROM buy_requests WHERE id = $1 FOR UPDATE', [requestId])
     if (!request.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     if (request.rows[0].deadline && request.rows[0].deadline <= new Date()) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (request.rows[0].buyer_id === user.id) return { status: 403, body: { error: 'BUYER_CANNOT_OFFER' } }
     if (await usersAreBlocked(client, request.rows[0].buyer_id, user.id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
     if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.rows[0].status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (input.unit !== request.rows[0].unit || input.currency !== request.rows[0].currency) return invalid(['unit', 'currency'])
-    if (input.productId !== undefined && input.productId !== null) {
-        const product = await client.query('SELECT 1 FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity', [input.productId, user.id, 'active', request.rows[0].category_id])
-        if (!product.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
-    }
+    const product = input.productId ? await client.query('SELECT title, description, quantity, reserved_quantity FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
+    if (input.productId && !product?.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
+    const title = typeof input.title === 'string' ? input.title.trim() : product?.rows[0]?.title ?? request.rows[0].title
+    const description = typeof input.description === 'string' ? input.description : product?.rows[0]?.description ?? ''
     const terms = { note: input.note ?? '', additionalPhotoUrl: input.additionalPhotoUrl ?? null, availableAt: input.availableAt ?? '' }
     const created = await client.query<{ id: string }>(
-        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id',
-        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null],
+        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until, title, description, characteristics, creation_mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id',
+        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null, title, description, input.characteristics ?? '', input.creationMode ?? null],
     )
+    const sourcePhotos = input.photos === undefined && input.productId
+        ? (await client.query<PhotoUpload>('SELECT url, alt FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id LIMIT 8', [input.productId])).rows
+        : input.photos as PhotoUpload[] | undefined ?? []
+    const savedPhotos = await saveOfferPhotos(client, created.rows[0].id, input.productId as string | null ?? null, sourcePhotos, storedPhotos)
+    if (!Array.isArray(savedPhotos)) return savedPhotos
     const result = await client.query(`${offerSelect} WHERE o.id = $1`, [created.rows[0].id])
     await createNotification(client, request.rows[0].buyer_id, 'order', 'Нова пропозиція', 'Продавець відповів на ваш запит', 'buying', { buyRequestId: requestId })
     await audit(client, user.id, 'offer.created', 'offer', created.rows[0].id, { requestId })
     await client.query('COMMIT'); committed = true
     return { status: 201, body: { offer: offerDto(result.rows[0]) } }
-    } finally { if (!committed) await client.query('ROLLBACK'); client.release() }
+    } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await offerPhotoStorage.remove(photo.storageKey) } client.release() }
 }
 
 export const acceptOffer = async (user: AuthUser, offerId: string, input: Record<string, unknown>) => {
@@ -417,9 +467,10 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const product = row.product_id ? await client.query<{ title: string }>('SELECT title FROM products WHERE id = $1', [row.product_id]) : { rows: [] as { title: string }[] }
         const goodsTotal = Math.round(selectionQuantity * unitPrice * 100) / 100
         const subtotal = goodsTotal + delivery.price
-        const title = product.rows[0]?.title ?? request.rows[0].title
-        const order = await client.query<{ id: string }>('INSERT INTO orders (buy_request_id, offer_id, buyer_id, seller_id, status, currency, subtotal, quantity, unit, unit_price, conditions_snapshot, selection_key, negotiation_proposal_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id', [row.buy_request_id, row.id, user.id, row.seller_id, 'selected', row.currency, subtotal, selectionQuantity, row.unit, unitPrice, JSON.stringify({ offerId: row.id, productTitle: title, originalOffer: { price: Number(row.unit_price), quantity: Number(row.offered_quantity), delivery: row.delivery, note: row.note }, terms: row.terms, delivery, goodsTotal, grandTotal: subtotal, negotiated: agreed ? { id: agreed.id, price: unitPrice, quantity: selectionQuantity, delivery } : null }), input.selectionKey ?? null, agreed?.id ?? null])
-        await client.query('INSERT INTO order_items (order_id, offer_id, product_id, quantity, unit, unit_price, currency, product_title_snapshot, offer_terms_snapshot, delivery_terms_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [order.rows[0].id, row.id, row.product_id, selectionQuantity, row.unit, unitPrice, row.currency, title, row.terms, JSON.stringify(delivery)])
+        const title = row.title ?? product.rows[0]?.title ?? request.rows[0].title
+        const photoSnapshot = (await client.query('SELECT url, alt FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [offerId])).rows
+        const order = await client.query<{ id: string }>('INSERT INTO orders (buy_request_id, offer_id, buyer_id, seller_id, status, currency, subtotal, quantity, unit, unit_price, conditions_snapshot, selection_key, negotiation_proposal_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id', [row.buy_request_id, row.id, user.id, row.seller_id, 'selected', row.currency, subtotal, selectionQuantity, row.unit, unitPrice, JSON.stringify({ offerId: row.id, productTitle: title, description: row.description, characteristics: row.characteristics, photos: photoSnapshot, originalOffer: { price: Number(row.unit_price), quantity: Number(row.offered_quantity), delivery: row.delivery, note: row.note }, terms: row.terms, delivery, goodsTotal, grandTotal: subtotal, negotiated: agreed ? { id: agreed.id, price: unitPrice, quantity: selectionQuantity, delivery } : null }), input.selectionKey ?? null, agreed?.id ?? null])
+        await client.query('INSERT INTO order_items (order_id, offer_id, product_id, quantity, unit, unit_price, currency, product_title_snapshot, offer_terms_snapshot, delivery_terms_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [order.rows[0].id, row.id, row.product_id, selectionQuantity, row.unit, unitPrice, row.currency, title, JSON.stringify({ ...row.terms, description: row.description, characteristics: row.characteristics, photos: photoSnapshot }), JSON.stringify(delivery)])
         await createOrderConversation(client, order.rows[0].id, user.id, row.seller_id, row.id)
         await refreshRequestQuantities(client, row.buy_request_id)
         await audit(client, user.id, 'offer.selected', 'offer', offerId, { quantity: selectionQuantity, orderId: order.rows[0].id })
@@ -433,13 +484,15 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
 export const updateOffer = async (user: AuthUser, offerId: string, input: Record<string, unknown>) => {
     const errors = validateOfferInput(input, true)
     if (errors.length) return invalid(errors)
-    const allowed: Record<string, string> = { productId: 'product_id', quantity: 'offered_quantity', unit: 'unit', price: 'unit_price', currency: 'currency', delivery: 'delivery', note: 'note', additionalPhotoUrl: 'additional_photo_url', validUntil: 'valid_until' }
+    const allowed: Record<string, string> = { productId: 'product_id', quantity: 'offered_quantity', unit: 'unit', price: 'unit_price', currency: 'currency', delivery: 'delivery', note: 'note', additionalPhotoUrl: 'additional_photo_url', validUntil: 'valid_until', title: 'title', description: 'description', characteristics: 'characteristics' }
     const { assignments, values } = buildUpdate(allowed, input)
     if (input.deliveryPrice !== undefined) assignments.push(`delivery_terms = delivery_terms || jsonb_build_object('price', $${values.push(input.deliveryPrice)}::numeric)`)
     if (input.availableAt !== undefined) assignments.push(`terms = terms || jsonb_build_object('availableAt', $${values.push(input.availableAt)}::text)`)
-    if (!assignments.length) return invalid(['offer'])
+    if (!assignments.length && input.photos === undefined) return invalid(['offer'])
     const client = await pool.connect()
     let committed = false
+    const storedPhotos: StoredPhoto[] = []
+    let removedPhotos: string[] = []
     try {
         await client.query('BEGIN')
         const link = (await client.query('SELECT buy_request_id FROM offers WHERE id = $1 AND seller_id = $2', [offerId, user.id])).rows[0]
@@ -458,19 +511,25 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
             }
         }
         const { idParam, ownerParam } = withOwnerConditions(values, offerId, user.id)
-        await client.query(`UPDATE offers SET ${assignments.join(', ')}, updated_at = now() WHERE id = ${idParam} AND seller_id = ${ownerParam}`, values)
+        await client.query(`UPDATE offers SET ${assignments.length ? assignments.join(', ') + ', ' : ''}updated_at = now() WHERE id = ${idParam} AND seller_id = ${ownerParam}`, values)
+        if (input.photos !== undefined) {
+            const result = await saveOfferPhotos(client, offerId, (input.productId === undefined ? existing.product_id : input.productId) as string | null, input.photos as PhotoUpload[], storedPhotos)
+            if (!Array.isArray(result)) return result
+            removedPhotos = result
+        }
         await client.query(`UPDATE offers SET terms = terms || jsonb_build_object('note', note, 'additionalPhotoUrl', additional_photo_url), delivery_terms = delivery_terms || jsonb_build_object('delivery', delivery) WHERE id=$1`, [offerId])
         const conversation = (await client.query('SELECT id FROM conversations WHERE offer_id=$1',[offerId])).rows[0]
+        const updateText = input.price !== undefined ? `Продавець змінив ціну пропозиції: ${existing.unit_price} → ${input.price} ${existing.currency}. Погоджені раніше умови залишаються в історії.` : 'Продавець оновив пропозицію. Перегляньте актуальні умови.'
         if (conversation) {
-            const text = input.price !== undefined ? `Продавець змінив ціну пропозиції: ${existing.unit_price} → ${input.price} ${existing.currency}. Погоджені раніше умови залишаються в історії.` : 'Продавець оновив пропозицію. Перегляньте актуальні умови.'
-            await client.query("INSERT INTO messages (conversation_id,sender_id,body,kind) VALUES ($1,$2,$3,'system')", [conversation.id,user.id,text])
-            await createNotification(client, request.buyer_id, 'order', 'Пропозицію оновлено', text, 'buying', { conversationId: conversation.id, buyRequestId: link.buy_request_id })
+            await client.query("INSERT INTO messages (conversation_id,sender_id,body,kind) VALUES ($1,$2,$3,'system')", [conversation.id,user.id,updateText])
         }
+        await createNotification(client, request.buyer_id, 'order', 'Пропозицію оновлено', updateText, 'buying', { conversationId: conversation?.id, buyRequestId: link.buy_request_id })
         const result = await client.query(`${offerSelect} WHERE o.id = $1`, [offerId])
         await audit(client, user.id, 'offer.updated', 'offer', offerId)
         await client.query('COMMIT'); committed = true
+        for (const photo of removedPhotos) await offerPhotoStorage.remove(photo)
         return { status: 200, body: { offer: offerDto(result.rows[0]) } }
-    } finally { if (!committed) await client.query('ROLLBACK'); client.release() }
+    } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await offerPhotoStorage.remove(photo.storageKey) } client.release() }
 }
 
 export const withdrawOffer = async (user: AuthUser, offerId: string) => {

@@ -9,6 +9,78 @@ if (hasDatabase) {
     const { pool } = await import('./db/client.js')
 
     describe('buy requests and offers HTTP integration', () => {
+        it('creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection', async () => {
+            const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+            const roles = ['buyer', 'seller_a', 'seller_b', 'seller_c']
+            const agents = roles.map(() => request.agent(createApp()))
+            const usernames = roles.map(role => `step13_${role}_${suffix}`)
+            const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='
+            const offerStorage = new ExternalUrlPhotoStorage('offers')
+            const productStorage = new ExternalUrlPhotoStorage('products')
+            const offerKeys: string[] = []
+            const productKeys: string[] = []
+            try {
+                for (const [index, agent] of agents.entries()) {
+                    const registered = await agent.post('/api/auth/register').send({ username: usernames[index], email: `${usernames[index]}@example.com`, countryCode: 'UA', phone: `+380${['50', '67', '68', '93'][index]}${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' })
+                    expect(registered.status).toBe(201)
+                }
+                const [buyer, sellerA, sellerB, sellerC] = agents
+                const category = (await buyer.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
+                const productResponse = await sellerA.post('/api/products').send({ categoryId: category.id, title: `Власний товар ${suffix}`, description: 'Первинний опис', quantity: 5, unit: 'kg', price: 90, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status: 'active', photos: [{ dataUrl: photo, alt: 'Оригінал' }] })
+                expect(productResponse.status).toBe(201)
+                const productId = productResponse.body.product.id as string
+                const productPhoto = productResponse.body.product.photos[0].url as string
+                productKeys.push(...(await pool.query('SELECT storage_key FROM product_photos WHERE product_id=$1', [productId])).rows.map(row => row.storage_key))
+                const createdRequest = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: `Запит Step 13 ${suffix}`, description: 'Потрібен товар', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 90, maxPrice: 110, receiptMethod: 'SELF_PICKUP', countryCode: 'UA', geoArea: 'Рівне', fulfillmentMode: 'multiple_sellers' })
+                expect(createdRequest.status).toBe(201)
+                const requestId = createdRequest.body.buyRequest.id as string
+                const endpoint = `/api/buy-requests/${requestId}/offers`
+                const base = { quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' }
+                const linked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId, photos: [{ url: productPhoto }], note: 'Для запиту' })
+                expect(linked.status).toBe(201)
+                expect(linked.body.offer).toMatchObject({ title: `Власний товар ${suffix}`, description: 'Первинний опис', creationMode: 'product', photos: [{ url: expect.stringContaining('/uploads/offers/') }] })
+                expect(linked.body.offer.photos[0].url).not.toBe(productPhoto)
+                expect((await sellerB.post(endpoint).send({ ...base, creationMode: 'product', productId })).body.error).toBe('PRODUCT_NOT_AVAILABLE')
+                const manual = await sellerB.post(endpoint).send({ ...base, creationMode: 'manual', title: 'Інший товар', description: 'Окремий опис', characteristics: 'Сорт А', photos: [{ dataUrl: photo, alt: 'Інший товар' }] })
+                expect(manual.status).toBe(201)
+                expect((await sellerB.patch(`/api/offers/${manual.body.offer.id}`).send({ photos: [{ url: linked.body.offer.photos[0].url }] })).body.fields).toContain('photos')
+                const terms = await sellerC.post(endpoint).send({ ...base, creationMode: 'request_terms', title: createdRequest.body.buyRequest.title })
+                expect(terms.status).toBe(201)
+                expect((await buyer.get(endpoint)).body.offers).toEqual(expect.arrayContaining([
+                    expect.objectContaining({ id: linked.body.offer.id, title: `Власний товар ${suffix}` }),
+                    expect.objectContaining({ id: manual.body.offer.id, title: 'Інший товар' }),
+                    expect.objectContaining({ id: terms.body.offer.id, creationMode: 'request_terms' }),
+                ]))
+                expect((await buyer.patch(`/api/offers/${manual.body.offer.id}`).send({ title: 'Чужа зміна' })).status).toBe(404)
+                const edited = await sellerB.patch(`/api/offers/${manual.body.offer.id}`).send({ title: 'Оновлений товар', description: 'Новий опис', photos: [{ url: manual.body.offer.photos[0].url }, { dataUrl: photo }] })
+                expect(edited).toMatchObject({ status: 200, body: { offer: { title: 'Оновлений товар', description: 'Новий опис' } } })
+                expect(edited.body.offer.photos).toHaveLength(2)
+                const original = (await pool.query('SELECT title, description, price FROM products WHERE id=$1', [productId])).rows[0]
+                expect(original).toMatchObject({ title: `Власний товар ${suffix}`, description: 'Первинний опис' })
+                const secondLinked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId })
+                expect(secondLinked.status).toBe(201)
+                const results = await Promise.all([linked.body.offer.id, secondLinked.body.offer.id].map(id => buyer.post(`/api/offers/${id}/accept`).send({ quantity: 5 })))
+                expect(results.map(result => result.status).sort()).toEqual([201, 409])
+                const acceptedId = results[0].status === 201 ? linked.body.offer.id : secondLinked.body.offer.id
+                expect((await sellerA.patch(`/api/offers/${acceptedId}`).send({ title: 'Зміна після угоди' })).body.error).toBe('OFFER_TERMS_LOCKED')
+                const orderId = results.find(result => result.status === 201)!.body.order.id
+                const snapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [orderId])).rows[0].conditions_snapshot
+                expect(snapshot.productTitle).toBe(`Власний товар ${suffix}`)
+                expect(snapshot.photos[0].url).toContain('/uploads/offers/')
+                expect((await pool.query('SELECT reserved_quantity FROM products WHERE id=$1', [productId])).rows[0].reserved_quantity).toBe('5.000')
+                expect((await sellerA.patch(`/api/products/${productId}`).send({ title: 'Перейменований товар', photos: [] })).status).toBe(200)
+                const afterProductEdit = (await buyer.get(endpoint)).body.offers.find((offer: { id: string }) => offer.id === acceptedId)
+                expect(afterProductEdit.title).toBe(`Власний товар ${suffix}`)
+                expect(afterProductEdit.photos[0].url).toContain('/uploads/offers/')
+                expect((await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [orderId])).rows[0].conditions_snapshot).toEqual(snapshot)
+            } finally {
+                offerKeys.push(...(await pool.query('SELECT storage_key FROM offer_photos WHERE offer_id IN (SELECT id FROM offers WHERE buy_request_id IN (SELECT id FROM buy_requests WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))))', [usernames.map(name => name.toLowerCase())])).rows.map(row => row.storage_key))
+                await pool.query('DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[])) OR seller_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))', [usernames.map(name => name.toLowerCase())])
+                await pool.query('DELETE FROM users WHERE username_normalized = ANY($1::text[])', [usernames.map(name => name.toLowerCase())])
+                for (const key of offerKeys) await offerStorage.remove(key)
+                for (const key of productKeys) await productStorage.remove(key)
+            }
+        }, 30000)
         it('locks fulfillment mode after offer or deal creation without blocking unrelated edits', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const users = ['mode_buyer', 'mode_seller'].map((role, index) => ({ username: `${role}_${suffix}`, email: `${role}_${suffix}@example.com`, countryCode: 'UA', phone: `+380${index ? '67' : '50'}${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }))

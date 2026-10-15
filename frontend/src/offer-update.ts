@@ -1,4 +1,7 @@
 export type EditableOffer = {
+    title?: string
+    description?: string
+    characteristics?: string
     existingProduct: { id: string } | null
     quantity: number
     price: { amount: number }
@@ -21,6 +24,9 @@ export function buildOfferUpdatePayload(offer: EditableOffer, values: Record<str
     if (Number(values.deliveryPrice || 0) !== (offer.deliverySnapshot?.price ?? 0)) payload.deliveryPrice = Number(values.deliveryPrice || 0)
     if ((values.availableAt || '') !== (offer.termsSnapshot?.availableAt ?? '')) payload.availableAt = values.availableAt || ''
     if ((values.note || '') !== offer.note) payload.note = values.note || ''
+    if (values.title !== undefined && values.title.trim() !== (offer.title ?? '')) payload.title = values.title.trim()
+    if (values.description !== undefined && values.description !== (offer.description ?? '')) payload.description = values.description
+    if (values.characteristics !== undefined && values.characteristics !== (offer.characteristics ?? '')) payload.characteristics = values.characteristics
     if ((values.additionalPhotoUrl || null) !== (offer.additionalPhotoUrl ?? null)) payload.additionalPhotoUrl = values.additionalPhotoUrl || null
     if ((values.validUntil || '') !== (offer.validUntil?.slice(0, 10) ?? '')) payload.validUntil = validUntil
     return payload

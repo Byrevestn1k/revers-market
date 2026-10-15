@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 12 — DONE`.
+**Current step:** `STEP 13 — READY FOR REVIEW`.
 
-**Last updated:** 2026-10-14
+**Last updated:** 2026-10-15
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -93,13 +93,16 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 8 — Seller demand subscription corrections | Independent final re-review PASS. Exact decimal conversions; country/region/city union; optional verified-boundary suburbs; both receipt defaults and preferred-delivery compatibility. Owned CRUD, immediate selling alerts and dedup retained. |
 | `DONE` | STEP 11 — Mobile UX corrections | Independent review PASS. Favorites for Products, Buy Requests and Profiles, responsive cards, map marker/cluster behavior and single-result markers were verified with the real local API and database. A direct single marker centers at maximum zoom and opens its object; multi-object clusters open their list in one click. Physical-device keyboard language switching remains a separate P1 `UNRESOLVED`. |
 | `DONE` | STEP 12 — Buy Request UX parity | Creation/editing, up to 8 uploaded photos, cards, category fallback and detail gallery implemented. Independent re-review PASS; integrated into `main`. |
+| `READY FOR REVIEW` | STEP 13 — Seller Offer redesign | Three creation paths, owned photo snapshots, editable terms, comparison and Deal snapshot implemented on a separate branch. Independent review pending. |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 12 DONE.** Independent re-review passed after correction `4d81bb7`: the API rejects changes to `fulfillmentMode` after an Offer (including a withdrawn Offer) or Deal, permits unrelated edits when the mode is unchanged, preserves records and agreed terms after HTTP 409, and serializes Offer creation with request editing through a row lock. The focused real-DB regression test and typecheck passed. Earlier Step 12 Chromium creation/editing/Offer/Deal QA passed at 1440/1280/1024/768/390/320 px; the backend suite had passed 209 tests (1 skipped). Live Step 8 subscription Browser E2E and opening a Request from a single map marker or cluster remain UNVERIFIED; focused subscription DB tests and map logic tests passed, so these are non-blocking follow-up QA. See [STEP_12_REVIEW.md](STEP_12_REVIEW.md). The physical-device keyboard language-switch issue remains separate. Step 13 has not started.
+**STEP 13 READY FOR REVIEW.** Branch `codex/step-13-seller-offers` adds migration 045, three Seller Offer creation paths, owned photos, editing and buyer comparison while preserving the existing partial Deal lifecycle. Local migration applied. Full real-DB backend suite: 212 passed, 1 skipped; real Chromium UI E2E passed for all three Offer paths, editing, comparison, acceptance, seller confirmation, bilateral completion, review and notifications. Seller form and buyer offer list were checked for horizontal overflow at 1440/1280/1024/768/390/320 px. A final repeat of database tests after minor compatibility changes is UNVERIFIED because the local Docker engine began returning HTTP 500; the earlier full run passed. Independent review has not run. Current API still requires Offer unit/currency and linked Product category to match the Request; stock is reserved at acceptance, not submission. Legacy Offers without own photo snapshots can only show surviving Product photos or a fallback.
+
+**STEP 12 DONE.** Independent re-review passed after correction `4d81bb7`: the API rejects changes to `fulfillmentMode` after an Offer (including a withdrawn Offer) or Deal, permits unrelated edits when the mode is unchanged, preserves records and agreed terms after HTTP 409, and serializes Offer creation with request editing through a row lock. The focused real-DB regression test and typecheck passed. Earlier Step 12 Chromium creation/editing/Offer/Deal QA passed at 1440/1280/1024/768/390/320 px; the backend suite had passed 209 tests (1 skipped). Live Step 8 subscription Browser E2E and opening a Request from a single map marker or cluster remain UNVERIFIED; focused subscription DB tests and map logic tests passed, so these are non-blocking follow-up QA. See [STEP_12_REVIEW.md](STEP_12_REVIEW.md). The physical-device keyboard language-switch issue remains separate.
 
 **STEP 11 DONE.** Independent review passed against the real local frontend, API and database. The correction commits are `8426278` and `419df04`. Product, Buy Request and Profile favorites were added, opened from Favorites, then removed successfully. On desktop, a single filtered map result renders as an individual marker; selecting it centers the map at zoom 19 and opens the correct object. A real five-object cluster opened its object list in one click; the targeted map test covers exact same-coordinate results. `npm run typecheck` passes; `backend/` is identical to `main`, so the previously reported favorites integration type errors do not reproduce and are not Step 11 regressions. The physical-device keyboard language-switch issue remains a separate P1 `UNRESOLVED`; no PASS is claimed for it.
 

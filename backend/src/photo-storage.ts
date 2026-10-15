@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -11,7 +11,16 @@ export interface PhotoStorage {
 }
 
 export class ExternalUrlPhotoStorage implements PhotoStorage {
-    constructor(private readonly kind: 'products' | 'buy-requests' = 'products') {}
+    constructor(private readonly kind: 'products' | 'buy-requests' | 'offers' = 'products') {}
+
+    async copyProductPhoto(offerId: string, url: string, index: number): Promise<StoredPhoto> {
+        const match = url.match(/^\/uploads\/products\/([0-9a-f-]{36})\/(\d+)\.(jpg|png|webp|gif)$/i)
+        if (!match) return this.store(`${offerId}/copied-${index}`, { url }, index)
+        const source = join(dirname(fileURLToPath(import.meta.url)), '../uploads/products', match[1], `${match[2]}.${match[3]}`)
+        const bytes = await readFile(source)
+        const mime = match[3].toLowerCase() === 'jpg' ? 'jpeg' : match[3].toLowerCase()
+        return this.store(`${offerId}/copied-${index}`, { dataUrl: `data:image/${mime};base64,${bytes.toString('base64')}` }, index)
+    }
 
     async store(productId: string, photo: PhotoUpload, index: number): Promise<StoredPhoto> {
         if (photo.dataUrl) {

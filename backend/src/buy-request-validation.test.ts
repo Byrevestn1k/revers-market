@@ -9,6 +9,14 @@ describe('buy request and offer validation', () => {
     it('requires a coherent price range', () => expect(validateBuyRequestInput({ ...request, minPrice: 300, maxPrice: 250 })).toContain('priceRange'))
     it('accepts exact price and normalized delivery modes', () => expect(validateBuyRequestInput({ ...request, exactPrice: 220, minPrice: undefined, maxPrice: undefined, delivery: 'preferred' })).toEqual([]))
     it('rejects unsafe additional offer photos', () => expect(validateOfferInput({ ...offer, additionalPhotoUrl: 'javascript:alert(1)' })).toContain('additionalPhotoUrl'))
+    it('validates seller offer details and uploaded photos in all creation modes', () => {
+        const photo = { dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==' }
+        for (const creationMode of ['product', 'manual', 'request_terms']) expect(validateOfferInput({ ...offer, creationMode, title: 'Товар продавця', description: 'Опис', characteristics: 'Сорт А', photos: [photo] })).toEqual([])
+        expect(validateOfferInput({ ...offer, photos: Array(9).fill(photo) })).toContain('photos')
+        expect(validateOfferInput({ ...offer, photos: [{ url: '/uploads/offers/other/0.png' }] })).toContain('photos')
+        expect(validateOfferInput({ ...offer, title: 'x' })).toContain('title')
+        expect(validateOfferInput({ ...offer, creationMode: 'unknown' })).toContain('creationMode')
+    })
     it('validates supplied fields for partial request updates', () => expect(validateBuyRequestInput({ title: 'Оновлено' }, true)).toEqual([]))
     it('allows unpriced requests but keeps quantity required', () => {
         const { minPrice, maxPrice, quantity, ...withoutQuantity } = request
