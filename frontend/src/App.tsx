@@ -44,13 +44,14 @@ import DemandSubscriptions from './DemandSubscriptions'
 import { countryName, criteriaDraft, receiptLabel, receiptLabels, type ReceiptMethod, type SubscriptionCriteria } from './subscription-criteria'
 import SubscriptionCriteriaFields from './SubscriptionCriteriaFields'
 import { COUNTRIES } from './countries'
-import { RequestOffers, OfferDetails, DealChat, ChatActions, closeChatActionMenus, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
+import { RequestOffers, OfferDetails, OfferImage, DealChat, ChatActions, closeChatActionMenus, OrderResultDialog, OrderContact, ParticipantActions, ConfirmationDialog, DealDialog, TextEntryDialog, dealStatusText, failureReasons } from './DealInteraction'
 import { MessagesContext, MessageUnreadBadge } from './messages-state'
 import type { Conversation } from './messages-state'
 import { conversationIdForPath, legacyDestination, mobileTabForPath, productEditIdForPath, productEditPath, viewForPath, viewRoutes, type AppView } from './navigation'
 import { activityGroup, activityGroups, activityItems, canEditSellerOffer, canWithdrawSellerOffer, isActiveRequest, type ActivityGroup, type ActivityKind } from './activity'
 import { ExternalAuthOptions, ExternalSignup, LoginMethods, externalAuthMessage, safeClientReturn } from './external-auth-ui'
 import { buildOfferUpdatePayload } from './offer-update'
+import { saveOfferDraft } from './offer-draft'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
 export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; geoZone: string; settlement?: Settlement | null; address?: string | null; coordinates?: MapPoint | null; status: string; createdAt?: string; updatedAt?: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
@@ -998,18 +999,21 @@ function OfferForm({ buyRequest, viewerId, products, notify, onDone }: { buyRequ
     const [availableAt, setAvailableAt] = useState(savedText('availableAt'))
     const [note, setNote] = useState(savedText('note'))
     const [photos, setPhotos] = useState<string[]>(Array.isArray(draft.photos) ? draft.photos.filter((value): value is string => typeof value === 'string').slice(0, 8) : [])
+    const [photosMissing, setPhotosMissing] = useState(draft.photosNotSaved === true)
+    const [draftWarning, setDraftWarning] = useState('')
     const [review, setReview] = useState(false)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
     const sending = useRef(false)
     useEffect(() => {
-        const next = { mode, productId, title, description, characteristics, quantity, price, delivery, deliveryPrice, availableAt, note, photos }
-        try { sessionStorage.setItem(draftKey, JSON.stringify(next)) }
-        catch { try { sessionStorage.setItem(draftKey, JSON.stringify({ ...next, photos: [] })) } catch { /* Storage can be disabled. */ } }
-    }, [mode, productId, title, description, characteristics, quantity, price, delivery, deliveryPrice, availableAt, note, photos])
+        const next = { mode, productId, title, description, characteristics, quantity, price, delivery, deliveryPrice, availableAt, note, photos, photosNotSaved: photosMissing }
+        let result: ReturnType<typeof saveOfferDraft>
+        try { result = saveOfferDraft(sessionStorage, draftKey, next) } catch { result = 'unavailable' }
+        setDraftWarning(result === 'unavailable' ? 'Чернетку не вдалося зберегти у браузері. Дані поки залишаються у формі, але можуть зникнути після виходу зі сторінки.' : result === 'photos-not-saved' ? photos.length ? 'Фото залишилися у формі, але не збереглися в чернетці. Після виходу зі сторінки додайте їх знову.' : 'Фото не збереглися в чернетці. Додайте їх знову перед надсиланням.' : '')
+    }, [mode, productId, title, description, characteristics, quantity, price, delivery, deliveryPrice, availableAt, note, photos, photosMissing])
     const availableProducts = products.filter(product => product.status === 'active' && product.category.id === buyRequest.category.id && product.unit === buyRequest.unit && product.price.currency === buyRequest.price.currency && (product.availableQuantity ?? product.quantity) > 0)
     const chooseMode = (next: typeof mode) => {
-        setMode(next); setReview(false); setProductId(''); setPhotos([]); setDescription(''); setCharacteristics('')
+        setMode(next); setReview(false); setProductId(''); setPhotos([]); setPhotosMissing(false); setDescription(''); setCharacteristics('')
         setTitle(next === 'request_terms' ? buyRequest.title : '')
         setQuantity(String(buyRequest.remainingQuantity || buyRequest.quantity))
         setPrice(next === 'request_terms' ? String(buyRequest.price.max ?? buyRequest.price.min ?? '') : '')
@@ -1020,7 +1024,7 @@ function OfferForm({ buyRequest, viewerId, products, notify, onDone }: { buyRequ
         if (!product) return
         setTitle(product.title); setDescription(product.description); setQuantity(String(Math.min(product.availableQuantity ?? product.quantity, buyRequest.remainingQuantity || buyRequest.quantity)))
         setPrice(String(product.price.amount)); setDelivery(DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode)
-        setPhotos(product.photos.slice(0, 8).map(photo => photo.url)); setReview(false)
+        setPhotos(product.photos.slice(0, 8).map(photo => photo.url)); setPhotosMissing(false); setReview(false)
     }
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); if (sending.current) return
@@ -1029,7 +1033,7 @@ function OfferForm({ buyRequest, viewerId, products, notify, onDone }: { buyRequ
         sending.current = true; setBusy(true); setError('')
         try {
             await request(`/api/buy-requests/${buyRequest.id}/offers`, { method: 'POST', body: JSON.stringify({ creationMode: mode, productId: productId || undefined, title: title.trim(), description, characteristics, photos: photos.map(photo => ({ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: title.trim() })), quantity: Number(quantity), unit: buyRequest.unit, price: Number(price), currency: buyRequest.price.currency, delivery, deliveryPrice: Number(deliveryPrice || 0), availableAt, note }) })
-            sessionStorage.removeItem(draftKey)
+            try { sessionStorage.removeItem(draftKey) } catch { /* A disabled draft store cannot block a sent offer. */ }
             notify('Пропозицію надіслано'); onDone()
         } catch (caught) { setError((caught as Error).message) } finally { sending.current = false; setBusy(false) }
     }
@@ -1046,7 +1050,8 @@ function OfferForm({ buyRequest, viewerId, products, notify, onDone }: { buyRequ
         <label>Умови отримання<input value={delivery} onChange={event => setDelivery(event.target.value)} placeholder="Самовивіз / доставка продавцем" maxLength={160} required /></label>
         <div className="field-row"><label>Вартість доставки<input name="deliveryPrice" type="number" min="0" step="0.01" value={deliveryPrice} onChange={event => setDeliveryPrice(event.target.value)} /></label><label>Доступно з<input name="availableAt" maxLength={160} value={availableAt} onChange={event => setAvailableAt(event.target.value)} /></label></div>
         <label>Коментар покупцю<textarea name="note" maxLength={5000} value={note} onChange={event => setNote(event.target.value)} /></label>
-        <fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={setPhotos} max={8} /></fieldset>
+        <fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={next => { setPhotos(next); setPhotosMissing(false) }} max={8} /></fieldset>
+        {draftWarning && <p className="form-error" role="alert">{draftWarning}</p>}
         {review && <div className="offer-review" role="status"><strong>Перевірте перед надсиланням</strong><p>{title} · {quantity} {unitLabel(buyRequest.unit)} · {formatPrice(Number(price), buyRequest.price.currency)} за {unitLabel(buyRequest.unit)}</p><p>Отримання: {delivery}. Фото: {photos.length}.</p><p>Покупець зможе прийняти або відхилити пропозицію. Угода зараз не створюється.</p></div>}
         {error && <p className="form-error" role="alert">{error}</p>}
         <button className="primary-button" disabled={busy}>{busy ? 'Надсилання…' : review ? 'Надіслати пропозицію' : 'Переглянути умови'}</button>
@@ -1088,7 +1093,7 @@ function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>
         <div className="request-list">{activityItems('offer', myOffers, selectedOfferGroup).map((offer) => <article key={offer.id} className="request-card"><header><div><span className="eyebrow">Моя пропозиція на запит</span><h3>{offer.title || offer.requestTitle}</h3><a href={isActiveRequest(offer.requestStatus) ? '/buy-requests/' + encodeURIComponent(offer.buyRequestId) : '/requests?offer=' + encodeURIComponent(offer.id)}>Запит: {offer.requestTitle}</a>{offer.existingProduct && <small>Мій товар: {offer.existingProduct.title}</small>}</div><span className="status status-paused">{OFFER_STATUS[offer.status] ?? offer.status}</span></header>
             {!isActiveRequest(offer.requestStatus) && <p className="form-hint">Запит: {REQUEST_STATUS[offer.requestStatus] ?? offer.requestStatus}. Пропозиція збережена в історії.</p>}
             {focusedOfferId === offer.id && <div className="offer-history" aria-label="Історія власної пропозиції"><strong>Історія моєї пропозиції</strong><p>Запит: {offer.requestTitle} · {REQUEST_STATUS[offer.requestStatus] ?? offer.requestStatus}. Пропозиція: {OFFER_STATUS[offer.status] ?? offer.status}.</p><a href="/requests">← До пропозицій</a></div>}
-            {offer.photos?.[0] && <img className="deal-offer-photo" src={imageUrl(offer.photos[0].url)} alt={offer.title} />}
+            <OfferImage key={offer.photos?.[0]?.url || 'fallback'} url={offer.photos?.[0]?.url} alt={offer.title} category={offer.request?.category} className="deal-offer-photo" />
             {offer.pendingNegotiation && <p className="form-hint">Покупець запропонував змінити умови. Перегляньте їх у чаті.</p>}{offer.waitingConfirmation ? <p><a href="/orders">Покупець обрав пропозицію. Підтвердьте домовленість.</a></p> : offer.acceptedQuantity > 0 && <p><a href="/orders">Переглянути пов’язані угоди та їхній стан →</a></p>}<div className="card-meta"><span>{offer.quantity} {offer.unit}</span><span>{formatPrice(offer.price.amount, offer.price.currency)} / {offer.unit}</span><span>Прийнято: {offer.acceptedQuantity}</span></div>
             <details><summary>Деталі та порівняння</summary><OfferDetails offer={offer} /></details>
             <div className="request-actions">

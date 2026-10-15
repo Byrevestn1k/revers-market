@@ -16,6 +16,9 @@ describe('buy request and offer validation', () => {
         expect(validateOfferInput({ ...offer, photos: [{ url: '/uploads/offers/other/0.png' }] })).toContain('photos')
         expect(validateOfferInput({ ...offer, title: 'x' })).toContain('title')
         expect(validateOfferInput({ ...offer, creationMode: 'unknown' })).toContain('creationMode')
+        const id = '00000000-0000-4000-8000-000000000001'
+        expect(validateOfferInput({ ...offer, photos: [{ url: `/uploads/offers/${id}/copied-0/0.png` }] })).toEqual([])
+        expect(validateOfferInput({ ...offer, photos: [{ url: `/uploads/offers/${id}/${id}/0.png` }] })).toEqual([])
     })
     it('validates supplied fields for partial request updates', () => expect(validateBuyRequestInput({ title: 'Оновлено' }, true)).toEqual([]))
     it('allows unpriced requests but keeps quantity required', () => {

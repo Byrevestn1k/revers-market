@@ -4,6 +4,7 @@ import { MessagesContext } from './messages-state'
 import type { Conversation } from './messages-state'
 import { unitLabel } from './listing-options'
 import { CategoryImage } from './CategoryPicker'
+import type { Category } from './categories'
 import './deal-interaction.css'
 
 type Http = (path: string, options?: RequestInit) => Promise<any>
@@ -26,6 +27,11 @@ const patch = (body: unknown): RequestInit => ({ method: 'PATCH', body: JSON.str
 const activeRequest = (item: DealRequest) => ['open','partially_selected','partially_completed','partially_fulfilled'].includes(item.status) && (!item.deadline || new Date(item.deadline) > new Date())
 const offerStatuses: Record<string, string> = { draft: 'Чернетка', submitted: 'Активна', accepted: 'Прийнята', partially_accepted: 'Частково прийнята', rejected: 'Відхилена', withdrawn: 'Відкликана', expired: 'Строк минув' }
 const offerImage = (url: string) => url.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${url}` : url
+export function OfferImage({ url, alt, category, className = '' }: { url?: string | null; alt: string; category?: Category; className?: string }) {
+    const [failed, setFailed] = useState(false)
+    if (!url || failed) return category ? <CategoryImage category={category} className={className} /> : <span className={`${className} seller-offer-placeholder`} role="img" aria-label="Фото недоступне">▧</span>
+    return <img className={className} src={offerImage(url)} alt={alt} onError={() => setFailed(true)} />
+}
 const buyerBudget = (offer: DealOffer) => {
     const request = offer.request
     if (!request || request.minPrice == null && request.maxPrice == null) return 'Ціна не вказана'
@@ -47,7 +53,7 @@ export function OfferDetails({ offer }: { offer: DealOffer }) {
         ['Характеристики', request?.description || 'Не вказано', offer.characteristics || 'Не вказано'],
     ]
     return <div className="seller-offer-details">
-        {photos.length > 0 ? <div className="seller-offer-gallery"><img src={offerImage(photos[Math.min(selected, photos.length - 1)].url)} alt={photos[selected]?.alt || offer.title || 'Фото пропозиції'} />{photos.length > 1 && <div>{photos.map((photo, index) => <button type="button" key={`${photo.url}-${index}`} aria-label={`Показати фото ${index + 1}`} aria-current={selected === index} onClick={() => setSelected(index)}><img src={offerImage(photo.url)} alt="" /></button>)}</div>}</div> : request?.category && <div className="seller-offer-gallery-fallback"><CategoryImage category={request.category} /></div>}
+        {photos.length > 0 ? <div className="seller-offer-gallery"><OfferImage key={photos[Math.min(selected, photos.length - 1)].url} url={photos[Math.min(selected, photos.length - 1)].url} alt={photos[selected]?.alt || offer.title || 'Фото пропозиції'} category={request?.category} className="seller-offer-main-image" />{photos.length > 1 && <div>{photos.map((photo, index) => <button type="button" key={`${photo.url}-${index}`} aria-label={`Показати фото ${index + 1}`} aria-current={selected === index} onClick={() => setSelected(index)}><OfferImage url={photo.url} alt="" className="seller-offer-thumb-image" /></button>)}</div>}</div> : <div className="seller-offer-gallery-fallback"><OfferImage alt="Фото недоступне" category={request?.category} className="seller-offer-main-image" /></div>}
         <h5>Порівняння умов</h5><div className="seller-offer-comparison" role="table" aria-label="Порівняння умов покупця і продавця"><div className="seller-offer-compare-head" role="row"><span>Параметр</span><span>Покупець шукає</span><span>Продавець пропонує</span></div>{rows.map(([label, buyer, seller]) => <div className="seller-offer-compare-row" role="row" key={label}><b>{label}</b><span>{buyer}</span><span className={buyer !== seller ? 'seller-offer-difference' : ''}>{seller}</span></div>)}</div>
         {offer.description && <p><b>Опис товару:</b> {offer.description}</p>}{offer.note && <p><b>Коментар продавця:</b> {offer.note}</p>}
         <p><b>Статус:</b> {offerStatuses[offer.status] ?? offer.status}{offer.acceptedQuantity > 0 && ` · обрано ${offer.acceptedQuantity} ${unitLabel(offer.unit)}`}</p>
@@ -279,7 +285,7 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
         {loading && <p role="status">Завантажуємо пропозиції…</p>}{error && <p role="alert" className="form-error">{error}</p>}
         {!loading && !offers.length && <p>Пропозицій поки немає. Ми повідомимо, коли продавці відгукнуться.</p>}
         {sorted.map(offer => <article key={offer.id} className="deal-offer"><header><div><a href={`/profiles/${encodeURIComponent(offer.seller.username)}`}><strong>{offer.seller.username}</strong></a><small>★ {offer.seller.rating ?? '—'}/12 · {offer.seller.completedDeals ?? 0} підтверджених угод</small></div><div><strong>{amount(offer.price.amount, offer.price.currency)} / {unitLabel(offer.unit)}</strong><small>{offerStatuses[offer.status] ?? offer.status}</small></div></header>
-            {offer.photos?.[0] ? <img className="deal-offer-photo" src={offerImage(offer.photos[0].url)} alt={offer.title || 'Фото пропозиції'} /> : offer.additionalPhotoUrl ? <img className="deal-offer-photo" src={offer.additionalPhotoUrl} alt="Фото пропозиції" /> : offer.request?.category ? <CategoryImage category={offer.request.category} className="deal-offer-photo" /> : <div className="deal-offer-photo seller-offer-placeholder" aria-hidden="true">▧</div>}
+            <OfferImage key={offer.photos?.[0]?.url || offer.additionalPhotoUrl || 'fallback'} url={offer.photos?.[0]?.url || offer.additionalPhotoUrl} alt={offer.title || 'Фото пропозиції'} category={offer.request?.category} className="deal-offer-photo" />
             <h4>{offer.title ?? offer.existingProduct?.title ?? item.title}</h4>
             <p>Пропонує {offer.quantity} {unitLabel(offer.unit)} · {offer.delivery}</p>
             {item.fulfillmentMode === 'multiple_sellers' && <p>Ви можете обрати до {Math.max(0, Math.min(offer.quantity - offer.acceptedQuantity, item.remainingQuantity))} {unitLabel(offer.unit)}.</p>}

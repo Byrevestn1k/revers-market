@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { ExternalUrlPhotoStorage } from './photo-storage.js'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 const hasDatabase = Boolean(process.env.DATABASE_URL)
 
@@ -15,6 +17,8 @@ if (hasDatabase) {
             const agents = roles.map(() => request.agent(createApp()))
             const usernames = roles.map(role => `step13_${role}_${suffix}`)
             const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='
+            const otherPhoto = `data:image/png;base64,${Buffer.concat([Buffer.from(photo.split(',')[1], 'base64'), Buffer.from('second-photo')]).toString('base64')}`
+            const offerFile = (url: string) => fileURLToPath(new URL(`../uploads/offers/${url.replace('/uploads/offers/', '')}`, import.meta.url))
             const offerStorage = new ExternalUrlPhotoStorage('offers')
             const productStorage = new ExternalUrlPhotoStorage('products')
             const offerKeys: string[] = []
@@ -26,10 +30,10 @@ if (hasDatabase) {
                 }
                 const [buyer, sellerA, sellerB, sellerC] = agents
                 const category = (await buyer.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
-                const productResponse = await sellerA.post('/api/products').send({ categoryId: category.id, title: `Власний товар ${suffix}`, description: 'Первинний опис', quantity: 5, unit: 'kg', price: 90, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status: 'active', photos: [{ dataUrl: photo, alt: 'Оригінал' }] })
+                const productResponse = await sellerA.post('/api/products').send({ categoryId: category.id, title: `Власний товар ${suffix}`, description: 'Первинний опис', quantity: 5, unit: 'kg', price: 90, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status: 'active', photos: [{ dataUrl: otherPhoto, alt: 'Перше' }, { dataUrl: photo, alt: 'Оригінал' }] })
                 expect(productResponse.status).toBe(201)
                 const productId = productResponse.body.product.id as string
-                const productPhoto = productResponse.body.product.photos[0].url as string
+                const productPhoto = productResponse.body.product.photos[1].url as string
                 productKeys.push(...(await pool.query('SELECT storage_key FROM product_photos WHERE product_id=$1', [productId])).rows.map(row => row.storage_key))
                 const createdRequest = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: `Запит Step 13 ${suffix}`, description: 'Потрібен товар', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 90, maxPrice: 110, receiptMethod: 'SELF_PICKUP', countryCode: 'UA', geoArea: 'Рівне', fulfillmentMode: 'multiple_sellers' })
                 expect(createdRequest.status).toBe(201)
@@ -40,6 +44,24 @@ if (hasDatabase) {
                 expect(linked.status).toBe(201)
                 expect(linked.body.offer).toMatchObject({ title: `Власний товар ${suffix}`, description: 'Первинний опис', creationMode: 'product', photos: [{ url: expect.stringContaining('/uploads/offers/') }] })
                 expect(linked.body.offer.photos[0].url).not.toBe(productPhoto)
+                const retainedUrl = linked.body.offer.photos[0].url as string
+                const retainedBytes = await readFile(offerFile(retainedUrl))
+                const inserted = await sellerA.patch(`/api/offers/${linked.body.offer.id}`).send({ photos: [{ url: productResponse.body.product.photos[0].url }, { url: retainedUrl }] })
+                expect(inserted.status).toBe(200)
+                const insertedUrl = inserted.body.offer.photos[0].url as string
+                expect(insertedUrl).not.toBe(retainedUrl)
+                expect(await readFile(offerFile(retainedUrl))).toEqual(retainedBytes)
+                expect(await readFile(offerFile(insertedUrl))).not.toEqual(retainedBytes)
+                const reordered = await sellerA.patch(`/api/offers/${linked.body.offer.id}`).send({ photos: [{ url: retainedUrl }, { url: insertedUrl }] })
+                expect(reordered.body.offer.photos.map((item: { url: string }) => item.url)).toEqual([retainedUrl, insertedUrl])
+                expect(await readFile(offerFile(retainedUrl))).toEqual(retainedBytes)
+                const repeated = await sellerA.patch(`/api/offers/${linked.body.offer.id}`).send({ photos: [{ url: retainedUrl }, { url: insertedUrl }] })
+                expect(repeated.body.offer.photos.map((item: { url: string }) => item.url)).toEqual([retainedUrl, insertedUrl])
+                expect(await readFile(offerFile(insertedUrl))).not.toEqual(retainedBytes)
+                const trimmed = await sellerA.patch(`/api/offers/${linked.body.offer.id}`).send({ photos: [{ url: retainedUrl }] })
+                expect(trimmed.body.offer.photos.map((item: { url: string }) => item.url)).toEqual([retainedUrl])
+                expect(await readFile(offerFile(retainedUrl))).toEqual(retainedBytes)
+                await expect(readFile(offerFile(insertedUrl))).rejects.toMatchObject({ code: 'ENOENT' })
                 expect((await sellerB.post(endpoint).send({ ...base, creationMode: 'product', productId })).body.error).toBe('PRODUCT_NOT_AVAILABLE')
                 const manual = await sellerB.post(endpoint).send({ ...base, creationMode: 'manual', title: 'Інший товар', description: 'Окремий опис', characteristics: 'Сорт А', photos: [{ dataUrl: photo, alt: 'Інший товар' }] })
                 expect(manual.status).toBe(201)
@@ -59,6 +81,13 @@ if (hasDatabase) {
                 expect(original).toMatchObject({ title: `Власний товар ${suffix}`, description: 'Первинний опис' })
                 const secondLinked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId })
                 expect(secondLinked.status).toBe(201)
+                const sharedKey = (await pool.query('SELECT storage_key FROM offer_photos WHERE offer_id=$1 AND url=$2', [linked.body.offer.id, retainedUrl])).rows[0].storage_key as string
+                const replaced = (await pool.query('SELECT id, storage_key FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order LIMIT 1', [secondLinked.body.offer.id])).rows[0]
+                await pool.query('UPDATE offer_photos SET storage_key=$1, url=$2 WHERE id=$3', [sharedKey, retainedUrl, replaced.id])
+                await offerStorage.remove(replaced.storage_key)
+                const removedShared = await sellerA.patch(`/api/offers/${secondLinked.body.offer.id}`).send({ photos: [{ url: secondLinked.body.offer.photos[1].url }] })
+                expect(removedShared.status).toBe(200)
+                expect(await readFile(offerFile(retainedUrl))).toEqual(retainedBytes)
                 const results = await Promise.all([linked.body.offer.id, secondLinked.body.offer.id].map(id => buyer.post(`/api/offers/${id}/accept`).send({ quantity: 5 })))
                 expect(results.map(result => result.status).sort()).toEqual([201, 409])
                 const acceptedId = results[0].status === 201 ? linked.body.offer.id : secondLinked.body.offer.id

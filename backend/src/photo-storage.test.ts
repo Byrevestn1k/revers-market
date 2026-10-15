@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ExternalUrlPhotoStorage } from './photo-storage.js'
+import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 describe('photo storage abstraction', () => {
     it('keeps external image storage replaceable behind a stable contract', async () => {
@@ -15,5 +18,31 @@ describe('photo storage abstraction', () => {
         const stored = await storage.store('storage-test-product', { dataUrl: 'data:image/png;base64,aGVsbG8=' }, 0)
         expect(stored).toEqual({ storageKey: 'storage-test-product/0.png', url: '/uploads/products/storage-test-product/0.png' })
         await expect(storage.remove(stored.storageKey)).resolves.toBeUndefined()
+    })
+
+    it('gives every copied product photo a distinct immutable file', async () => {
+        const product = new ExternalUrlPhotoStorage('products')
+        const offer = new ExternalUrlPhotoStorage('offers')
+        const productId = randomUUID()
+        const offerId = randomUUID()
+        const source = await product.store(productId, { dataUrl: `data:image/png;base64,${Buffer.from('first-image').toString('base64')}` }, 0)
+        const copied: string[] = []
+        const bytes = (key: string) => readFile(fileURLToPath(new URL(`../uploads/offers/${key}`, import.meta.url)))
+        try {
+            const first = await offer.copyProductPhoto(offerId, source.url)
+            copied.push(first.storageKey)
+            const originalBytes = await bytes(first.storageKey)
+            const second = await offer.copyProductPhoto(offerId, source.url)
+            copied.push(second.storageKey)
+            expect(second.storageKey).not.toBe(first.storageKey)
+            expect(second.url).not.toBe(first.url)
+            expect(await bytes(first.storageKey)).toEqual(originalBytes)
+            expect(await bytes(second.storageKey)).toEqual(originalBytes)
+            await offer.remove(second.storageKey)
+            expect(await bytes(first.storageKey)).toEqual(originalBytes)
+        } finally {
+            for (const key of copied) await offer.remove(key)
+            await product.remove(source.storageKey)
+        }
     })
 })

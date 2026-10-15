@@ -44,6 +44,7 @@ const saveRequestPhotos = async (client: Queryable, id: string, photos: PhotoUpl
 
 const saveOfferPhotos = async (client: Queryable, id: string, productId: string | null, photos: PhotoUpload[], stored: StoredPhoto[]) => {
     const old = (await client.query<RequestPhoto>('SELECT url, alt, storage_key FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [id])).rows
+    if (productId) await client.query('SELECT 1 FROM products WHERE id=$1 FOR SHARE', [productId])
     const product = productId ? (await client.query<RequestPhoto>('SELECT url, alt, storage_key FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id', [productId])).rows : []
     const rows: RequestPhoto[] = []
     for (const [index, photo] of photos.entries()) {
@@ -52,7 +53,7 @@ const saveOfferPhotos = async (client: Queryable, id: string, productId: string 
         const source = product.find(item => item.url === photo.url)
         if (photo.url && !source) return invalid(['photos'])
         const saved = source
-            ? await offerPhotoStorage.copyProductPhoto(id, source.url, index)
+            ? await offerPhotoStorage.copyProductPhoto(id, source.url)
             : await offerPhotoStorage.store(`${id}/${randomUUID()}`, photo, index)
         stored.push(saved)
         rows.push({ url: saved.url, storage_key: saved.storageKey, alt: photo.alt ?? source?.alt ?? '' })
@@ -527,7 +528,10 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         const result = await client.query(`${offerSelect} WHERE o.id = $1`, [offerId])
         await audit(client, user.id, 'offer.updated', 'offer', offerId)
         await client.query('COMMIT'); committed = true
-        for (const photo of removedPhotos) await offerPhotoStorage.remove(photo)
+        for (const photo of removedPhotos) {
+            const stillUsed = await pool.query('SELECT 1 FROM offer_photos WHERE storage_key=$1 LIMIT 1', [photo])
+            if (!stillUsed.rowCount) await offerPhotoStorage.remove(photo)
+        }
         return { status: 200, body: { offer: offerDto(result.rows[0]) } }
     } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await offerPhotoStorage.remove(photo.storageKey) } client.release() }
 }

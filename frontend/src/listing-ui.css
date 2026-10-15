@@ -9,6 +9,7 @@
 .photo-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .photo-picker-item { position: relative; min-width: 0; border: 1px solid #dce7df; border-radius: 9px; overflow: hidden; }
 .photo-picker-item img { display: block; width: 100%; height: 110px; object-fit: cover; }
+.photo-picker-unavailable { display: grid; place-items: center; height: 110px; padding: 8px; background: #edf4ef; color: #486458; text-align: center; }
 .photo-picker-main { position: absolute; top: 5px; left: 5px; padding: 3px 6px; border-radius: 5px; background: #fff; font-size: 11px; font-weight: 700; }
 .photo-picker-actions { display: flex; justify-content: space-around; }
 .photo-picker-actions button { min-width: 36px; min-height: 40px; border: 0; background: white; color: #24423a; }

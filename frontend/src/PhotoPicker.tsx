@@ -5,6 +5,11 @@ import './listing-ui.css'
 const fileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const imageSource = (url: string) => url.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${url}` : url
 
+function PhotoPreview({ photo, index }: { photo: string; index: number }) {
+    const [failed, setFailed] = useState(false)
+    return failed ? <span className="photo-picker-unavailable" role="img" aria-label={`Фото ${index + 1} недоступне`}>Фото недоступне</span> : <img src={imageSource(photo)} alt={`Фото ${index + 1}`} onError={() => setFailed(true)} />
+}
+
 export default function PhotoPicker({ photos, onChange, max, error, allowLinks = false }: {
     photos: string[]; onChange: (photos: string[]) => void; max: number; error?: string; allowLinks?: boolean
 }) {
@@ -32,7 +37,7 @@ export default function PhotoPicker({ photos, onChange, max, error, allowLinks =
     }
     return <div className="photo-picker">
         <div className="photo-picker-grid">{photos.map((photo, index) => <div className="photo-picker-item" key={`${photo}-${index}`}>
-            <img src={imageSource(photo)} alt={`Фото ${index + 1}`} />
+            <PhotoPreview photo={photo} index={index} />
             {index === 0 && <span className="photo-picker-main">Головне</span>}
             <div className="photo-picker-actions"><button type="button" aria-label={`Перемістити фото ${index + 1} ліворуч`} disabled={index === 0} onClick={() => move(index, -1)}>←</button><button type="button" aria-label={`Перемістити фото ${index + 1} праворуч`} disabled={index === photos.length - 1} onClick={() => move(index, 1)}>→</button><button type="button" aria-label={`Видалити фото ${index + 1}`} onClick={() => onChange(photos.filter((_, position) => position !== index))}>×</button></div>
         </div>)}</div>
