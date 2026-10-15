@@ -45,4 +45,12 @@ describe('photo storage abstraction', () => {
             await product.remove(source.storageKey)
         }
     })
+
+    it('keeps a missing legacy Product URL as a replaceable broken image', async () => {
+        const offer = new ExternalUrlPhotoStorage('offers')
+        const url = `/uploads/products/${randomUUID()}/0.png`
+        const copied = await offer.copyProductPhoto(randomUUID(), url)
+        expect(copied.url).toBe(url)
+        await expect(offer.remove(copied.storageKey)).resolves.toBeUndefined()
+    })
 })

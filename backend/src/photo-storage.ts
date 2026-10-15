@@ -19,7 +19,11 @@ export class ExternalUrlPhotoStorage implements PhotoStorage {
         const match = url.match(/^\/uploads\/products\/([0-9a-f-]{36})\/(\d+)\.(jpg|png|webp|gif)$/i)
         if (!match) return this.store(copyKey, { url }, 0)
         const source = join(dirname(fileURLToPath(import.meta.url)), '../uploads/products', match[1], `${match[2]}.${match[3]}`)
-        const bytes = await readFile(source)
+        const bytes = await readFile(source).catch((error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT') return null
+            throw error
+        })
+        if (!bytes) return this.store(copyKey, { url }, 0)
         const mime = match[3].toLowerCase() === 'jpg' ? 'jpeg' : match[3].toLowerCase()
         return this.store(copyKey, { dataUrl: `data:image/${mime};base64,${bytes.toString('base64')}` }, 0)
     }

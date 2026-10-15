@@ -400,6 +400,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     if (await usersAreBlocked(client, request.rows[0].buyer_id, user.id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
     if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.rows[0].status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (input.unit !== request.rows[0].unit || input.currency !== request.rows[0].currency) return invalid(['unit', 'currency'])
+    await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
     const product = input.productId ? await client.query('SELECT title, description, quantity, reserved_quantity FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
     if (input.productId && !product?.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
     const title = typeof input.title === 'string' ? input.title.trim() : product?.rows[0]?.title ?? request.rows[0].title
@@ -426,6 +427,8 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
     const requestedQuantity = input.quantity
     if (input.selectionKey !== undefined && !uuid(input.selectionKey)) return invalid(['selectionKey'])
     const client = await pool.connect()
+    const storedPhotos: StoredPhoto[] = []
+    let committed = false
     try {
         await client.query('BEGIN')
         const linked = (await client.query('SELECT buy_request_id FROM offers WHERE id = $1', [offerId])).rows[0]
@@ -463,6 +466,7 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         if (request.rows[0].fulfillment_mode === 'single_seller' && Number(request.rows[0].selected_quantity) > 0) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'REQUEST_ALREADY_ALLOCATED' } } }
         const accepted = Number(row.accepted_quantity) + selectionQuantity
         const offerStatus = accepted === Number(row.offered_quantity) ? 'accepted' : 'partially_accepted'
+        await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
         if (row.product_id) {
             const stock = await client.query('UPDATE products SET reserved_quantity = reserved_quantity + $1, updated_at = now() WHERE id = $2 AND status = $3 AND quantity - reserved_quantity >= $1 RETURNING id', [selectionQuantity, row.product_id, 'active'])
             if (!stock.rowCount) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_STOCK_UNAVAILABLE' } } }
@@ -472,8 +476,15 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const goodsTotal = Math.round(selectionQuantity * unitPrice * 100) / 100
         const subtotal = goodsTotal + delivery.price
         const title = row.title ?? product.rows[0]?.title ?? request.rows[0].title
-        await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
-        const photoSnapshot = (await client.query('SELECT url, alt FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [offerId])).rows
+        let photoSnapshot = (await client.query('SELECT url, alt FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [offerId])).rows
+        if (row.creation_mode === null && photoSnapshot.length === 0 && row.product_id) {
+            const legacyPhotos = (await client.query<PhotoUpload>('SELECT url, alt FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id LIMIT 8', [row.product_id])).rows
+            if (legacyPhotos.length) {
+                const copied = await saveOfferPhotos(client, offerId, row.product_id, legacyPhotos, storedPhotos)
+                if (!Array.isArray(copied)) { await client.query('ROLLBACK'); return copied }
+                photoSnapshot = (await client.query('SELECT url, alt FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [offerId])).rows
+            }
+        }
         const order = await client.query<{ id: string }>('INSERT INTO orders (buy_request_id, offer_id, buyer_id, seller_id, status, currency, subtotal, quantity, unit, unit_price, conditions_snapshot, selection_key, negotiation_proposal_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id', [row.buy_request_id, row.id, user.id, row.seller_id, 'selected', row.currency, subtotal, selectionQuantity, row.unit, unitPrice, JSON.stringify({ offerId: row.id, productTitle: title, description: row.description, characteristics: row.characteristics, photos: photoSnapshot, originalOffer: { price: Number(row.unit_price), quantity: Number(row.offered_quantity), delivery: row.delivery, note: row.note }, terms: row.terms, delivery, goodsTotal, grandTotal: subtotal, negotiated: agreed ? { id: agreed.id, price: unitPrice, quantity: selectionQuantity, delivery } : null }), input.selectionKey ?? null, agreed?.id ?? null])
         await client.query('INSERT INTO order_items (order_id, offer_id, product_id, quantity, unit, unit_price, currency, product_title_snapshot, offer_terms_snapshot, delivery_terms_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [order.rows[0].id, row.id, row.product_id, selectionQuantity, row.unit, unitPrice, row.currency, title, JSON.stringify({ ...row.terms, description: row.description, characteristics: row.characteristics, photos: photoSnapshot }), JSON.stringify(delivery)])
         await createOrderConversation(client, order.rows[0].id, user.id, row.seller_id, row.id)
@@ -481,9 +492,9 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         await audit(client, user.id, 'offer.selected', 'offer', offerId, { quantity: selectionQuantity, orderId: order.rows[0].id })
         await audit(client, user.id, 'OFFER_SELECTED', 'order', order.rows[0].id, { offerId, requestId: row.buy_request_id })
         await audit(client, user.id, 'SELLER_CONFIRMATION_REQUESTED', 'order', order.rows[0].id)
-        await client.query('COMMIT')
+        await client.query('COMMIT'); committed = true
         return { status: 201, body: { order: { id: order.rows[0].id, buyRequestId: row.buy_request_id, sellerId: row.seller_id, quantity: selectionQuantity, subtotal, status: 'selected' } } }
-    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { if (!committed) for (const photo of storedPhotos) await offerPhotoStorage.remove(photo.storageKey); client.release() }
 }
 
 export const updateOffer = async (user: AuthUser, offerId: string, input: Record<string, unknown>) => {
@@ -507,6 +518,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         if (existing.status !== 'submitted' || Number(existing.accepted_quantity) > 0) return { status: 409, body: { error: 'OFFER_TERMS_LOCKED' } }
         if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
         if ((input.unit !== undefined && input.unit !== request.unit) || (input.currency !== undefined && input.currency !== request.currency)) return invalid(['unit','currency'])
+        if (input.photos !== undefined) await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
         if (input.productId !== undefined && input.productId !== existing.product_id) {
             if (input.productId === null) {
                 // Removing an existing link is allowed by the current editable-offer rules.
@@ -521,6 +533,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
             const result = await saveOfferPhotos(client, offerId, (input.productId === undefined ? existing.product_id : input.productId) as string | null, input.photos as PhotoUpload[], storedPhotos)
             if (!Array.isArray(result)) return result
             removedPhotos = result
+            await client.query("UPDATE offers SET creation_mode = CASE WHEN product_id IS NULL THEN 'manual' ELSE 'product' END WHERE id=$1 AND creation_mode IS NULL", [offerId])
         }
         await client.query(`UPDATE offers SET terms = terms || jsonb_build_object('note', note, 'additionalPhotoUrl', additional_photo_url), delivery_terms = delivery_terms || jsonb_build_object('delivery', delivery) WHERE id=$1`, [offerId])
         const conversation = (await client.query('SELECT id FROM conversations WHERE offer_id=$1',[offerId])).rows[0]
