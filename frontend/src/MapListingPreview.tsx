@@ -1,5 +1,6 @@
 import type { SellerProductPoint } from './map-sellers'
 import { DELIVERY_LABELS, unitLabel } from './listing-options'
+import { deliveryOptionsLabel } from './DeliveryOptionsFields'
 
 export default function MapListingPreview({ item, description, loading, error, onOpen, onOwner, onMap, imageUrl, hideDistance = false }: {
     item: SellerProductPoint; hideDistance?: boolean; description?: string; loading: boolean; error?: string
@@ -13,7 +14,7 @@ export default function MapListingPreview({ item, description, loading, error, o
         {price && <strong className="map-preview-price">{price}{item.unit && <small> / {unitLabel(item.unit)}</small>}</strong>}
         <dl className="map-preview-facts">
             {item.quantity !== undefined && <div><dt>{item.kind === 'buyRequest' ? 'Потрібно' : 'Доступно'}</dt><dd>{item.quantity} {unitLabel(item.unit ?? '')}</dd></div>}
-            {item.deliveryMode && <div><dt>Доставка</dt><dd>{DELIVERY_LABELS[item.deliveryMode as keyof typeof DELIVERY_LABELS] ?? item.deliveryMode}</dd></div>}
+            {(item.deliveryOptions?.length || item.deliveryMode) && <div><dt>Отримання</dt><dd>{item.deliveryOptions?.length ? deliveryOptionsLabel(item.deliveryOptions) : DELIVERY_LABELS[item.deliveryMode as keyof typeof DELIVERY_LABELS] ?? item.deliveryMode}</dd></div>}
             <div><dt>Місце</dt><dd>{item.publicAddress || item.geoZone}{item.approximate !== false && <small>Приблизне розташування</small>}</dd></div>
             {!hideDistance && <div><dt>Відстань</dt><dd>{item.distanceBand} від точки пошуку</dd></div>}
         </dl>

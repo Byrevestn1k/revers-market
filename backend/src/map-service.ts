@@ -5,10 +5,11 @@ import { textSearchConditions } from './text-search.js'
 import { withinCityOrDistance, type CityBoundary } from './city-boundaries.js'
 import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import { requestPublicLocationSql } from './request-public-location.js'
+import type { DeliveryMethod, DeliveryOption } from './delivery-compatibility.js'
 
 export type MapPoint = { latitude: number; longitude: number }
 export type MapViewport = { south: number; north: number; west: number; east: number }
-export type MapFilterState = { buyRequestIds?: string[]; nationwide?: boolean; includeOwnerListings?: boolean; exactDistance?: boolean; settlementCode?: string; geoSettlementCode?: string; region?: string; cityName?: string; cityBoundary?: CityBoundary; cityOutsideKm?: number; categoryId?: string; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
+export type MapFilterState = { buyRequestIds?: string[]; nationwide?: boolean; includeOwnerListings?: boolean; exactDistance?: boolean; settlementCode?: string; geoSettlementCode?: string; region?: string; cityName?: string; cityBoundary?: CityBoundary; cityOutsideKm?: number; categoryId?: string; deliveryMethod?: DeliveryMethod; geoZone?: string; q?: string; searchIn?: 'title' | 'all' | 'owner'; viewport?: MapViewport; radiusKm: number; showProducts: boolean; showBuyRequests: boolean; mapCenter?: MapPoint }
 export type MapMarker = MapPoint & {
     id: string
     kind: 'product' | 'buyRequest'
@@ -21,6 +22,7 @@ export type MapMarker = MapPoint & {
     quantity?: number
     unit?: string
     deliveryMode?: string
+    deliveryOptions?: DeliveryOption[] | null
     owner?: { id: string; username: string; nickname: string | null; avatarUrl: string | null }
     approximate: boolean
     distanceBand: string
@@ -57,6 +59,7 @@ export const approximatePoint = (point: MapPoint, precision = 2): MapPoint => {
 export const syncMapFilters = (filters: Partial<MapFilterState>, mapCenter?: MapPoint): MapFilterState => ({
     ...(filters.buyRequestIds ? { buyRequestIds: filters.buyRequestIds } : {}),
     categoryId: filters.categoryId || undefined,
+    deliveryMethod: filters.deliveryMethod || undefined,
     geoZone: filters.geoZone?.trim() || undefined,
     radiusKm: clampRadius(filters.radiusKm),
     showProducts: filters.showProducts ?? true,
@@ -137,8 +140,12 @@ export class MapService {
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_zone ILIKE $${parameters.length}`) }
         if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_zone', filters.region, parameters))
         if (filters.geoSettlementCode) conditions.push(settlementCondition('public_point.settlement_code', 'public_point.geo_zone', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
+        if (filters.deliveryMethod) {
+            const index = parameters.push(filters.deliveryMethod)
+            conditions.push(`(p.delivery_options @> jsonb_build_array(jsonb_build_object('method', $${index}::text)) OR (p.delivery_options IS NULL AND p.delivery_mode = CASE $${index}::text WHEN 'SELF_PICKUP' THEN 'pickup' WHEN 'SELLER_DELIVERY' THEN 'seller_delivery' WHEN 'POSTAL_DELIVERY' THEN 'carrier' ELSE 'flexible' END))`)
+        }
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['p.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], filters.q, parameters))
-        const result = await this.queryable.query(`SELECT p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode,
+        const result = await this.queryable.query(`SELECT p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode, p.delivery_options,
             (p.map_location_mode IN ('pin', 'address') OR p.address_visibility = 'public' OR (p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND p.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(p.geo_zone, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(p.geo_zone) = lower(u.location_display))))) AS is_public_point,
             CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
@@ -171,8 +178,12 @@ export class MapService {
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_area ILIKE $${parameters.length}`) }
         if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_area', filters.region, parameters))
         if (filters.geoSettlementCode) conditions.push(settlementCondition('public_point.settlement_code', 'public_point.geo_area', { settlementCode: filters.geoSettlementCode, cityName: getSettlement(filters.geoSettlementCode)!.name }, parameters))
+        if (filters.deliveryMethod) {
+            const index = parameters.push(filters.deliveryMethod)
+            conditions.push(`(r.delivery_options @> jsonb_build_array(jsonb_build_object('method', $${index}::text)) OR (r.delivery_options IS NULL AND r.receipt_method = $${index}::text))`)
+        }
         conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['r.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['r.title', 'r.description', 'u.username', 'u.nickname'], filters.q, parameters))
-        const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index, photo.url AS photo_url,
+        const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, r.delivery_options, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index, photo.url AS photo_url,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
             (r.address_visibility = 'public') AS is_public_point,
             CASE WHEN r.address_visibility = 'public' THEN r.delivery_address ELSE NULL END AS public_address,
@@ -187,6 +198,6 @@ export class MapService {
         const point = row.is_public_point ? coordinates : approximatePoint(coordinates, row.is_demo ? 5 : 2)
         const distance = Number(row.distance_km)
         const distanceBand = distance <= 1 ? 'до 1 км' : distance <= 3 ? '1–3 км' : distance <= 5 ? '3–5 км' : distance <= 10 ? '5–10 км' : distance <= 20 ? '10–20 км' : 'понад 20 км'
-        return { id: row.id, kind, title: row.title, geoZone: row.geo_zone ?? row.geo_area, category: { id: row.category_id, name: row.category_name, imageIndex: row.image_index }, ...(row.owner_id ? { owner: { id: row.owner_id, username: row.owner_username, nickname: row.owner_nickname ?? null, avatarUrl: row.owner_avatar_url ?? null } } : {}), ...(row.public_address ? { publicAddress: row.public_address } : {}), ...(kind === 'product' ? { photoUrl: row.photo_url ?? null, price: { amount: Number(row.price), currency: row.currency }, quantity: Number(row.quantity) - Number(row.reserved_quantity ?? 0), unit: row.unit, deliveryMode: row.delivery_mode } : { photoUrl: row.photo_url ?? null, quantity: Number(row.quantity), unit: row.unit }), ...point, approximate: !row.is_public_point, distanceBand }
+        return { id: row.id, kind, title: row.title, geoZone: row.geo_zone ?? row.geo_area, category: { id: row.category_id, name: row.category_name, imageIndex: row.image_index }, ...(row.owner_id ? { owner: { id: row.owner_id, username: row.owner_username, nickname: row.owner_nickname ?? null, avatarUrl: row.owner_avatar_url ?? null } } : {}), ...(row.public_address ? { publicAddress: row.public_address } : {}), ...(kind === 'product' ? { photoUrl: row.photo_url ?? null, price: { amount: Number(row.price), currency: row.currency }, quantity: Number(row.quantity) - Number(row.reserved_quantity ?? 0), unit: row.unit, deliveryMode: row.delivery_mode } : { photoUrl: row.photo_url ?? null, quantity: Number(row.quantity), unit: row.unit }), deliveryOptions: row.delivery_options ?? null, ...point, approximate: !row.is_public_point, distanceBand }
     }
 }

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { receiptLabel, type ReceiptMethod } from './subscription-criteria'
 import { requestBudget, unitLabel } from './listing-options'
 import { ListingPicture } from './ProductCard'
+import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
 
 export type BuyRequestCardData = {
     id: string
@@ -17,6 +18,7 @@ export type BuyRequestCardData = {
     photos?: { url: string; alt?: string }[]
     createdAt?: string
     receiptMethod?: ReceiptMethod | null
+    deliveryOptions?: DeliveryOption[] | null
 }
 
 const REQUEST_STATUS: Record<string, string> = {
@@ -39,7 +41,7 @@ export default function BuyRequestCard({ item, onOpen, favorite = false, onFavor
             <span className="buy-request-card-image"><ListingPicture product={{ id: item.id, title: item.title, category: item.category, geoZone: item.geoArea, photos: item.photos }} /></span>
             <header><div><span className="eyebrow">{item.category.name}</span><h3>{item.title}</h3></div><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span></header>
             {showDescription && <p>{item.description || 'Опис не додано.'}</p>}
-            <div className="card-meta"><span>▧ {item.quantity} {unitLabel(item.unit)}</span><span>{requestBudget(item.price)}</span><span>⌖ {item.geoArea}</span>{item.receiptMethod && <span>{receiptLabel(item.receiptMethod)}</span>}{item.createdAt && <span>{new Date(item.createdAt).toLocaleDateString('uk-UA')}</span>}</div>
+            <div className="card-meta"><span>▧ {item.quantity} {unitLabel(item.unit)}</span><span>{requestBudget(item.price)}</span><span>⌖ {item.geoArea}</span>{item.deliveryOptions?.length ? <span>{deliveryOptionsLabel(item.deliveryOptions)}</span> : item.receiptMethod && <span>{receiptLabel(item.receiptMethod)}</span>}{item.createdAt && <span>{new Date(item.createdAt).toLocaleDateString('uk-UA')}</span>}</div>
         </button>
         {children}
         {showFavorite && <FavoriteButton targetType="buy_request" targetId={item.id} favorite={favorite} onFavorite={onFavorite} />}

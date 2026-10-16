@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { CURRENCIES, LISTING_UNITS } from './listing-options';
 import SettlementPicker from './SettlementPicker';
 import { settlementLabel } from './settlement-model';
-import { countryName, receiptLabels, type CriteriaDraft, type ReceiptMethod } from './subscription-criteria';
+import { countryName, type CriteriaDraft } from './subscription-criteria';
+import DeliveryOptionsFields from './DeliveryOptionsFields';
 
 export default function SubscriptionCriteriaFields({ value, onChange }: {
   value: CriteriaDraft; onChange: (value: CriteriaDraft) => void;
@@ -55,12 +56,7 @@ export default function SubscriptionCriteriaFields({ value, onChange }: {
       <label>Валюта<select value={value.currency} onChange={event => change({ currency: event.target.value })}><option value="">Не обмежувати</option>{CURRENCIES.map(currency => <option key={currency}>{currency}</option>)}</select></label>
       <p className="subscription-hint">Числові межі потребують одиниці; ціна також потребує валюти. Кілограми й тонни перераховуються. Валюти не конвертуються. Якщо покупець не вказав бюджет, ціну можна узгодити — такий запит також підходить.</p>
     </div>
-    <div className="subscription-criteria-section"><h3>Спосіб отримання</h3><p className="subscription-hint">Оберіть хоча б один варіант. Обидва варіанти не обмежують отримання. «Бажано доставити» підходить і для самовивозу, і для доставки продавцем.</p>
-      {(Object.entries(receiptLabels) as [ReceiptMethod, string][]).map(([method, label]) => <label key={method} className="subscription-active"><input type="checkbox" checked={value.receiptMethods.includes(method)} onChange={event => {
-        if (!event.target.checked && value.receiptMethods.length === 1) { setMessage('Щонайменше один спосіб отримання має залишатися активним.'); return; }
-        change({ receiptMethods: event.target.checked ? [...value.receiptMethods, method] : value.receiptMethods.filter(item => item !== method) });
-      }} /> {label}</label>)}
-    </div>
+    <div className="subscription-criteria-section"><h3>Доступні способи передачі</h3><DeliveryOptionsFields role="seller" value={value.deliveryOptions} onChange={deliveryOptions => change({ deliveryOptions })} ownPlace /></div>
     {message && <p className="form-error" role="alert">{message}</p>}
   </>;
 }

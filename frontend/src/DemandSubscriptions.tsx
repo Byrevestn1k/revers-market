@@ -4,8 +4,9 @@ import { categoryLabel, type Category } from './categories';
 import { ConfirmationDialog } from './DealInteraction';
 import './demand-subscriptions.css';
 import SubscriptionCriteriaFields from './SubscriptionCriteriaFields';
-import { countryName, criteriaDraft, criteriaPayload, emptyCriteria, receiptLabels, type CriteriaDraft, type SubscriptionCriteria } from './subscription-criteria';
+import { countryName, criteriaDraft, criteriaPayload, emptyCriteria, type CriteriaDraft, type SubscriptionCriteria } from './subscription-criteria';
 import { unitLabel } from './listing-options';
+import { deliveryOptionsLabel } from './DeliveryOptionsFields';
 
 type Subscription = Partial<SubscriptionCriteria> & { id: string; matchCount?: number; category: { id: string; name: string }; region: string | null; active: boolean };
 type Http = (path: string, options?: RequestInit) => Promise<unknown>;
@@ -45,7 +46,7 @@ export default function DemandSubscriptions({ categories, http, notify }: Props)
     event.preventDefault();
     if (!draft) return;
     if (!draft.categoryId) { setError('Оберіть категорію або підкатегорію.'); return; }
-    if (!draft.receiptMethods.length) { setError('Оберіть хоча б один спосіб отримання товару.'); return; }
+    if (!draft.deliveryOptions.length) { setError('Оберіть хоча б один спосіб передачі товару.'); return; }
     if (!draft.countryCodes.length && !draft.regions.length && !draft.settlements.length) { setError('Оберіть країну, область або місто.'); return; }
     if ((draft.minQuantity !== '' || draft.maxQuantity !== '' || draft.minPrice !== '' || draft.maxPrice !== '') && !draft.unit) { setError('Оберіть одиницю кількості та ціни.'); return; }
     if ((draft.minPrice !== '' || draft.maxPrice !== '') && !draft.currency) { setError('Оберіть валюту ціни.'); return; }
@@ -98,7 +99,7 @@ export default function DemandSubscriptions({ categories, http, notify }: Props)
           {(item.minPrice != null || item.maxPrice != null) && <p>Ціна: {item.minPrice ?? 'без мінімуму'} — {item.maxPrice ?? 'без максимуму'} {item.currency} / {unitLabel(item.unit ?? undefined)}</p>}
           {item.unit && item.minQuantity == null && item.maxQuantity == null && item.minPrice == null && item.maxPrice == null && <p>Одиниця: {unitLabel(item.unit)}</p>}
           {item.currency && item.minPrice == null && item.maxPrice == null && <p>Валюта: {item.currency}</p>}
-          {!!item.receiptMethods?.length && <p>{item.receiptMethods.map(method => receiptLabels[method]).join('; ')}</p>}
+          <p>{item.deliveryOptions?.length ? deliveryOptionsLabel(item.deliveryOptions) : 'Уточніть способи передачі для точних сповіщень'}</p>
           <span className={`subscription-status ${item.active ? 'is-active' : ''}`}>Статус: {item.active ? 'Активна' : 'Вимкнена'}</span></div>
         <div className="subscription-actions"><a className="outline-button" href={`/discover?demandSubscription=${encodeURIComponent(item.id)}`}>Збігів: {item.matchCount ?? 0}</a><button className="outline-button" disabled={busy || Boolean(draft)} onClick={() => { setError(''); setDraft({ ...criteriaDraft(item), id: item.id, categoryId: item.category.id, active: item.active }); }}>Редагувати</button><button className="outline-button" disabled={busy || Boolean(draft)} onClick={() => toggle(item)}>{item.active ? 'Вимкнути' : 'Увімкнути'}</button><button className="text-button" disabled={busy || Boolean(draft)} onClick={() => { setError(''); setDeleting(item); }}>Видалити</button></div>
       </article>)}</div>}

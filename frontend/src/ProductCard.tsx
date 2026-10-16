@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { CategoryImage } from './CategoryPicker'
 import { DELIVERY_LABELS, LISTING_STATUS, listingPrice, unitLabel } from './listing-options'
 import FavoriteButton from './FavoriteButton'
+import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
 import './listing-ui.css'
 
 export type ProductCardData = {
     id: string; title: string; category: { id: string; name: string; imageIndex?: number | null }
     photos?: { url: string; alt?: string }[]; photoUrl?: string | null
     price?: { amount: number; currency: string }; quantity?: number; availableQuantity?: number
-    unit?: string; geoZone: string; deliveryMode?: string; status?: string
+    unit?: string; geoZone: string; deliveryMode?: string; deliveryOptions?: DeliveryOption[] | null; status?: string
     publicAddress?: string
     owner?: { id: string; username?: string; nickname?: string | null }
 }
@@ -28,7 +29,7 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
             <div className="product-card-body"><small className="listing-category">{product.category.name}</small><h3>{product.title}</h3>
                 {product.price && <strong className="price">{listingPrice(product.price.amount, product.price.currency)}{product.unit && <small> / {unitLabel(product.unit)}</small>}</strong>}
                 <p>⌖ {product.publicAddress || product.geoZone}</p>
-                <div className="card-meta"><span>{product.availableQuantity ?? product.quantity} {unitLabel(product.unit)}</span><span>{DELIVERY_LABELS[product.deliveryMode ?? ''] ?? ''}</span></div>
+                <div className="card-meta"><span>{product.availableQuantity ?? product.quantity} {unitLabel(product.unit)}</span><span>{product.deliveryOptions?.length ? deliveryOptionsLabel(product.deliveryOptions) : DELIVERY_LABELS[product.deliveryMode ?? ''] ?? ''}</span></div>
                 {product.owner?.username && <small className="listing-owner">{product.owner.nickname || product.owner.username}</small>}
             </div>
         </button>

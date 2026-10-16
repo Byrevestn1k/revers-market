@@ -108,6 +108,8 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     })
 
     app.get('/api/map/markers', withResult(async (request) => {
+        const deliveryMethod = request.query.deliveryMethod
+        if (deliveryMethod !== undefined && (typeof deliveryMethod !== 'string' || !['SELF_PICKUP', 'SELLER_DELIVERY', 'POSTAL_DELIVERY', 'FLEXIBLE'].includes(deliveryMethod))) return { status: 400, body: { error: 'INVALID_DELIVERY_METHOD' } }
         const latitude = Number(request.query.latitude)
         const longitude = Number(request.query.longitude)
         if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
@@ -145,6 +147,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
             cityBoundary: boundary ?? undefined,
             cityOutsideKm,
             categoryId: typeof request.query.categoryId === 'string' ? request.query.categoryId : undefined,
+            deliveryMethod: deliveryMethod as import('./delivery-compatibility.js').DeliveryMethod | undefined,
             q: typeof request.query.q === 'string' ? request.query.q : undefined,
             searchIn: request.query.searchIn === 'title' || request.query.searchIn === 'owner' ? request.query.searchIn : 'all',
             viewport,

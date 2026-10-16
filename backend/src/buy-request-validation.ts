@@ -1,6 +1,7 @@
 import { validateSettlement } from './settlements.js'
 import { countryDialCodes } from './validation.js'
 import { RECEIPT_METHODS } from './demand-matching.js'
+import { validateDeliveryOptions } from './delivery-compatibility.js'
 export const BUY_REQUEST_STATUSES = ['open', 'partially_selected', 'partially_completed', 'completed', 'partially_fulfilled', 'fulfilled', 'cancelled', 'expired'] as const
 export const OFFER_STATUSES = ['draft', 'submitted', 'accepted', 'partially_accepted', 'rejected', 'withdrawn', 'expired'] as const
 export const FULFILLMENT_MODES = ['single_seller', 'multiple_sellers'] as const
@@ -56,6 +57,7 @@ export const validateBuyRequestInput = (input: Record<string, unknown>, partial 
     if (input.longitude != null && (typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180)) errors.push('longitude')
     if (input.delivery !== undefined && !['no', 'yes', 'preferred'].includes(String(input.delivery))) errors.push('delivery')
     if (input.receiptMethod != null && !RECEIPT_METHODS.includes(input.receiptMethod as typeof RECEIPT_METHODS[number])) errors.push('receiptMethod')
+    if (input.deliveryOptions !== undefined && !validateDeliveryOptions(input.deliveryOptions, 'buyer')) errors.push('deliveryOptions')
     if (input.receiptMethod === 'SELF_PICKUP' && (input.delivery === 'yes' || input.deliveryRequired === true || input.preferredDelivery != null && input.preferredDelivery !== 'pickup')) errors.push('receiptMethod')
     if (input.receiptMethod === 'SELLER_DELIVERY' && (input.delivery === 'no' || input.deliveryRequired === false || input.preferredDelivery != null && input.preferredDelivery !== 'seller_delivery')) errors.push('receiptMethod')
     if (input.countryCode != null && (typeof input.countryCode !== 'string' || !countryDialCodes[input.countryCode])) errors.push('countryCode')
@@ -90,6 +92,7 @@ export const validateOfferInput = (input: Record<string, unknown>, partial = fal
     if (required('price') && !validPrice(input.price)) errors.push('price')
     if (required('currency') && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) errors.push('currency')
     if (required('delivery') && (typeof input.delivery !== 'string' || input.delivery.trim().length < 1 || input.delivery.length > 160)) errors.push('delivery')
+    if (input.deliveryOptions !== undefined && !validateDeliveryOptions(input.deliveryOptions, 'seller')) errors.push('deliveryOptions')
     if (input.deliveryPrice !== undefined && !validPrice(input.deliveryPrice)) errors.push('deliveryPrice')
     if (input.availableAt !== undefined && (typeof input.availableAt !== 'string' || input.availableAt.length > 160)) errors.push('availableAt')
     if (input.note !== undefined && (typeof input.note !== 'string' || input.note.length > 5000)) errors.push('note')

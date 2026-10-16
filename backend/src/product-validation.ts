@@ -1,6 +1,7 @@
 import { validateSettlement } from './settlements.js'
+import { validateDeliveryOptions } from './delivery-compatibility.js'
 export const PRODUCT_STATUSES = ['draft', 'active', 'paused', 'sold', 'expired'] as const
-export const DELIVERY_MODES = ['pickup', 'seller_delivery', 'carrier'] as const
+export const DELIVERY_MODES = ['pickup', 'seller_delivery', 'carrier', 'flexible'] as const
 export const PRODUCT_UNITS = ['kg', 'ton', 'litre', 'piece', 'box'] as const
 
 export type ProductStatus = typeof PRODUCT_STATUSES[number]
@@ -16,6 +17,7 @@ export type ProductInput = {
     price: number
     currency: string
     deliveryMode: DeliveryMode
+    deliveryOptions?: import('./delivery-compatibility.js').DeliveryOption[]
     geoZone: string
     settlementCode?: string | null
     address?: string | null
@@ -46,6 +48,7 @@ export const validateProductInput = (input: Record<string, unknown>, partial = f
     if (required('price') && (typeof input.price !== 'number' || !Number.isFinite(input.price) || input.price < 0)) errors.push('price')
     if (required('currency') && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) errors.push('currency')
     if (required('deliveryMode') && !DELIVERY_MODES.includes(input.deliveryMode as DeliveryMode)) errors.push('deliveryMode')
+    if (input.deliveryOptions !== undefined && !validateDeliveryOptions(input.deliveryOptions, 'seller')) errors.push('deliveryOptions')
     if (required('geoZone') && (typeof input.geoZone !== 'string' || input.geoZone.trim().length < 1 || input.geoZone.length > 160)) errors.push('geoZone')
     if (input.address !== undefined && input.address !== null && (typeof input.address !== 'string' || input.address.length > 500)) errors.push('address')
     if (input.addressVisibility !== undefined && input.addressVisibility !== 'private' && input.addressVisibility !== 'public') errors.push('addressVisibility')

@@ -1,5 +1,6 @@
 import { distanceKm, withinCityOrDistance, type CityBoundary } from './city-boundaries.js';
 import type { MapPoint } from './map-service.js';
+import { matchDelivery, type DeliveryOption } from './delivery-compatibility.js';
 
 export const RECEIPT_METHODS = ['SELF_PICKUP', 'SELLER_DELIVERY'] as const;
 export type ReceiptMethod = typeof RECEIPT_METHODS[number];
@@ -20,6 +21,7 @@ export type DemandCriteria = {
   maxPrice: number | null;
   currency: string | null;
   receiptMethods: ReceiptMethod[];
+  deliveryOptions?: DeliveryOption[] | null;
 };
 export type MatchRequest = {
   countryCode: string | null;
@@ -33,6 +35,8 @@ export type MatchRequest = {
   currency: string | null;
   receiptMethod: ReceiptMethod | null;
   deliveryPreferred?: boolean;
+  deliveryOptions?: DeliveryOption[] | null;
+  sellerPlace?: { settlementCode: string | null; region: string | null; publicPoint: MapPoint | null };
 };
 
 const factors: Record<string, bigint> = { kg: 1n, ton: 1000n };
@@ -56,7 +60,7 @@ const compareConverted = (value: number, limit: number, [numerator, denominator]
 
 // Category, active state, owner exclusion and creation time are filtered in SQL.
 // Geographic selections form a union. A selected country includes its descendants.
-export function matchesDemandCriteria(criteria: DemandCriteria, request: MatchRequest): boolean {
+export function matchesDemandCriteria(criteria: DemandCriteria, request: MatchRequest, requireExactDelivery = false): boolean {
   const cityMatch = Boolean(request.settlementCode && criteria.settlementCodes.includes(request.settlementCode))
     || criteria.cityOutsideKm != null && Boolean(request.publicPoint && criteria.settlementCodes.some(code => {
       const boundary = criteria.settlementBoundaries?.[code];
@@ -92,7 +96,14 @@ export function matchesDemandCriteria(criteria: DemandCriteria, request: MatchRe
     if (criteria.minPrice !== null && known(request.maxPrice) && compareConverted(request.maxPrice, criteria.minPrice, priceRatio) < 0) return false;
     if (criteria.maxPrice !== null && known(request.minPrice) && compareConverted(request.minPrice, criteria.maxPrice, priceRatio) > 0) return false;
   }
-  // Both checked is unrestricted, including old Requests with unknown receipt.
+  if (criteria.deliveryOptions || request.deliveryOptions || requireExactDelivery) {
+    const result = matchDelivery(
+      { options: request.deliveryOptions ?? null, place: { settlementCode: request.settlementCode, region: request.region, publicPoint: request.publicPoint } },
+      { options: criteria.deliveryOptions ?? null, place: { settlementCode: null, region: null, publicPoint: null } },
+    );
+    return result.status === 'EXACT_MATCH';
+  }
+  // Legacy counts retain their previous selection until the owner supplies structured delivery terms.
   if (criteria.receiptMethods.length === 1 && !request.deliveryPreferred
     && (!request.receiptMethod || !criteria.receiptMethods.includes(request.receiptMethod))) return false;
   return true;

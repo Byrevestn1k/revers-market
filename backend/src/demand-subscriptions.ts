@@ -9,6 +9,7 @@ import { requestPublicLocationSql } from './request-public-location.js';
 import { settlementAdministrativeBoundary } from './city-boundaries.js';
 import { categoryFilterSql } from './category-filter.js';
 import { MapService } from './map-service.js';
+import { validateDeliveryOptions } from './delivery-compatibility.js';
 
 type Queryable = Pick<PoolClient, 'query'>;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -29,7 +30,7 @@ const select = `SELECT s.id, json_build_object('id', c.id, 'name', c.name) AS ca
     s.region, s.country_codes AS "countryCodes", s.regions, s.active, s.country_code AS "countryCode", s.settlement_codes AS "settlementCodes",
     CASE WHEN s.radius_km IS NOT NULL THEN json_build_object('latitude', s.center_latitude::float8, 'longitude', s.center_longitude::float8) ELSE NULL END AS center,
     s.radius_km::float8 AS "radiusKm", s.min_quantity::float8 AS "minQuantity", s.max_quantity::float8 AS "maxQuantity", s.unit,
-    s.min_price::float8 AS "minPrice", s.max_price::float8 AS "maxPrice", s.currency, s.receipt_methods AS "receiptMethods",
+    s.min_price::float8 AS "minPrice", s.max_price::float8 AS "maxPrice", s.currency, s.receipt_methods AS "receiptMethods", s.delivery_options AS "deliveryOptions",
     s.city_outside_km::float8 AS "cityOutsideKm", s.settlement_boundaries AS "settlementBoundaries",
     s.created_at AS "createdAt", s.updated_at AS "updatedAt"
     FROM demand_subscriptions s JOIN categories c ON c.id = s.category_id`;
@@ -37,11 +38,11 @@ const select = `SELECT s.id, json_build_object('id', c.id, 'name', c.name) AS ca
 const columns: Record<string, string> = {
   categoryId: 'category_id', countryCodes: 'country_codes', regions: 'regions', region: 'region', active: 'active', countryCode: 'country_code', settlementCodes: 'settlement_codes',
   centerLatitude: 'center_latitude', centerLongitude: 'center_longitude', radiusKm: 'radius_km',
-  minQuantity: 'min_quantity', maxQuantity: 'max_quantity', unit: 'unit', minPrice: 'min_price', maxPrice: 'max_price', currency: 'currency', receiptMethods: 'receipt_methods',
+  minQuantity: 'min_quantity', maxQuantity: 'max_quantity', unit: 'unit', minPrice: 'min_price', maxPrice: 'max_price', currency: 'currency', receiptMethods: 'receipt_methods', deliveryOptions: 'delivery_options',
   cityOutsideKm: 'city_outside_km', settlementBoundaries: 'settlement_boundaries',
 };
 const defaults = { countryCode: null, region: null, countryCodes: [], regions: [], settlementCodes: [], center: null, radiusKm: null,
-  cityOutsideKm: null, minQuantity: null, maxQuantity: null, unit: null, minPrice: null, maxPrice: null, currency: null, receiptMethods: [...RECEIPT_METHODS], active: true };
+  cityOutsideKm: null, minQuantity: null, maxQuantity: null, unit: null, minPrice: null, maxPrice: null, currency: null, receiptMethods: [...RECEIPT_METHODS], deliveryOptions: null, active: true };
 const inputKeys = ['categoryId', ...Object.keys(defaults)];
 const dto = ({ settlementBoundaries: _boundaries, ...row }: DemandSubscription) => ({ ...row, settlements: row.settlementCodes.map(getSettlement).filter(Boolean) });
 
@@ -79,6 +80,10 @@ export const validateDemandSubscription = (input: Record<string, unknown>, parti
       || typeof point.longitude !== 'number' || !Number.isFinite(point.longitude) || Math.abs(point.longitude) > 180) fields.push('center');
   }
   if ('receiptMethods' in input && (!Array.isArray(input.receiptMethods) || !input.receiptMethods.length || input.receiptMethods.some(method => !RECEIPT_METHODS.includes(method)) || new Set(input.receiptMethods).size !== input.receiptMethods.length)) fields.push('receiptMethods');
+  if (input.deliveryOptions != null && !validateDeliveryOptions(input.deliveryOptions, 'seller')) fields.push('deliveryOptions');
+  if (Array.isArray(input.deliveryOptions) && input.deliveryOptions.some(option =>
+    (option.method === 'SELF_PICKUP' || option.method === 'SELLER_DELIVERY' && option.radiusKm !== undefined)
+    && (!option.place?.settlementCode || option.radiusKm > 0 && !option.place?.publicPoint))) fields.push('deliveryOptions');
   if (!partial && !fields.length) {
     const codes = (input.settlementCodes ?? []) as string[];
     if (!input.countryCode && !(input.countryCodes as string[] | undefined)?.length && !input.region && !(input.regions as string[] | undefined)?.length && !codes.length) fields.push('geography');
@@ -100,7 +105,7 @@ const matchRequest = (row: any): MatchRequest => {
   return {
   countryCode: row.country_code ?? (settlement ? 'UA' : null), region: settlement?.region ?? null, settlementCode: settlement?.code ?? row.settlement_code,
   publicPoint: row.public_latitude == null || row.public_longitude == null ? null : { latitude: row.public_latitude, longitude: row.public_longitude },
-  quantity: row.quantity, unit: row.unit, minPrice: row.min_price, maxPrice: row.max_price, currency: row.currency.trim(), receiptMethod: row.receipt_method, deliveryPreferred: row.delivery_preferred,
+  quantity: row.quantity, unit: row.unit, minPrice: row.min_price, maxPrice: row.max_price, currency: row.currency.trim(), receiptMethod: row.receipt_method, deliveryPreferred: row.delivery_preferred, deliveryOptions: row.delivery_options,
   };
 };
 const matchingRequests = async (subscription: DemandSubscription, user: AuthUser, queryable: Queryable = pool) => {
@@ -108,7 +113,7 @@ const matchingRequests = async (subscription: DemandSubscription, user: AuthUser
       json_build_object('id', c.id, 'name', c.name) AS category, public_point.settlement_code,
       COALESCE(r.country_code, CASE WHEN public_point.settlement_code IS NOT NULL THEN 'UA' END) AS country_code,
       r.requested_quantity::float8 AS quantity, r.unit, r.min_unit_price::float8 AS min_price,
-      r.max_unit_price::float8 AS max_price, r.currency, r.receipt_method,
+      r.max_unit_price::float8 AS max_price, r.currency, r.receipt_method, r.delivery_options,
       (r.receipt_method IS NULL AND r.preferred_delivery = 'preferred') AS delivery_preferred,
       public_point.latitude::float8 AS public_latitude, public_point.longitude::float8 AS public_longitude
       FROM buy_requests r JOIN users u ON u.id = r.buyer_id JOIN categories c ON c.id = r.category_id
@@ -174,7 +179,7 @@ export const saveDemandSubscription = async (user: AuthUser, input: Record<strin
     }
     const record = { ...merged, settlementBoundaries: JSON.stringify(boundaries), centerLatitude: criteria.center?.latitude ?? null, centerLongitude: criteria.center?.longitude ?? null };
     const keys = Object.keys(columns);
-    const values = keys.map(key => record[key as keyof typeof record]);
+    const values = keys.map(key => key === 'deliveryOptions' && record[key as keyof typeof record] != null ? JSON.stringify(record[key as keyof typeof record]) : record[key as keyof typeof record]);
     const result = id === undefined
       ? await client.query<{ id: string }>(`INSERT INTO demand_subscriptions (${keys.map(key => columns[key]).join(',')}, user_id) VALUES (${keys.map((_, index) => '$' + (index + 1)).join(',')},$${values.length + 1}) RETURNING id`, [...values, user.id])
       : await client.query<{ id: string }>(`UPDATE demand_subscriptions SET ${keys.map((key, index) => columns[key] + ' = $' + (index + 1)).join(',')}, updated_at = now() WHERE id = $${values.length + 1} AND user_id = $${values.length + 2} RETURNING id`, [...values, id, user.id]);
@@ -197,7 +202,7 @@ export const notifyDemandSubscriptions = async (queryable: Queryable, requestId:
   const request = await queryable.query(`SELECT r.category_id, r.buyer_id, public_point.settlement_code, public_point.geo_area AS "geoArea", r.created_at,
       COALESCE(r.country_code, CASE WHEN public_point.settlement_code IS NOT NULL THEN 'UA' END) AS country_code,
       r.requested_quantity::float8 AS quantity, r.unit, r.min_unit_price::float8 AS min_price,
-      r.max_unit_price::float8 AS max_price, r.currency, r.receipt_method,
+      r.max_unit_price::float8 AS max_price, r.currency, r.receipt_method, r.delivery_options,
       (r.receipt_method IS NULL AND r.preferred_delivery = 'preferred') AS delivery_preferred,
       public_point.latitude::float8 AS public_latitude, public_point.longitude::float8 AS public_longitude
       FROM buy_requests r JOIN users u ON u.id = r.buyer_id ${requestPublicLocationSql}
@@ -213,7 +218,7 @@ export const notifyDemandSubscriptions = async (queryable: Queryable, requestId:
         AND s.created_at <= $3
       FOR SHARE OF s`, [row.category_id, row.buyer_id, row.created_at]);
   const publicRequest = matchRequest(row);
-  const ids = candidates.rows.filter(item => matchesDemandCriteria(item, publicRequest)).map(item => item.id);
+  const ids = candidates.rows.filter(item => matchesDemandCriteria(item, publicRequest, true)).map(item => item.id);
   if (!ids.length) return;
   await queryable.query(`
     INSERT INTO notifications (user_id, type, title, body, context, buy_request_id, demand_subscription_id)

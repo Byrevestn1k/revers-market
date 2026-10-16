@@ -1,8 +1,10 @@
+import type { DeliveryOption } from './DeliveryOptionsFields'
+
 export type SellerProductPoint = {
     id: string; title: string; kind: 'product' | 'buyRequest'; latitude: number; longitude: number
     distanceBand: string; geoZone: string; category: { id: string; name: string; imageIndex?: number }
     photoUrl?: string | null; price?: { amount: number; currency: string }
-    quantity?: number; unit?: string; deliveryMode?: string
+    quantity?: number; unit?: string; deliveryMode?: string; deliveryOptions?: DeliveryOption[] | null
     publicAddress?: string; approximate?: boolean
     owner?: { id: string; username: string; nickname?: string | null; avatarUrl?: string | null }
 }

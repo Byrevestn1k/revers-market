@@ -13,6 +13,8 @@ import { categoryFilterSql } from './category-filter.js'
 import { notifyDemandSubscriptions } from './demand-subscriptions.js'
 import { randomUUID } from 'node:crypto'
 import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './photo-storage.js'
+import { matchDelivery, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js'
+import { isDeepStrictEqual } from 'node:util'
 
 type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -83,7 +85,10 @@ const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_n
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id`
 const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.description AS request_description,
     r.category_id, r.requested_quantity AS request_quantity, r.unit AS request_unit, r.min_unit_price AS request_min_price, r.max_unit_price AS request_max_price,
-    r.preferred_delivery AS request_delivery, r.receipt_method AS request_receipt_method, r.status AS request_status,
+    r.preferred_delivery AS request_delivery, r.receipt_method AS request_receipt_method, r.delivery_options AS request_delivery_options,
+    r.settlement_code AS request_settlement_code, r.latitude AS request_latitude, r.longitude AS request_longitude, r.address_visibility AS request_address_visibility,
+    p.settlement_code AS product_settlement_code, p.latitude AS product_latitude, p.longitude AS product_longitude, p.address_visibility AS product_address_visibility,
+    r.status AS request_status,
     c.name AS request_category_name, c.image_index AS request_category_image_index,
     CASE WHEN u.rating_count > 0 THEN round(u.rating_sum / u.rating_count, 2) ELSE NULL END AS seller_rating,
     u.avatar_url AS seller_avatar,
@@ -96,6 +101,7 @@ const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS produ
     FROM offers o JOIN users u ON u.id = o.seller_id JOIN buy_requests r ON r.id = o.buy_request_id JOIN categories c ON c.id = r.category_id LEFT JOIN products p ON p.id = o.product_id`
 
 interface BuyRequestRow {
+    delivery_options: import('./delivery-compatibility.js').DeliveryOption[] | null
     country_code: string | null
     receipt_method: 'SELF_PICKUP' | 'SELLER_DELIVERY' | null
     settlement_code?: string | null
@@ -135,6 +141,7 @@ interface BuyRequestRow {
 }
 
 interface OfferRow {
+    delivery_options: import('./delivery-compatibility.js').DeliveryOption[] | null
     offer_photos?: { url: string; alt: string }[]
     title: string | null
     description: string
@@ -147,6 +154,15 @@ interface OfferRow {
     request_max_price: string | number | null
     request_delivery: string | null
     request_receipt_method: string | null
+    request_delivery_options: DeliveryOption[] | null
+    request_settlement_code: string | null
+    request_latitude: number | string | null
+    request_longitude: number | string | null
+    request_address_visibility: 'private' | 'public'
+    product_settlement_code: string | null
+    product_latitude: number | string | null
+    product_longitude: number | string | null
+    product_address_visibility: 'private' | 'public' | null
     category_id: string
     request_category_name: string
     request_category_image_index: number | null
@@ -187,18 +203,26 @@ const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     price: { min: number(row.min_unit_price), max: number(row.max_unit_price), currency: row.currency },
     delivery: { required: row.delivery_required, preferred: row.preferred_delivery, address: includeAddress || row.address_visibility === 'public' ? row.delivery_address : null },
     addressVisibility: row.address_visibility,
-    countryCode: row.country_code, receiptMethod: row.receipt_method,
+    countryCode: row.country_code, receiptMethod: row.receipt_method, deliveryOptions: row.delivery_options,
     mapLocationMode: row.map_location_mode,
     geoArea: row.geo_area, settlement: getSettlement(row.settlement_code), coordinates: row.latitude === null || row.longitude === null ? null : includeAddress || row.address_visibility === 'public' ? { latitude: Number(row.latitude), longitude: Number(row.longitude) } : approximatePoint({ latitude: Number(row.latitude), longitude: Number(row.longitude) }), deadline: row.deadline?.toISOString() ?? null, status: row.status,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
+})
+const deliveryPlace = (code: string | null, latitude: number | string | null, longitude: number | string | null, visibility: 'private' | 'public' | null): DeliveryPlace => ({
+    settlementCode: code, region: getSettlement(code)?.region ?? null,
+    publicPoint: latitude === null || longitude === null ? null : visibility === 'public' ? { latitude: Number(latitude), longitude: Number(longitude) } : approximatePoint({ latitude: Number(latitude), longitude: Number(longitude) }),
 })
 const offerDto = (row: OfferRow) => ({
     id: row.id, seller: { id: row.seller_id, username: row.seller_username, rating: row.seller_rating == null ? null : Number(row.seller_rating), avatarUrl: row.seller_avatar, completedDeals: row.seller_deals ?? 0 }, buyRequestId: row.buy_request_id, requestTitle: row.request_title, requestStatus: row.request_status,
     existingProduct: row.product_id ? { id: row.product_id, title: row.product_title } : null,
     title: row.title ?? row.product_title ?? row.request_title, description: row.description, characteristics: row.characteristics, creationMode: row.creation_mode,
-    request: { title: row.request_title, description: row.request_description, quantity: Number(row.request_quantity), unit: row.request_unit, minPrice: number(row.request_min_price), maxPrice: number(row.request_max_price), delivery: row.request_delivery, receiptMethod: row.request_receipt_method, category: { id: row.category_id, name: row.request_category_name, imageIndex: row.request_category_image_index, parentId: null } },
+    request: { title: row.request_title, description: row.request_description, quantity: Number(row.request_quantity), unit: row.request_unit, minPrice: number(row.request_min_price), maxPrice: number(row.request_max_price), delivery: row.request_delivery, receiptMethod: row.request_receipt_method, deliveryOptions: row.request_delivery_options, category: { id: row.category_id, name: row.request_category_name, imageIndex: row.request_category_image_index, parentId: null } },
     quantity: Number(row.offered_quantity), acceptedQuantity: Number(row.accepted_quantity), unit: row.unit,
-    price: { amount: Number(row.unit_price), currency: row.currency }, delivery: row.delivery, note: row.note,
+    price: { amount: Number(row.unit_price), currency: row.currency }, delivery: row.delivery, deliveryOptions: row.delivery_options, note: row.note,
+    deliveryCompatibility: matchDelivery(
+        { options: row.request_delivery_options, place: deliveryPlace(row.request_settlement_code, row.request_latitude, row.request_longitude, row.request_address_visibility) },
+        { options: row.delivery_options, place: deliveryPlace(row.product_settlement_code, row.product_latitude, row.product_longitude, row.product_address_visibility) },
+    ),
     additionalPhotoUrl: row.additional_photo_url, termsSnapshot: row.terms, deliverySnapshot: row.delivery_terms,
     photos: row.offer_photos ?? [], pendingNegotiation: row.pending_negotiation, waitingConfirmation: row.waiting_confirmation,
     status: row.status, validUntil: row.valid_until?.toISOString() ?? null, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
@@ -253,8 +277,8 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     try {
     await client.query('BEGIN')
     const created = await client.query<{ id: string }>(
-        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode, country_code, receipt_method) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id',
-        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'multiple_sellers', input.countryCode ?? 'UA', receiptMethod],
+        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode, country_code, receipt_method, delivery_options) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id',
+        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'multiple_sellers', input.countryCode ?? 'UA', receiptMethod, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions)],
     )
     requestId = created.rows[0].id
     if (Array.isArray(input.photos)) await saveRequestPhotos(client, requestId, input.photos as PhotoUpload[], storedPhotos)
@@ -318,7 +342,8 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     }
     if (input.exactPrice !== undefined) { normalizedInput.minPrice = input.exactPrice; normalizedInput.maxPrice = input.exactPrice }
     if (input.delivery !== undefined && input.receiptMethod === undefined) { normalizedInput.deliveryRequired = input.delivery !== 'no'; if (input.delivery === 'preferred') normalizedInput.preferredDelivery = input.preferredDelivery ?? 'preferred' }
-    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', countryCode: 'country_code', receiptMethod: 'receipt_method', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', fulfillmentMode: 'fulfillment_mode', status: 'status' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', countryCode: 'country_code', receiptMethod: 'receipt_method', deliveryOptions: 'delivery_options', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', fulfillmentMode: 'fulfillment_mode', status: 'status' }
+    if (normalizedInput.deliveryOptions !== undefined) normalizedInput.deliveryOptions = JSON.stringify(normalizedInput.deliveryOptions)
     const { assignments, values } = buildUpdate(allowed, normalizedInput)
     if (!assignments.length && input.photos === undefined) return invalid(['buyRequest'])
     const client = await pool.connect()
@@ -327,7 +352,7 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     let removedPhotos: string[] = []
     try {
     await client.query('BEGIN')
-    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code, requested_quantity, selected_quantity, completed_quantity, fulfillment_mode FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
+    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code, geo_area, latitude, longitude, delivery_address, map_location_mode, receipt_method, requested_quantity, selected_quantity, completed_quantity, fulfillment_mode, delivery_options FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const country = 'countryCode' in input ? input.countryCode : current.rows[0].country_code
     const settlement = 'settlementCode' in input ? input.settlementCode : current.rows[0].settlement_code
@@ -337,6 +362,12 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     const hasOffers = Boolean((await client.query('SELECT 1 FROM offers WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
     const hasDeals = Boolean((await client.query('SELECT 1 FROM orders WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
     if (input.fulfillmentMode !== undefined && input.fulfillmentMode !== current.rows[0].fulfillment_mode && (hasOffers || hasDeals)) return { status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED', message: 'Режим виконання не можна змінити після появи пропозиції або угоди.' } }
+    if (input.deliveryOptions !== undefined && !isDeepStrictEqual(input.deliveryOptions, current.rows[0].delivery_options) && (hasOffers || hasDeals)) return { status: 409, body: { error: 'DELIVERY_OPTIONS_LOCKED', message: 'Способи отримання не можна змінити після появи пропозиції або угоди.' } }
+    const geographyFields: Record<string, string> = { countryCode: 'country_code', settlementCode: 'settlement_code', geoArea: 'geo_area', latitude: 'latitude', longitude: 'longitude', address: 'delivery_address', mapLocationMode: 'map_location_mode', receiptMethod: 'receipt_method' }
+    const geographyChanged = Object.entries(geographyFields).some(([key, column]) => key in input && (key === 'latitude' || key === 'longitude'
+        ? (input[key] == null ? null : Number(input[key])) !== (current.rows[0][column] == null ? null : Number(current.rows[0][column]))
+        : input[key] !== current.rows[0][column]))
+    if ((hasOffers || hasDeals) && geographyChanged) return { status: 409, body: { error: 'DELIVERY_OPTIONS_LOCKED', message: 'Місце й спосіб отримання не можна змінити після появи пропозиції або угоди.' } }
     if ((hasOffers || hasDeals) && Object.keys(normalizedInput).some((key) => key in allowed && immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }
     if (input.quantity !== undefined && Number(input.quantity) < Number(current.rows[0].selected_quantity) + Number(current.rows[0].completed_quantity)) return { status: 409, body: { error: 'REQUEST_QUANTITY_BELOW_ALLOCATED' } }
     if (input.status !== undefined && !['cancelled', 'expired'].includes(String(input.status))) return { status: 409, body: { error: 'REQUEST_STATUS_MANAGED_BY_DEALS' } }
@@ -388,6 +419,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     if (errors.length) return invalid(errors)
     if (input.creationMode === 'manual' && !input.title) return invalid(['title'])
     if (input.creationMode === 'product' && !input.productId) return invalid(['productId'])
+    if (Array.isArray(input.deliveryOptions) && input.deliveryOptions.length !== 1) return invalid(['deliveryOptions'])
     const client = await pool.connect()
     let committed = false
     const storedPhotos: StoredPhoto[] = []
@@ -401,14 +433,20 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.rows[0].status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (input.unit !== request.rows[0].unit || input.currency !== request.rows[0].currency) return invalid(['unit', 'currency'])
     await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
-    const product = input.productId ? await client.query('SELECT title, description, quantity, reserved_quantity FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
+    const product = input.productId ? await client.query('SELECT title, description, quantity, reserved_quantity, delivery_options FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
     if (input.productId && !product?.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
+    if (Array.isArray(input.deliveryOptions)) {
+        const option = input.deliveryOptions[0] as DeliveryOption
+        if (input.productId && !(product?.rows[0].delivery_options as DeliveryOption[] | null)?.some(candidate => isDeepStrictEqual(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH', message: 'Цей спосіб не підтверджений вибраним товаром.' } }
+        if (!input.productId && ['SELF_PICKUP', 'SELLER_DELIVERY'].includes(option.method) && !option.place?.settlementCode) return invalid(['deliveryOptions'])
+        if (!input.productId && option.method === 'SELLER_DELIVERY' && (option.radiusKm ?? 0) > 0 && !option.place?.publicPoint) return invalid(['deliveryOptions'])
+    }
     const title = typeof input.title === 'string' ? input.title.trim() : product?.rows[0]?.title ?? request.rows[0].title
     const description = typeof input.description === 'string' ? input.description : product?.rows[0]?.description ?? ''
     const terms = { note: input.note ?? '', additionalPhotoUrl: input.additionalPhotoUrl ?? null, availableAt: input.availableAt ?? '' }
     const created = await client.query<{ id: string }>(
-        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until, title, description, characteristics, creation_mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id',
-        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null, title, description, input.characteristics ?? '', input.creationMode ?? null],
+        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until, title, description, characteristics, creation_mode, delivery_options) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id',
+        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null, title, description, input.characteristics ?? '', input.creationMode ?? null, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions)],
     )
     const sourcePhotos = input.photos === undefined && input.productId
         ? (await client.query<PhotoUpload>('SELECT url, alt FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id LIMIT 8', [input.productId])).rows
@@ -460,7 +498,7 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
             await client.query('ROLLBACK'); return { status: 409, body: { error: 'TERMS_CHANGED', message: 'Умови змінилися. Перегляньте погоджену ціну й кількість перед вибором.' } }
         }
         const unitPrice = Number(agreed?.unit_price ?? row.unit_price)
-        const delivery = agreed ? { delivery: agreed.delivery, price: Number(agreed.delivery_price) } : { delivery: row.delivery, price: Number(row.delivery_terms?.price ?? 0) }
+        const delivery = agreed ? { delivery: agreed.delivery, price: Number(agreed.delivery_price), options: row.delivery_options } : { delivery: row.delivery, price: Number(row.delivery_terms?.price ?? 0), options: row.delivery_options }
         if ((input.expectedDelivery !== undefined && input.expectedDelivery !== delivery.delivery) || (input.expectedDeliveryPrice !== undefined && input.expectedDeliveryPrice !== delivery.price)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'TERMS_CHANGED', message: 'Умови доставки змінилися. Перегляньте новий підсумок.' } } }
         if (await usersAreBlocked(client, user.id, row.seller_id)) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'USER_BLOCKED' } } }
         if (request.rows[0].fulfillment_mode === 'single_seller' && Number(request.rows[0].selected_quantity) > 0) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'REQUEST_ALREADY_ALLOCATED' } } }
@@ -500,8 +538,10 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
 export const updateOffer = async (user: AuthUser, offerId: string, input: Record<string, unknown>) => {
     const errors = validateOfferInput(input, true)
     if (errors.length) return invalid(errors)
-    const allowed: Record<string, string> = { productId: 'product_id', quantity: 'offered_quantity', unit: 'unit', price: 'unit_price', currency: 'currency', delivery: 'delivery', note: 'note', additionalPhotoUrl: 'additional_photo_url', validUntil: 'valid_until', title: 'title', description: 'description', characteristics: 'characteristics' }
-    const { assignments, values } = buildUpdate(allowed, input)
+    if (Array.isArray(input.deliveryOptions) && input.deliveryOptions.length !== 1) return invalid(['deliveryOptions'])
+    const allowed: Record<string, string> = { productId: 'product_id', quantity: 'offered_quantity', unit: 'unit', price: 'unit_price', currency: 'currency', delivery: 'delivery', deliveryOptions: 'delivery_options', note: 'note', additionalPhotoUrl: 'additional_photo_url', validUntil: 'valid_until', title: 'title', description: 'description', characteristics: 'characteristics' }
+    const normalizedInput = { ...input, ...(input.deliveryOptions === undefined ? {} : { deliveryOptions: JSON.stringify(input.deliveryOptions) }) }
+    const { assignments, values } = buildUpdate(allowed, normalizedInput)
     if (input.deliveryPrice !== undefined) assignments.push(`delivery_terms = delivery_terms || jsonb_build_object('price', $${values.push(input.deliveryPrice)}::numeric)`)
     if (input.availableAt !== undefined) assignments.push(`terms = terms || jsonb_build_object('availableAt', $${values.push(input.availableAt)}::text)`)
     if (!assignments.length && input.photos === undefined) return invalid(['offer'])
@@ -526,6 +566,15 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
             const product = await client.query("SELECT id FROM products WHERE id=$1 AND owner_id=$2 AND category_id=$3 AND status='active' AND quantity > reserved_quantity", [input.productId, user.id, request.category_id])
             if (!product.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
             }
+        }
+        const selectedProductId = input.productId === undefined ? existing.product_id : input.productId
+        const selectedOptions = input.deliveryOptions === undefined ? existing.delivery_options as DeliveryOption[] | null : input.deliveryOptions as DeliveryOption[]
+        if (selectedOptions?.length) {
+            const option = selectedOptions[0]
+            if (selectedProductId) {
+                const linkedProduct = await client.query<{ delivery_options: DeliveryOption[] | null }>('SELECT delivery_options FROM products WHERE id=$1 AND owner_id=$2 FOR SHARE', [selectedProductId, user.id])
+                if (!linkedProduct.rows[0]?.delivery_options?.some(candidate => isDeepStrictEqual(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH' } }
+            } else if (['SELF_PICKUP', 'SELLER_DELIVERY'].includes(option.method) && (!option.place?.settlementCode || option.method === 'SELLER_DELIVERY' && (option.radiusKm ?? 0) > 0 && !option.place.publicPoint)) return invalid(['deliveryOptions'])
         }
         const { idParam, ownerParam } = withOwnerConditions(values, offerId, user.id)
         await client.query(`UPDATE offers SET ${assignments.length ? assignments.join(', ') + ', ' : ''}updated_at = now() WHERE id = ${idParam} AND seller_id = ${ownerParam}`, values)

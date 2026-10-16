@@ -23,7 +23,7 @@ export const listNotifications = async (user: AuthUser) => {
         CASE WHEN r.id IS NOT NULL AND n.context = 'selling' THEN json_build_object(
             'title', r.title, 'quantity', r.requested_quantity::float8, 'unit', r.unit,
             'minPrice', r.min_unit_price::float8, 'maxPrice', r.max_unit_price::float8, 'currency', trim(r.currency),
-            'receiptMethod', r.receipt_method, 'deliveryPreferred', r.preferred_delivery = 'preferred', 'deadline', r.deadline,
+            'receiptMethod', r.receipt_method, 'deliveryOptions', r.delivery_options, 'deliveryPreferred', r.preferred_delivery = 'preferred', 'deadline', r.deadline,
             'description', left(regexp_replace(r.description, '\\s+', ' ', 'g'), 280),
             'geoArea', public_point.geo_area, 'settlementCode', public_point.settlement_code, 'countryCode', r.country_code
         ) ELSE NULL END AS "buyRequestPreview"

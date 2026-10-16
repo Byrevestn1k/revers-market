@@ -36,6 +36,8 @@
 .map-nearby-radius { align-self: flex-end; }
 .map-nearby-radius > span { font-size: 12px; }
 .map-filter-row { margin-top: 12px; }
+.map-delivery-filter { display: grid; gap: 3px; min-width: 180px; font-size: 12px; }
+.map-delivery-filter select { min-height: 38px; max-width: 100%; padding: 6px 8px; border: 1px solid #b9d8c5; border-radius: 8px; background: #fff; }
 .map-filter-details { position: relative; font-size: 12px; }
 .map-filter-details summary { cursor: pointer; padding: 10px 12px; border: 1px solid #dce7df; border-radius: 8px; color: #24423a; max-width: 260px; }
 .map-filter-details[open] summary { background: #eaf5ed; }

@@ -4,13 +4,14 @@ import { MessagesContext } from './messages-state'
 import type { Conversation } from './messages-state'
 import { unitLabel } from './listing-options'
 import { CategoryImage } from './CategoryPicker'
+import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
 import type { Category } from './categories'
 import './deal-interaction.css'
 
 type Http = (path: string, options?: RequestInit) => Promise<any>
 type Notify = (message: string) => void
 export type DealRequest = { id: string; title: string; quantity: number; selectedQuantity: number; completedQuantity: number; remainingQuantity: number; fulfillmentMode: string; unit: string; status: string; deadline?: string | null }
-export type DealOffer = { id: string; buyRequestId: string; seller: { id: string; username: string; rating?: number | null; completedDeals?: number; avatarUrl?: string }; title?: string; description?: string; characteristics?: string; creationMode?: string | null; request?: { title: string; description: string; quantity: number; unit: string; minPrice: number | null; maxPrice: number | null; delivery: string | null; receiptMethod: string | null; category?: { id: string; name: string; parentId: null; imageIndex?: number | null } }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; note: string; status: string; validUntil?: string | null; additionalPhotoUrl?: string; termsSnapshot?: {availableAt?: string}; deliverySnapshot?: {price?: number}; existingProduct?: { title: string }; photos?: { url: string; alt?: string }[] }
+export type DealOffer = { id: string; buyRequestId: string; seller: { id: string; username: string; rating?: number | null; completedDeals?: number; avatarUrl?: string }; title?: string; description?: string; characteristics?: string; creationMode?: string | null; request?: { title: string; description: string; quantity: number; unit: string; minPrice: number | null; maxPrice: number | null; delivery: string | null; receiptMethod: string | null; deliveryOptions?: DeliveryOption[] | null; category?: { id: string; name: string; parentId: null; imageIndex?: number | null } }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; deliveryOptions?: DeliveryOption[] | null; deliveryCompatibility?: {status: string; methods: string[]}; note: string; status: string; validUntil?: string | null; additionalPhotoUrl?: string; termsSnapshot?: {availableAt?: string}; deliverySnapshot?: {price?: number}; existingProduct?: { title: string }; photos?: { url: string; alt?: string }[] }
 type Proposal = { id: string; createdBy: string; price: number; quantity: number; delivery: string; deliveryPrice: number; status: string; comment: string; createdAt: string }
 type Context = { offerId: string; requestId: string; title: string; buyerId: string; sellerId: string; unit: string; currency: string; price: number; offeredQuantity: number; quantity: number; remaining: number; delivery: string; deliveryPrice: number; fulfillmentMode: string; available: boolean }
 type ChatInfo = Partial<Pick<Conversation, 'title' | 'type' | 'productId' | 'buyRequestId' | 'imageUrl' | 'categoryName' | 'otherUserId' | 'otherUsername' | 'price' | 'currency' | 'pinnedAt' | 'archivedAt'>> & { id?: string }
@@ -43,18 +44,19 @@ export function OfferDetails({ offer }: { offer: DealOffer }) {
     const [selected, setSelected] = useState(0)
     const photos = offer.photos ?? []
     const request = offer.request
-    const receipt = request?.receiptMethod === 'SELF_PICKUP' ? 'Самовивіз' : request?.receiptMethod === 'SELLER_DELIVERY' ? 'Доставка продавцем' : request?.delivery || 'Не вказано'
+    const receipt = request?.deliveryOptions?.length ? deliveryOptionsLabel(request.deliveryOptions) : request?.receiptMethod === 'SELF_PICKUP' ? 'Самовивіз' : request?.receiptMethod === 'SELLER_DELIVERY' ? 'Доставка продавцем' : request?.delivery || 'Не вказано'
     const rows = [
         ['Товар', request?.title ?? 'Не вказано', offer.title ?? offer.existingProduct?.title ?? 'Не вказано'],
         ['Ціна за одиницю', buyerBudget(offer), amount(offer.price.amount, offer.price.currency)],
         ['Кількість', request ? `${request.quantity} ${unitLabel(request.unit)}` : 'Не вказано', `${offer.quantity} ${unitLabel(offer.unit)}`],
         ['Одиниця', request ? unitLabel(request.unit) : 'Не вказано', unitLabel(offer.unit)],
-        ['Отримання', receipt, offer.delivery],
+        ['Отримання', receipt, offer.deliveryOptions?.length ? deliveryOptionsLabel(offer.deliveryOptions) : offer.delivery],
         ['Характеристики', request?.description || 'Не вказано', offer.characteristics || 'Не вказано'],
     ]
     return <div className="seller-offer-details">
         {photos.length > 0 ? <div className="seller-offer-gallery"><OfferImage key={photos[Math.min(selected, photos.length - 1)].url} url={photos[Math.min(selected, photos.length - 1)].url} alt={photos[selected]?.alt || offer.title || 'Фото пропозиції'} category={request?.category} className="seller-offer-main-image" />{photos.length > 1 && <div>{photos.map((photo, index) => <button type="button" key={`${photo.url}-${index}`} aria-label={`Показати фото ${index + 1}`} aria-current={selected === index} onClick={() => setSelected(index)}><OfferImage url={photo.url} alt="" className="seller-offer-thumb-image" /></button>)}</div>}</div> : <div className="seller-offer-gallery-fallback"><OfferImage alt="Фото недоступне" category={request?.category} className="seller-offer-main-image" /></div>}
         <h5>Порівняння умов</h5><div className="seller-offer-comparison" role="table" aria-label="Порівняння умов покупця і продавця"><div className="seller-offer-compare-head" role="row"><span>Параметр</span><span>Покупець шукає</span><span>Продавець пропонує</span></div>{rows.map(([label, buyer, seller]) => <div className="seller-offer-compare-row" role="row" key={label}><b>{label}</b><span>{buyer}</span><span className={buyer !== seller ? 'seller-offer-difference' : ''}>{seller}</span></div>)}</div>
+        {offer.deliveryCompatibility && <p role="status">{offer.deliveryCompatibility.status === 'EXACT_MATCH' ? 'Спосіб отримання й територія сумісні.' : offer.deliveryCompatibility.status === 'POSSIBLE_AGREEMENT' ? 'Можлива домовленість: умови отримання потрібно узгодити.' : offer.deliveryCompatibility.status === 'NO_MATCH' ? 'Спосіб отримання або територія не збігаються з вашим запитом.' : 'Недостатньо даних, щоб підтвердити сумісність отримання.'}</p>}
         {offer.description && <p><b>Опис товару:</b> {offer.description}</p>}{offer.note && <p><b>Коментар продавця:</b> {offer.note}</p>}
         <p><b>Статус:</b> {offerStatuses[offer.status] ?? offer.status}{offer.acceptedQuantity > 0 && ` · обрано ${offer.acceptedQuantity} ${unitLabel(offer.unit)}`}</p>
     </div>
