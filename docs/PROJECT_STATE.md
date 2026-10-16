@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 13 — DONE`; `STEP 14 — PLANNING ONLY`.
+**Current step:** `STEP 14 — IMPLEMENTATION, AWAITING INDEPENDENT REVIEW`.
 
-**Last updated:** 2026-10-15
+**Last updated:** 2026-10-16
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -71,7 +71,7 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 - Policy для conversation після completed/cancelled/rejected Deal.
 - Expiry policy для Product, Request та Offer.
 - Verification gate перед Offer/Deal.
-- Step 8 includes category/geography, optional quantity/unit and price/currency, at least one of the two receipt methods (both default), and optional suburbs measured from verified city boundaries shared with existing search. Country/region/cities form a union; redundant lower selections are removed. AI, route/corridor and postal/carrier remain future scope.
+- Step 8 subscriptions include category/geography, optional quantity/unit and price/currency, and optional suburbs measured from verified city boundaries shared with existing search. Step 14 adds structured pickup, seller delivery, postal delivery and flexibility with method-specific territory. AI and route/corridor remain future scope.
 - Route/corridor matching — `FUTURE`; не створювати engine, schema чи migrations без окремого Step.
 
 ## KNOWN RELEVANT ISSUES
@@ -100,7 +100,9 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 
 ## CURRENT STEP
 
-**STEP 13 DONE.** Migration 045 and three Seller Offer creation paths, owned photos, editing, comparison and Deal snapshots passed final independent review. Correction `1945b3e` fixes advisory/Product lock order, copies surviving photos of legacy Offers when selected, and prevents explicitly removed legacy photos from reappearing. Local real-DB tests passed: five core Buy Request/Offer tests, photo retention, lock ordering and legacy snapshots; photo storage, draft and validation unit tests passed (18), as did typecheck. Migration rerun reported `Database is up to date`. Earlier full backend suite and Browser E2E remain prior evidence; no full Browser E2E was repeated for this correction. Historical Deal photos were verified through API/DB, not in the Deal UI. External image URLs depend on their host; already missing local files use the image fallback, and files lost before the correction cannot be reconstructed. Live Step 8 subscription and separate Chat Browser E2E, Step 12 map-marker scenarios and physical mobile keyboard switching remain UNVERIFIED/OPEN. See [STEP_13_REVIEW.md](STEP_13_REVIEW.md). Step 14 is documentation/planning only; no delivery or matching implementation has begun.
+**STEP 14 IMPLEMENTED, REVIEW PENDING.** Migration 046 adds nullable structured delivery options without guessing old territories. Product, Request, Offer and existing Step 8 subscriptions support method-specific geography; matching distinguishes EXACT_MATCH, POSSIBLE_AGREEMENT, NO_MATCH and UNKNOWN. Confirmed subscription alerts require an exact delivery match. The ordinary map remains available and gains an explicit method filter. Deal snapshots retain agreed terms. On an isolated PostgreSQL/PostGIS database, the full backend suite passed 225 tests (1 skipped); migration 046 passed with populated legacy Product, Request, Offer and Deal; focused map/delivery integration passed; TypeScript and production build passed. Real Chromium scenarios A–F and map filter/edit QA passed, including 1440/1280/1024/768/390/320 px checks where recorded in the browser spec. See [STEP_14_IMPLEMENTATION.md](STEP_14_IMPLEMENTATION.md) for the contract. Independent review has not yet happened; physical-device keyboard switching remains UNVERIFIED.
+
+**STEP 13 DONE.** Migration 045 and three Seller Offer creation paths, owned photos, editing, comparison and Deal snapshots passed final independent review. Correction `1945b3e` fixes advisory/Product lock order, copies surviving photos of legacy Offers when selected, and prevents explicitly removed legacy photos from reappearing. See [STEP_13_REVIEW.md](STEP_13_REVIEW.md). Physical mobile keyboard switching remains UNVERIFIED.
 
 **STEP 12 DONE.** Independent re-review passed after correction `4d81bb7`: the API rejects changes to `fulfillmentMode` after an Offer (including a withdrawn Offer) or Deal, permits unrelated edits when the mode is unchanged, preserves records and agreed terms after HTTP 409, and serializes Offer creation with request editing through a row lock. The focused real-DB regression test and typecheck passed. Earlier Step 12 Chromium creation/editing/Offer/Deal QA passed at 1440/1280/1024/768/390/320 px; the backend suite had passed 209 tests (1 skipped). Live Step 8 subscription Browser E2E and opening a Request from a single map marker or cluster remain UNVERIFIED; focused subscription DB tests and map logic tests passed, so these are non-blocking follow-up QA. See [STEP_12_REVIEW.md](STEP_12_REVIEW.md). The physical-device keyboard language-switch issue remains separate.
 
@@ -110,7 +112,7 @@ Earlier exact decimal conversion, country/region/city union, repeated territory 
 
 ## REQUIRED CONTEXT
 
-For Step 14 planning: this file; [STEP_14_HANDOFF.md](STEP_14_HANDOFF.md); [PRODUCT.md](PRODUCT.md); [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md) CURRENT; Request/Offer validation and creation, Product delivery mode, demand matching and city boundaries. Open deeper files only for a concrete product decision. No Step 14 implementation has begun; do not load historical documents by default.
+For Step 14 review: this file; [STEP_14_IMPLEMENTATION.md](STEP_14_IMPLEMENTATION.md); [STEP_14_HANDOFF.md](STEP_14_HANDOFF.md); [PRODUCT.md](PRODUCT.md); [DEMAND_SUBSCRIPTIONS.md](DEMAND_SUBSCRIPTIONS.md); delivery compatibility, Request/Offer/Product validation and creation, demand matching, migration 046 and focused tests. Do not load historical documents by default.
 
 ## AI WORKFLOW
 

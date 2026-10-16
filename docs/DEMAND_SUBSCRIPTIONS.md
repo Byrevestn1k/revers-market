@@ -1,4 +1,6 @@
-# Seller demand subscriptions — Step 8 corrections
+# Seller demand subscriptions — Steps 8 and 14
+
+Step 14 extends the existing subscription with `deliveryOptions`: pickup, seller delivery, postal delivery and flexible terms, each with its own geographic limits. New automatic alerts require confirmed `EXACT_MATCH` delivery; `POSSIBLE_AGREEMENT`, `NO_MATCH` and `UNKNOWN` do not trigger a confirmed-match alert. Legacy records remain readable and can be clarified gradually. See [STEP_14_IMPLEMENTATION.md](STEP_14_IMPLEMENTATION.md). The original Step 8 behavior and evidence below describe the pre-Step 14 receipt fields retained for old API clients.
 
 ## Current contract
 
@@ -14,7 +16,7 @@ Own subscriptions are managed at /settings/demand-subscriptions. Minimum: catego
 | Quantity | Inclusive total quantity bounds. kg/ton use exact decimal cross multiplication; litre/piece/box require the same unit. Missing/unknown quantity fails configured bounds. |
 | Price | Inclusive overlap of buyer per-unit budget and seller acceptable per-unit range. kg/ton prices convert inversely to quantity. A missing bound is unbounded on that side. Both buyer prices missing mean unknown budget and match even configured seller minimum/range; nominal Request currency then does not filter. Known budgets require matching currency and existing overlap/unit conversion; no currency conversion. |
 | Unit/currency | Null means unrestricted and does not reject missing/differing values. A selected unit restricts that dimension; selected currency restricts only known budgets. Numeric bounds need a unit; price also needs currency. |
-| Receipt | SELF_PICKUP means buyer collects; SELLER_DELIVERY means seller/seller's transport brings goods to the buyer's specified place. Both selected impose no receipt restriction. A single selection requires the explicit matching method, except legacy optional delivery described below. |
+| Receipt | Structured `deliveryOptions` require a shared concrete method and compatible geography. Legacy `receiptMethods` stay readable; old terms without enough detail are `UNKNOWN` for new automatic alerts. |
 
 Older Requests may have a public place label without settlement_code. The shared count/alert matcher resolves that label through the existing Ukrainian directory using the exact settlement name and any supplied region, district or community qualifiers. Only one candidate is accepted; explicit foreign country, ambiguous names, conflicting/unknown qualifiers and private-address-only identity fail closed. Canonical codes take priority. Existing records are not rewritten and historical alerts are not replayed. This fixes the real public label “Млинів, Млинівська селищна громада”.
 
@@ -34,7 +36,7 @@ If reliable boundaries are unavailable, CITY_BOUNDARY_UNAVAILABLE still identifi
 
 ## Receipt compatibility
 
-Current explicit Request enum contains only SELF_PICKUP and SELLER_DELIVERY. Legacy delivery='preferred' is stored as preferred_delivery='preferred' with receipt_method NULL. It means a preference, so it matches either single subscription method or both. Strict explicit SELLER_DELIVERY cannot match pickup-only. Generic legacy yes/no or carrier does not establish seller transport and cannot match a single selected method unless mapped unambiguously to explicit receipt. Carrier/postal delivery remains future scope; no third subscription checkbox or enum was added.
+The old `receiptMethod` enum contains SELF_PICKUP and SELLER_DELIVERY and remains for old clients. Step 14 uses `deliveryOptions` for the four current methods, including postal delivery. New alerts require a confirmed match of method and territory. Legacy `delivery='preferred'` can still participate in old saved-match counts, but cannot establish a confirmed delivery match for a new automatic alert. An owner can edit the subscription to supply structured terms.
 
 ## Storage, API and backward compatibility
 

@@ -24,14 +24,14 @@ if (process.env.DATABASE_URL) {
     type Agent = typeof seller;
 
     const subscribe = async (agent: Agent = seller, fields: Record<string, unknown> = {}) => {
-      const response = await agent.post('/api/demand-subscriptions').send({ categoryId, countryCode: fields.region || (fields.settlementCodes as string[] | undefined)?.length ? null : 'UA', ...fields });
+      const response = await agent.post('/api/demand-subscriptions').send({ categoryId, countryCode: fields.region || (fields.settlementCodes as string[] | undefined)?.length ? null : 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true }], ...fields });
       expect(response.status, JSON.stringify(response.body)).toBe(201);
       return response.body.subscription;
     };
     const createRequest = async (fields: Record<string, unknown> = {}) => {
       const response = await buyer.post('/api/buy-requests').send({
         categoryId, title: 'Потрібен мед для Step 8', description: '', quantity: 10, unit: 'kg', currency: 'UAH',
-        minPrice: 1, maxPrice: 200, ...(fields.receiptMethod ? {} : { delivery: 'no' }), geoArea: rivne.name, settlementCode: rivne.code,
+        minPrice: 1, maxPrice: 200, ...(fields.receiptMethod ? {} : { delivery: 'no' }), deliveryOptions: [{ method: 'POSTAL_DELIVERY' }], geoArea: rivne.name, settlementCode: rivne.code,
         address: 'Секретна адреса 123', addressVisibility: 'private', latitude: 50.612345, longitude: 26.212345,
         ...fields,
       });
@@ -111,15 +111,38 @@ if (process.env.DATABASE_URL) {
       }
     });
 
+    it('alerts once only for confirmed geographic delivery, never for flexibility or unknown legacy terms', async () => {
+      const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
+      await subscribe(seller, { deliveryOptions: [
+        { method: 'SELF_PICKUP', place },
+        { method: 'POSTAL_DELIVERY', regions: [rivne.region] },
+        { method: 'FLEXIBLE' },
+      ] });
+      const exact = await createRequest({ deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY' }] });
+      await createRequest({ settlementCode: kyiv.code, geoArea: kyiv.name, deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
+      await createRequest({ deliveryOptions: [{ method: 'SELLER_DELIVERY' }, { method: 'FLEXIBLE' }] });
+      await createRequest({ deliveryOptions: undefined });
+      expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([exact]);
+    });
+
+    it('limits seller delivery to the stated radius and fails closed without a buyer point', async () => {
+      const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
+      await subscribe(seller, { deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 20, place }] });
+      const near = await createRequest({ deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
+      await createRequest({ latitude: 50.75, longitude: 25.33, deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
+      await createRequest({ latitude: null, longitude: null, deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
+      expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([near]);
+    });
+
     it('does not match a different category, region, or an unknown legacy area', async () => {
       await subscribe(seller, { region: rivne.region });
       await createRequest({ categoryId: otherCategoryId });
       await createRequest({ geoArea: kyiv.name, settlementCode: kyiv.code });
       await createRequest({ geoArea: rivne.region, settlementCode: null });
       expect((await notifications()).notifications).toHaveLength(0);
-      await subscribe(other); // Nationwide supports legacy records without settlement identity.
+      await subscribe(other); // Geography alone cannot prove postal receipt in an unknown region.
       await createRequest({ geoArea: rivne.region, settlementCode: null });
-      expect((await notifications(other)).notifications).toHaveLength(1);
+      expect((await notifications(other)).notifications).toHaveLength(0);
     });
 
     it('counts existing public legacy places and notifies future requests using the same directory identity', async () => {
@@ -222,11 +245,11 @@ if (process.env.DATABASE_URL) {
       expect((await seller.patch(`/api/demand-subscriptions/${saved.id}`).send({ countryCode: null })).status).toBe(400);
     });
 
-    it('matches country identity rather than author country or guessed text', async () => {
+    it('does not infer postal compatibility for a foreign location without a supported region', async () => {
       await subscribe(seller, { countryCode: 'PL' });
       await createRequest();
       const polish = await createRequest({ countryCode: 'PL', settlementCode: null, geoArea: 'Варшава' });
-      expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([polish]);
+      expect((await notifications()).notifications).toHaveLength(0);
       expect((await buyer.post('/api/buy-requests').send({ categoryId, title: 'Invalid country', description: '', quantity: 1, unit: 'kg', currency: 'UAH', geoArea: rivne.name, settlementCode: rivne.code, countryCode: 'PL' })).status).toBe(400);
       const ukrainian = await createRequest();
       expect((await buyer.patch(`/api/buy-requests/${ukrainian}`).send({ countryCode: 'PL' })).status).toBe(400);
@@ -302,12 +325,13 @@ if (process.env.DATABASE_URL) {
     });
 
     it('uses explicit SELF_PICKUP/SELLER_DELIVERY and fails closed on ambiguous legacy receipt', async () => {
-      await subscribe(seller, { receiptMethods: ['SELF_PICKUP'] });
-      await subscribe(other, { receiptMethods: ['SELLER_DELIVERY'] });
-      const delivered = await createRequest({ receiptMethod: 'SELLER_DELIVERY', delivery: undefined });
-      const pickup = await createRequest({ receiptMethod: 'SELF_PICKUP', delivery: undefined });
-      await createRequest({ delivery: 'yes', preferredDelivery: 'carrier' });
-      await createRequest({ delivery: undefined });
+      const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
+      await subscribe(seller, { receiptMethods: ['SELF_PICKUP'], deliveryOptions: [{ method: 'SELF_PICKUP', place }] });
+      await subscribe(other, { receiptMethods: ['SELLER_DELIVERY'], deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 0, place }] });
+      const delivered = await createRequest({ receiptMethod: 'SELLER_DELIVERY', delivery: undefined, deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
+      const pickup = await createRequest({ receiptMethod: 'SELF_PICKUP', delivery: undefined, deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 0 }] });
+      await createRequest({ delivery: 'yes', preferredDelivery: 'carrier', deliveryOptions: undefined });
+      await createRequest({ delivery: undefined, deliveryOptions: undefined });
       expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([pickup]);
       expect((await notifications(other)).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([delivered]);
       expect((await buyer.get(`/api/buy-requests/${delivered}`)).body.buyRequest).toMatchObject({ receiptMethod: 'SELLER_DELIVERY', delivery: { required: true, preferred: 'seller_delivery' } });
@@ -411,13 +435,14 @@ if (process.env.DATABASE_URL) {
     });
 
     it('matches preferred delivery with either method, preserving strict delivery', async () => {
-      await subscribe(seller,{receiptMethods:['SELF_PICKUP']});
-      await subscribe(other,{receiptMethods:['SELLER_DELIVERY']});
-      const preferred = await createRequest({delivery:'preferred'});
-      const delivered = await createRequest({delivery:undefined,receiptMethod:'SELLER_DELIVERY'});
-      const pickup = await createRequest({delivery:undefined,receiptMethod:'SELF_PICKUP'});
-      expect((await notifications()).notifications.map((n:{buyRequestId:string})=>n.buyRequestId).sort()).toEqual([preferred,pickup].sort());
-      expect((await notifications(other)).notifications.map((n:{buyRequestId:string})=>n.buyRequestId).sort()).toEqual([preferred,delivered].sort());
+      const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
+      await subscribe(seller,{receiptMethods:['SELF_PICKUP'],deliveryOptions:[{method:'SELF_PICKUP',place}]});
+      await subscribe(other,{receiptMethods:['SELLER_DELIVERY'],deliveryOptions:[{method:'SELLER_DELIVERY',radiusKm:0,place}]});
+      await createRequest({delivery:'preferred',deliveryOptions:undefined});
+      const delivered = await createRequest({delivery:undefined,receiptMethod:'SELLER_DELIVERY',deliveryOptions:[{method:'SELLER_DELIVERY'}]});
+      const pickup = await createRequest({delivery:undefined,receiptMethod:'SELF_PICKUP',deliveryOptions:[{method:'SELF_PICKUP',radiusKm:0}]});
+      expect((await notifications()).notifications.map((n:{buyRequestId:string})=>n.buyRequestId)).toEqual([pickup]);
+      expect((await notifications(other)).notifications.map((n:{buyRequestId:string})=>n.buyRequestId)).toEqual([delivered]);
     });
 
     it('preserves old radius during status-only changes until explicitly replaced', async () => {
@@ -435,8 +460,8 @@ if (process.env.DATABASE_URL) {
       let id: string;
       try {
         await client.query('BEGIN');
-        const inserted = await client.query(`INSERT INTO buy_requests (buyer_id, category_id, title, description, requested_quantity, unit, currency, geo_area, country_code)
-          VALUES ($1,$2,'Rollback demand test','',10,'kg','UAH','Рівне','UA') RETURNING id`, [userIds[1], categoryId]);
+        const inserted = await client.query(`INSERT INTO buy_requests (buyer_id, category_id, title, description, requested_quantity, unit, currency, geo_area, country_code, settlement_code, delivery_options)
+          VALUES ($1,$2,'Rollback demand test','',10,'kg','UAH','Рівне','UA',$3,'[{"method":"POSTAL_DELIVERY"}]'::jsonb) RETURNING id`, [userIds[1], categoryId, rivne.code]);
         id = inserted.rows[0].id;
         await notifyDemandSubscriptions(client, id);
         expect((await client.query('SELECT 1 FROM notifications WHERE buy_request_id = $1 AND user_id = $2', [id, userIds[0]])).rowCount).toBe(1);
@@ -451,23 +476,23 @@ if (process.env.DATABASE_URL) {
       const rivneRequest = await createRequest();
       const kyivRequest = await createRequest({ settlementCode: kyiv.code, geoArea: kyiv.name });
       const polishRequest = await createRequest({ countryCode: 'PL', settlementCode: null, geoArea: 'Варшава' });
-      expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId).sort()).toEqual([rivneRequest, kyivRequest, polishRequest].sort());
+      expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId).sort()).toEqual([rivneRequest, kyivRequest].sort());
       const edited = await seller.patch('/api/demand-subscriptions/' + saved.id).send({ countryCodes: ['UA', 'PL'], regions: [rivne.region], settlementCodes: [kyiv.code], cityOutsideKm: 10 });
       expect(edited.status).toBe(200);
-      expect(edited.body.subscription).toMatchObject({ countryCodes: ['UA', 'PL'], regions: [], settlementCodes: [], cityOutsideKm: null, matchCount: 3 });
+      expect(edited.body.subscription).toMatchObject({ countryCodes: ['UA', 'PL'], regions: [], settlementCodes: [], cityOutsideKm: null, matchCount: 2 });
       const oldClient = await seller.patch('/api/demand-subscriptions/' + saved.id).send({ countryCode: null, region: rivne.region });
       expect(oldClient.body.subscription).toMatchObject({ countryCodes: [], regions: [rivne.region], matchCount: 1 });
     });
 
     it('counts existing matches and returns the same public results, including unlocated requests, only to the owner', async () => {
-      const match = await createRequest({ minPrice: 170, maxPrice: 220, receiptMethod: 'SELLER_DELIVERY' });
+      const match = await createRequest({ minPrice: 170, maxPrice: 220, receiptMethod: 'SELLER_DELIVERY', deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
       await createRequest({ categoryId: otherCategoryId, minPrice: 170, receiptMethod: 'SELLER_DELIVERY' });
       await createRequest({ maxPrice: 169, receiptMethod: 'SELLER_DELIVERY' });
-      await createRequest({ minPrice: 170, receiptMethod: 'SELF_PICKUP' });
+      await createRequest({ minPrice: 170, receiptMethod: 'SELF_PICKUP', deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 0 }] });
       await createRequest({ minPrice: 170, receiptMethod: 'SELLER_DELIVERY', quantity: 9 });
       const ownRequest = await seller.post('/api/buy-requests').send({ categoryId, title: 'Own request', description: '', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 170, maxPrice: 200, countryCode: 'UA', receiptMethod: 'SELLER_DELIVERY', geoArea: rivne.name, settlementCode: rivne.code });
       expect(ownRequest.status, JSON.stringify(ownRequest.body)).toBe(201);
-      const saved = await subscribe(seller, { countryCodes: ['UA'], minQuantity: 10, minPrice: 170, unit: 'kg', currency: 'UAH', receiptMethods: ['SELLER_DELIVERY'] });
+      const saved = await subscribe(seller, { countryCodes: ['UA'], minQuantity: 10, minPrice: 170, unit: 'kg', currency: 'UAH', receiptMethods: ['SELLER_DELIVERY'], deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 0, place: { settlementCode: rivne.code, region: rivne.region, publicPoint: null } }] });
       expect(saved.matchCount).toBe(1);
       expect((await notifications()).notifications).toHaveLength(0);
       const response = await seller.get('/api/demand-subscriptions/' + saved.id + '/matches');
@@ -482,7 +507,7 @@ if (process.env.DATABASE_URL) {
       expect(disabled.body.subscription.matchCount).toBe(1);
       await pool.query("UPDATE buy_requests SET status = 'cancelled' WHERE id = $1", [match]);
       expect((await seller.get('/api/demand-subscriptions/' + saved.id + '/matches')).body.count).toBe(0);
-      const unlocated = await createRequest({ latitude: null, longitude: null, minPrice: 180, receiptMethod: 'SELLER_DELIVERY' });
+      const unlocated = await createRequest({ latitude: null, longitude: null, minPrice: 180, receiptMethod: 'SELLER_DELIVERY', deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
       const missing = await seller.get('/api/demand-subscriptions/' + saved.id + '/matches');
       expect(missing.body.count).toBe(1);
       expect(missing.body.markers).toEqual([]);
