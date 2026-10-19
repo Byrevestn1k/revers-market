@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
+import { searchSettlements } from './settlements.js'
 
 if (process.env.DATABASE_URL) {
     const { createApp } = await import('./app.js')
@@ -8,6 +9,7 @@ if (process.env.DATABASE_URL) {
         it('requires consent, moves all products, preserves private addresses and revokes sharing', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const username = `point_${suffix}`, app = createApp(), agent = request.agent(app)
+            const rivne = searchSettlements('Рівне').settlements.find(item => item.name === 'Рівне' && item.region === 'Рівненська область')!
             const pin = { mode: 'pin', latitude: 50.625951, longitude: 26.270642, consent: true }
             const address = 'Рівне, Приватна тестова вулиця, 17'
             const mapQuery = { latitude: pin.latitude, longitude: pin.longitude, radiusKm: 1, zoom: 19, south: pin.latitude - .0001, north: pin.latitude + .0001, west: pin.longitude - .0001, east: pin.longitude + .0001, q: suffix, showBuyRequests: false }
@@ -17,12 +19,12 @@ if (process.env.DATABASE_URL) {
                 expect((await agent.post('/api/auth/register').send({ username, email: `${username}@example.com`, countryCode: 'UA', phone: '+38050' + suffix.slice(-7), password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' })).status).toBe(201)
                 const categoryId = (await agent.get('/api/categories')).body.categories[0].id
                 const ids: string[] = []
-                for (const position of [{ latitude: 49.84, longitude: 24.03 }, {}]) {
+                for (const position of [{ latitude: 50.6199, longitude: 26.2516 }, {}]) {
                     // Profile coordinates apply only to listings in the same settlement.
-                    const created = await agent.post('/api/products').send({ categoryId, title: `Мед ${suffix} ${ids.length}`, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', address: 'Окрема адреса товару', status: 'active', ...position })
+                    const created = await agent.post('/api/products').send({ categoryId, title: `Мед ${suffix} ${ids.length}`, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: rivne.name, settlementCode: rivne.code, address: 'Окрема адреса товару', status: 'active', ...position })
                     expect(created.status).toBe(201); ids.push(created.body.product.id)
                 }
-                expect((await agent.patch('/api/profile/me').send({ exactAddress: address, location: 'Рівне' })).status).toBe(200)
+                expect((await agent.patch('/api/profile/me').send({ exactAddress: address, location: rivne.name, settlementCode: rivne.code })).status).toBe(200)
                 expect((await getPublic()).body.profile).not.toHaveProperty('exactAddress')
                 expect((await getMap()).body.markers).toEqual([])
                 for (const mapLocation of [null, { ...pin, consent: false }, { ...pin, latitude: 91 }, { ...pin, longitude: null }, { ...pin, latitude: '50' }, { ...pin, mode: 'unknown' }]) {
@@ -39,7 +41,7 @@ if (process.env.DATABASE_URL) {
                 expect(points.body.markers.map((item: any) => item.id).sort()).toEqual(ids.sort())
                 expect(points.body.markers.every((item: any) => item.latitude === pin.latitude && item.longitude === pin.longitude && item.approximate === false && item.publicAddress === undefined)).toBe(true)
                 expect(JSON.stringify(points.body)).not.toContain(address)
-                const oldArea = await request(app).get('/api/map/markers').query({ latitude: 49.84, longitude: 24.03, radiusKm: 1, q: suffix, showBuyRequests: false })
+                const oldArea = await request(app).get('/api/map/markers').query({ latitude: 50.6199, longitude: 26.2516, radiusKm: .2, q: suffix, showBuyRequests: false })
                 expect(oldArea.body.markers).toEqual([])
                 const filtered = await request(app).get('/api/map/markers').query({ ...mapQuery, categoryId, geoZone: 'Рівне', searchIn: 'title' })
                 expect(filtered.body.markers).toHaveLength(2)

@@ -29,11 +29,24 @@ describe('delivery compatibility', () => {
     expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }], corrupt), seller([{ method: 'POSTAL_DELIVERY', nationwide: true }])).status).toBe('EXACT_MATCH');
   });
 
+  it('treats legacy zero-radius and incomplete geography conservatively', () => {
+    const sameSettlementWithoutPoints = { ...rivne, publicPoint: null, verifiedPoint: false };
+    expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 0 }], sameSettlementWithoutPoints), seller([{ method: 'SELF_PICKUP' }], sameSettlementWithoutPoints)).status).toBe('UNKNOWN');
+    expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }], sameSettlementWithoutPoints), seller([{ method: 'SELLER_DELIVERY', radiusKm: 0 }], sameSettlementWithoutPoints)).status).toBe('UNKNOWN');
+    expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }], { ...sameSettlementWithoutPoints, settlementCode: null }), seller([{ method: 'SELLER_DELIVERY', radiusKm: 0 }], sameSettlementWithoutPoints)).status).toBe('UNKNOWN');
+  });
+
+  it('uses verified points for radius matches and rejects incompatible points', () => {
+    const nearby = { ...rivne, publicPoint: { latitude: 50.62, longitude: 26.26 } };
+    expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 5 }], nearby), seller([{ method: 'SELF_PICKUP' }], rivne)).status).toBe('EXACT_MATCH');
+    expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }], lutsk), seller([{ method: 'SELLER_DELIVERY', radiusKm: 5 }], rivne)).status).toBe('NO_MATCH');
+  });
+
   it('checks postal regions and prefers any real exact method', () => {
     expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }]), seller([{ method: 'POSTAL_DELIVERY', nationwide: true }])).status).toBe('EXACT_MATCH');
     expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }]), seller([{ method: 'POSTAL_DELIVERY', regions: ['Волинська область'] }])).status).toBe('NO_MATCH');
     expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }], unknown), seller([{ method: 'POSTAL_DELIVERY', nationwide: true }])).status).toBe('UNKNOWN');
-    expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY' }]), seller([{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true }])).methods).toEqual(['SELF_PICKUP', 'POSTAL_DELIVERY']);
+    expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY' }], { ...rivne, publicPoint: null, verifiedPoint: false }), seller([{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true }])).methods).toEqual(['POSTAL_DELIVERY']);
   });
 
   it('keeps flexibility separate from confirmed compatibility', () => {
@@ -46,6 +59,9 @@ describe('delivery compatibility', () => {
     expect(validateDeliveryOptions([{ method: 'POSTAL_DELIVERY' }], 'seller')).toBe(false);
     expect(validateDeliveryOptions([{ method: 'SELLER_DELIVERY', radiusKm: 20, regions: ['Рівненська область'] }], 'seller')).toBe(false);
     expect(validateDeliveryOptions([{ method: 'SELF_PICKUP', radiusKm: -1 }], 'buyer')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'SELF_PICKUP', radiusKm: 0 }], 'buyer')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'SELLER_DELIVERY', radiusKm: 0 }], 'seller')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'SELF_PICKUP', radiusKm: 1 }], 'buyer')).toBe(true);
     expect(validateDeliveryOptions([{ method: 'POSTAL_DELIVERY', nationwide: true }], 'seller')).toBe(true);
   });
 });

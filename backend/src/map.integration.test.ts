@@ -50,9 +50,10 @@ if (hasDatabase) {
                     expect(fixed.body.markers[0]).toMatchObject({ latitude: 50.45, longitude: 30.52, approximate: true, distanceBand: 'до 1 км' })
                     expect(fixed.body.markers[0]).not.toHaveProperty('distanceKm')
                 }
+                // Kyiv and Zhytomyr are about 130 km apart, so a 60 km search must not include Zhytomyr.
                 const expanded = await seller.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 60, zoom: 19, nearby: true, searchIn: 'owner', q: sellerPayload.username, showBuyRequests: false })
                 expect(expanded.body.filters.radiusKm).toBe(60)
-                expect(expanded.body.markers.map((marker: { id: string }) => marker.id)).toEqual(expect.arrayContaining([nearProduct.body.product.id, farProduct.body.product.id]))
+                expect(expanded.body.markers.map((marker: { id: string }) => marker.id)).toEqual([nearProduct.body.product.id])
                 expect((await seller.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, nearby: true, nationwide: true })).status).toBe(400)
 
                 // Zoom around the public point: the private address is outside these bounds.

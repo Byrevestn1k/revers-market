@@ -44,7 +44,7 @@ test('Step 14 corrections: subscription API, alerts, radius and responsive field
     }
     const createRequest = async (title: string, code: string, city: string, latitude: number, longitude: number, method: string) => buyer.request.post('/api/buy-requests', { data: {
       categoryId, title, description: '', quantity: 1, unit: 'kg', currency: 'UAH', geoArea: city, settlementCode: code,
-      latitude, longitude, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [method === 'SELF_PICKUP' ? { method, radiusKm: 0 } : { method }], fulfillmentMode: 'single_seller',
+      latitude, longitude, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [method === 'SELF_PICKUP' ? { method, radiusKm: 1 } : { method }], fulfillmentMode: 'single_seller',
     } });
     const postalRequest = await createRequest(`Пошта Рівне ${stamp}`, rivne, 'Рівне', 50.6199, 26.2516, 'POSTAL_DELIVERY');
     expect(postalRequest.status(), await postalRequest.text()).toBe(201);

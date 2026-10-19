@@ -17,7 +17,7 @@ if (process.env.DATABASE_URL) {
   let categoryId: string;
   let subscriptionId: string;
   const notificationCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM notifications WHERE demand_subscription_id = $1', [subscriptionId])).rows[0].count);
-  const requestBody = (latitude = 50.6199, longitude = 26.2516) => ({ categoryId, title: `Географія ${suffix}`, description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: rivne, latitude, longitude, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [{ method: 'SELLER_DELIVERY' }], fulfillmentMode: 'multiple_sellers' });
+  const requestBody = (latitude: number | null = 50.6199, longitude: number | null = 26.2516) => ({ categoryId, title: `Географія ${suffix}`, description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: rivne, latitude, longitude, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [{ method: 'SELLER_DELIVERY' }], fulfillmentMode: 'multiple_sellers' });
 
   describe('delivery geography at API and matching boundaries (real PostgreSQL)', () => {
     beforeAll(async () => {
@@ -68,6 +68,49 @@ if (process.env.DATABASE_URL) {
       await pool.query('DELETE FROM notifications WHERE demand_subscription_id=$1 AND buy_request_id=$2', [subscriptionId, id]);
       await notifyDemandSubscriptions(pool, id);
       expect(await notificationCount()).toBe(0);
+    }, 30000);
+
+    it('rejects new zero-radius rules and never alerts from legacy zero-radius geography', async () => {
+      const selfPickup = { method: 'SELF_PICKUP', place };
+      const postal = { method: 'POSTAL_DELIVERY', regions: ['Рівненська область'] };
+      const zeroRadius = await seller.post('/api/demand-subscriptions').send({
+        categoryId, region: 'Рівненська область', deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 0, place }],
+      });
+      expect(zeroRadius.status).toBe(400);
+      expect(zeroRadius.body.fields).toContain('deliveryOptions');
+
+      const postalSubscription = await seller.post('/api/demand-subscriptions').send({ categoryId, region: 'Рівненська область', deliveryOptions: [selfPickup, postal] });
+      expect(postalSubscription.status, JSON.stringify(postalSubscription.body)).toBe(201);
+      const postalSubscriptionId = postalSubscription.body.subscription.id;
+      const postalCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM notifications WHERE demand_subscription_id=$1', [postalSubscriptionId])).rows[0].count);
+      const postalRequest = await buyer.post('/api/buy-requests').send({ ...requestBody(null, null), mapLocationMode: 'profile', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
+      expect(postalRequest.status, JSON.stringify(postalRequest.body)).toBe(201);
+      expect(await postalCount()).toBe(1);
+
+      await pool.query(`UPDATE buy_requests SET latitude=NULL, longitude=NULL, delivery_options=$1::jsonb WHERE id=$2`, [JSON.stringify([{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY' }]), postalRequest.body.buyRequest.id]);
+      await pool.query('DELETE FROM notifications WHERE demand_subscription_id=$1 AND buy_request_id=$2', [postalSubscriptionId, postalRequest.body.buyRequest.id]);
+      await notifyDemandSubscriptions(pool, postalRequest.body.buyRequest.id);
+      expect(await postalCount()).toBe(1);
+
+      const pickupSubscription = await seller.post('/api/demand-subscriptions').send({ categoryId, region: 'Рівненська область', deliveryOptions: [selfPickup] });
+      expect(pickupSubscription.status, JSON.stringify(pickupSubscription.body)).toBe(201);
+      const pickupSubscriptionId = pickupSubscription.body.subscription.id;
+      const pickupCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM notifications WHERE demand_subscription_id=$1', [pickupSubscriptionId])).rows[0].count);
+      const legacyPickup = await buyer.post('/api/buy-requests').send({ ...requestBody(null, null), mapLocationMode: 'profile', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
+      expect(legacyPickup.status, JSON.stringify(legacyPickup.body)).toBe(201);
+      await pool.query(`UPDATE buy_requests SET latitude=NULL, longitude=NULL, delivery_options=$1::jsonb WHERE id=$2`, [JSON.stringify([{ method: 'SELF_PICKUP', radiusKm: 0 }]), legacyPickup.body.buyRequest.id]);
+      await pool.query('DELETE FROM notifications WHERE demand_subscription_id=$1 AND buy_request_id=$2', [pickupSubscriptionId, legacyPickup.body.buyRequest.id]);
+      await notifyDemandSubscriptions(pool, legacyPickup.body.buyRequest.id);
+      expect(await pickupCount()).toBe(0);
+
+      const deliverySubscription = await seller.post('/api/demand-subscriptions').send({ categoryId, region: 'Рівненська область', deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 5, place }] });
+      expect(deliverySubscription.status, JSON.stringify(deliverySubscription.body)).toBe(201);
+      const deliverySubscriptionId = deliverySubscription.body.subscription.id;
+      await pool.query('UPDATE demand_subscriptions SET delivery_options=$1::jsonb WHERE id=$2', [JSON.stringify([{ method: 'SELLER_DELIVERY', radiusKm: 0, place: { settlementCode: rivne, region: 'Рівненська область', publicPoint: null } }]), deliverySubscriptionId]);
+      const deliveryCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM notifications WHERE demand_subscription_id=$1', [deliverySubscriptionId])).rows[0].count);
+      const legacyDelivery = await buyer.post('/api/buy-requests').send({ ...requestBody(null, null), mapLocationMode: 'profile', deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
+      expect(legacyDelivery.status, JSON.stringify(legacyDelivery.body)).toBe(201);
+      expect(await deliveryCount()).toBe(0);
     }, 30000);
 
     it('rejects invalid Product, Offer and region points while retaining valid postal and flexible terms', async () => {

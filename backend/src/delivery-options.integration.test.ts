@@ -44,7 +44,7 @@ if (process.env.DATABASE_URL) {
         expect(created.body.offer.deliveryCompatibility).toMatchObject({ status: 'EXACT_MATCH', methods: ['POSTAL_DELIVERY'] });
         const offerId = created.body.offer.id;
         const before = (await pool.query('SELECT title, delivery_options, settlement_code, updated_at FROM buy_requests WHERE id=$1', [requestId])).rows[0];
-        const conflict = await buyer.patch(`/api/buy-requests/${requestId}`).send({ deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 0 }], title: 'Не зберігати' });
+        const conflict = await buyer.patch(`/api/buy-requests/${requestId}`).send({ deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 1 }], title: 'Не зберігати' });
         expect(conflict).toMatchObject({ status: 409, body: { error: 'DELIVERY_OPTIONS_LOCKED' } });
         const placeConflict = await buyer.patch(`/api/buy-requests/${requestId}`).send({ settlementCode: null, geoArea: 'Київ' });
         expect(placeConflict.status).toBe(409);

@@ -41,7 +41,10 @@ export function validateDeliveryOptions(value: unknown, role: 'buyer' | 'seller'
       : item.method === 'SELLER_DELIVERY' && role === 'seller' ? ['method', 'radiusKm', 'regions', 'place']
       : item.method === 'POSTAL_DELIVERY' && role === 'seller' ? ['method', 'nationwide', 'regions'] : ['method'];
     if (Object.keys(item).some(key => !allowed.includes(key))) return false;
-    if (item.radiusKm !== undefined && (typeof item.radiusKm !== 'number' || !Number.isFinite(item.radiusKm) || item.radiusKm < 0 || item.radiusKm > 500)) return false;
+    // A zero-radius public point cannot prove that two private locations are
+    // identical. New radius rules therefore start at one kilometre; existing
+    // zero-radius records remain readable and are handled conservatively below.
+    if (item.radiusKm !== undefined && (typeof item.radiusKm !== 'number' || !Number.isFinite(item.radiusKm) || item.radiusKm <= 0 || item.radiusKm > 500)) return false;
     if (item.region !== undefined && !regions.has(item.region)) return false;
     if (item.regions !== undefined && (!Array.isArray(item.regions) || !item.regions.length || item.regions.length > 30
       || item.regions.some((region: unknown) => !regions.has(region as string)) || new Set(item.regions).size !== item.regions.length)) return false;
@@ -71,7 +74,6 @@ function compatible(method: DeliveryMethod, buyer: DeliveryOption, seller: Deliv
     if (buyer.region && sellerPlace.region) return buyer.region === sellerPlace.region ? 'EXACT_MATCH' : 'NO_MATCH';
     if (buyer.region) return 'UNKNOWN';
     if (buyer.radiusKm !== undefined) {
-      if (buyer.radiusKm === 0 && buyerPlace.settlementCode && sellerPlace.settlementCode) return buyerPlace.publicPoint && !buyerPlace.verifiedPoint || sellerPlace.publicPoint && !sellerPlace.verifiedPoint ? 'UNKNOWN' : buyerPlace.settlementCode === sellerPlace.settlementCode ? 'EXACT_MATCH' : 'NO_MATCH';
       if (!buyerPlace.publicPoint || !sellerPlace.publicPoint) return 'UNKNOWN';
       if (!buyerPlace.verifiedPoint || !sellerPlace.verifiedPoint) return 'UNKNOWN';
       return radiusStatus(buyerPlace.publicPoint, sellerPlace.publicPoint, buyer.radiusKm);
@@ -81,7 +83,6 @@ function compatible(method: DeliveryMethod, buyer: DeliveryOption, seller: Deliv
     if (seller.regions?.length && buyerPlace.region) return seller.regions.includes(buyerPlace.region) ? 'EXACT_MATCH' : 'NO_MATCH';
     if (seller.regions?.length) return 'UNKNOWN';
     if (seller.radiusKm !== undefined) {
-      if (seller.radiusKm === 0 && buyerPlace.settlementCode && sellerPlace.settlementCode) return buyerPlace.publicPoint && !buyerPlace.verifiedPoint || sellerPlace.publicPoint && !sellerPlace.verifiedPoint ? 'UNKNOWN' : buyerPlace.settlementCode === sellerPlace.settlementCode ? 'EXACT_MATCH' : 'NO_MATCH';
       if (!sellerPlace.publicPoint || !buyerPlace.publicPoint) return 'UNKNOWN';
       if (!sellerPlace.verifiedPoint || !buyerPlace.verifiedPoint) return 'UNKNOWN';
       return radiusStatus(sellerPlace.publicPoint, buyerPlace.publicPoint, seller.radiusKm);

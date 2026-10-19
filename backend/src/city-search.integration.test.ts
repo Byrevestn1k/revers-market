@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
+import { searchSettlements } from './settlements.js'
 
 if (process.env.DATABASE_URL) {
     const { createApp } = await import('./app.js')
@@ -11,9 +12,11 @@ if (process.env.DATABASE_URL) {
             try {
                 expect((await agent.post('/api/auth/register').send({ username, email: `${username}@example.com`, countryCode: 'UA', phone: '+38050' + suffix.slice(-7), password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' })).status).toBe(201)
                 const categoryId = (await agent.get('/api/categories')).body.categories[0].id
+                const rivne = searchSettlements('Рівне').settlements.find(item => item.name === 'Рівне' && item.region === 'Рівненська область')!
+                const dubno = searchSettlements('Дубно').settlements.find(item => item.name === 'Дубно' && item.region === 'Рівненська область')!
                 const ids: string[] = []
-                for (const [latitude, longitude, geoZone] of [[50.62, 26.25, 'Рівне'], [50.75, 26.4, 'м. Рівне'], [50.63, 26.26, 'Рівненська область']]) {
-                    const created = await agent.post('/api/products').send({ categoryId, title: `Мед ${suffix}`, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', status: 'active', latitude, longitude, geoZone })
+                for (const { latitude, longitude, geoZone, settlementCode } of [{ latitude: 50.6199, longitude: 26.2516, geoZone: rivne.name, settlementCode: rivne.code }, { latitude: 50.63, longitude: 26.27, geoZone: 'м. Рівне', settlementCode: rivne.code }, { latitude: 50.39, longitude: 25.73, geoZone: dubno.name, settlementCode: dubno.code }]) {
+                    const created = await agent.post('/api/products').send({ categoryId, title: `Мед ${suffix}`, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', status: 'active', latitude, longitude, geoZone, settlementCode })
                     expect(created.status).toBe(201); ids.push(created.body.product.id)
                 }
                 const base = { latitude: 50.62, longitude: 26.25, radiusKm: 1, zoom: 19, q: suffix, searchIn: 'title', showBuyRequests: false }
@@ -23,7 +26,7 @@ if (process.env.DATABASE_URL) {
                 const broadCity = await request(app).get('/api/map/markers').query({ ...base, radiusKm: 100, cityName: ' РІВНЕ ' })
                 // Equal titles have no defined relative order; compare exact membership and cardinality.
                 expect(broadCity.body.markers.map((item: any) => item.id).sort()).toEqual(ids.slice(0, 2).sort())
-                const otherOrigin = await request(app).get('/api/map/markers').query({ ...base, latitude: 50.75, longitude: 26.4, cityName: 'Рівне' })
+                const otherOrigin = await request(app).get('/api/map/markers').query({ ...base, latitude: 50.63, longitude: 26.27, cityName: 'Рівне' })
                 expect(otherOrigin.body.markers.map((item: any) => item.id)).toEqual([ids[1]])
                 const owner = await request(app).get('/api/map/markers').query({ ...base, cityName: 'Рівне', q: username, searchIn: 'owner', includeOwnerListings: true })
                 expect(owner.body.markers.map((item: any) => item.id).sort()).toEqual(ids.slice(0, 2).sort())
@@ -35,7 +38,7 @@ if (process.env.DATABASE_URL) {
                 expect((await request(app).get('/api/map/markers').query({ ...base, cityName: 'x'.repeat(121) })).status).toBe(400)
                 expect((await request(app).get('/api/map/markers').query({ ...base, cityName: "Рівне' OR 1=1 --" })).body.markers).toEqual([])
                 expect((await request(app).get('/api/map/markers').query({ ...base, cityName: 'Рівне', nationwide: true })).status).toBe(400)
-                const buy = await agent.post('/api/buy-requests').send({ categoryId, title: `Мед ${suffix}`, description: '', quantity: 1, unit: 'kg', currency: 'UAH', minPrice: 10, maxPrice: 100, delivery: 'yes', geoArea: 'Рівне', latitude: 50.75, longitude: 26.4 })
+                const buy = await agent.post('/api/buy-requests').send({ categoryId, title: `Мед ${suffix}`, description: '', quantity: 1, unit: 'kg', currency: 'UAH', minPrice: 10, maxPrice: 100, delivery: 'yes', geoArea: 'Рівне', latitude: 50.63, longitude: 26.27 })
                 expect(buy.status).toBe(201)
                 const requests = await request(app).get('/api/map/markers').query({ ...base, radiusKm: 100, cityName: 'Рівне', showProducts: false, showBuyRequests: true })
                 expect(requests.body.markers.map((item: any) => item.id)).toEqual([buy.body.buyRequest.id])

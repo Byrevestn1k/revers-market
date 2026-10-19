@@ -87,16 +87,16 @@ describe('demand matching semantics', () => {
     const ring = [{latitude:0,longitude:0},{latitude:0,longitude:1},{latitude:1,longitude:1},{latitude:1,longitude:0},{latitude:0,longitude:0}];
     const suburbs = {countryCode:null,settlementCodes:['first','second'],cityOutsideKm:1,settlementBoundaries:{second:{rings:[ring],maxDistanceKm:0}}};
     expect(match(suburbs,{settlementCode:'second',publicPoint:null})).toBe(true);
-    expect(match(suburbs,{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.005}})).toBe(true);
-    expect(match(suburbs,{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.02}})).toBe(false);
+    expect(match(suburbs,{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.005},verifiedPoint:true})).toBe(true);
+    expect(match(suburbs,{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.02},verifiedPoint:true})).toBe(false);
     expect(match(suburbs,{settlementCode:'other',publicPoint:null})).toBe(false);
-    expect(match({...suburbs,cityOutsideKm:null},{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.005}})).toBe(false);
-    expect(match({...suburbs,settlementBoundaries:{}},{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.005}})).toBe(false);
+    expect(match({...suburbs,cityOutsideKm:null},{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.005},verifiedPoint:true})).toBe(false);
+    expect(match({...suburbs,settlementBoundaries:{}},{settlementCode:'other',publicPoint:{latitude:0.5,longitude:1.005},verifiedPoint:true})).toBe(false);
   });
   it('uses public-point radius and rejects missing points', () => {
     const radius = { center: demand.publicPoint, radiusKm: 1 };
-    expect(match(radius)).toBe(true);
-    expect(match(radius, { publicPoint: { latitude: 50.45, longitude: 30.52 } })).toBe(false);
+    expect(match(radius, { verifiedPoint: true })).toBe(true);
+    expect(match(radius, { publicPoint: { latitude: 50.45, longitude: 30.52 }, verifiedPoint: true })).toBe(false);
     expect(match(radius, { publicPoint: null })).toBe(false);
   });
 });

@@ -129,7 +129,7 @@ if (process.env.DATABASE_URL) {
         { method: 'POSTAL_DELIVERY', regions: [rivne.region] },
         { method: 'FLEXIBLE' },
       ] });
-      const exact = await createRequest({ deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY' }] });
+      const exact = await createRequest({ deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 5 }, { method: 'POSTAL_DELIVERY' }] });
       await createRequest({ settlementCode: kyiv.code, geoArea: kyiv.name, deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
       await createRequest({ deliveryOptions: [{ method: 'SELLER_DELIVERY' }, { method: 'FLEXIBLE' }] });
       await createRequest({ deliveryOptions: undefined });
@@ -339,9 +339,9 @@ if (process.env.DATABASE_URL) {
     it('uses explicit SELF_PICKUP/SELLER_DELIVERY and fails closed on ambiguous legacy receipt', async () => {
       const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
       await subscribe(seller, { receiptMethods: ['SELF_PICKUP'], deliveryOptions: [{ method: 'SELF_PICKUP', place }] });
-      await subscribe(other, { receiptMethods: ['SELLER_DELIVERY'], deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 0, place }] });
+      await subscribe(other, { receiptMethods: ['SELLER_DELIVERY'], deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 5, place }] });
       const delivered = await createRequest({ receiptMethod: 'SELLER_DELIVERY', delivery: undefined, deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
-      const pickup = await createRequest({ receiptMethod: 'SELF_PICKUP', delivery: undefined, deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 0 }] });
+      const pickup = await createRequest({ receiptMethod: 'SELF_PICKUP', delivery: undefined, deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 5 }] });
       await createRequest({ delivery: 'yes', preferredDelivery: 'carrier', deliveryOptions: undefined });
       await createRequest({ delivery: undefined, deliveryOptions: undefined });
       expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([pickup]);
@@ -451,10 +451,10 @@ if (process.env.DATABASE_URL) {
     it('matches preferred delivery with either method, preserving strict delivery', async () => {
       const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
       await subscribe(seller,{receiptMethods:['SELF_PICKUP'],deliveryOptions:[{method:'SELF_PICKUP',place}]});
-      await subscribe(other,{receiptMethods:['SELLER_DELIVERY'],deliveryOptions:[{method:'SELLER_DELIVERY',radiusKm:0,place}]});
+      await subscribe(other,{receiptMethods:['SELLER_DELIVERY'],deliveryOptions:[{method:'SELLER_DELIVERY',radiusKm:5,place}]});
       await createRequest({delivery:'preferred',deliveryOptions:undefined});
       const delivered = await createRequest({delivery:undefined,receiptMethod:'SELLER_DELIVERY',deliveryOptions:[{method:'SELLER_DELIVERY'}]});
-      const pickup = await createRequest({delivery:undefined,receiptMethod:'SELF_PICKUP',deliveryOptions:[{method:'SELF_PICKUP',radiusKm:0}]});
+      const pickup = await createRequest({delivery:undefined,receiptMethod:'SELF_PICKUP',deliveryOptions:[{method:'SELF_PICKUP',radiusKm:5}]});
       expect((await notifications()).notifications.map((n:{buyRequestId:string})=>n.buyRequestId)).toEqual([pickup]);
       expect((await notifications(other)).notifications.map((n:{buyRequestId:string})=>n.buyRequestId)).toEqual([delivered]);
     });
@@ -502,11 +502,11 @@ if (process.env.DATABASE_URL) {
       const match = await createRequest({ minPrice: 170, maxPrice: 220, receiptMethod: 'SELLER_DELIVERY', deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
       await createRequest({ categoryId: otherCategoryId, minPrice: 170, receiptMethod: 'SELLER_DELIVERY' });
       await createRequest({ maxPrice: 169, receiptMethod: 'SELLER_DELIVERY' });
-      await createRequest({ minPrice: 170, receiptMethod: 'SELF_PICKUP', deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 0 }] });
+      await createRequest({ minPrice: 170, receiptMethod: 'SELF_PICKUP', deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 5 }] });
       await createRequest({ minPrice: 170, receiptMethod: 'SELLER_DELIVERY', quantity: 9 });
       const ownRequest = await seller.post('/api/buy-requests').send({ categoryId, title: 'Own request', description: '', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 170, maxPrice: 200, countryCode: 'UA', receiptMethod: 'SELLER_DELIVERY', geoArea: rivne.name, settlementCode: rivne.code });
       expect(ownRequest.status, JSON.stringify(ownRequest.body)).toBe(201);
-      const saved = await subscribe(seller, { countryCodes: ['UA'], minQuantity: 10, minPrice: 170, unit: 'kg', currency: 'UAH', receiptMethods: ['SELLER_DELIVERY'], deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 0, place: { settlementCode: rivne.code, region: rivne.region, publicPoint: null } }] });
+      const saved = await subscribe(seller, { countryCodes: ['UA'], minQuantity: 10, minPrice: 170, unit: 'kg', currency: 'UAH', receiptMethods: ['SELLER_DELIVERY'], deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 5, place: { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } } }] });
       expect(saved.matchCount).toBe(1);
       expect((await notifications()).notifications).toHaveLength(0);
       const response = await seller.get('/api/demand-subscriptions/' + saved.id + '/matches');
@@ -521,11 +521,12 @@ if (process.env.DATABASE_URL) {
       expect(disabled.body.subscription.matchCount).toBe(1);
       await pool.query("UPDATE buy_requests SET status = 'cancelled' WHERE id = $1", [match]);
       expect((await seller.get('/api/demand-subscriptions/' + saved.id + '/matches')).body.count).toBe(0);
-      const unlocated = await createRequest({ latitude: null, longitude: null, minPrice: 180, receiptMethod: 'SELLER_DELIVERY', deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
+      await createRequest({ latitude: null, longitude: null, minPrice: 180, receiptMethod: 'SELLER_DELIVERY', deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
       const missing = await seller.get('/api/demand-subscriptions/' + saved.id + '/matches');
-      expect(missing.body.count).toBe(1);
+      // A radius needs a verified public point; an unlocated legacy request cannot be an exact match.
+      expect(missing.body.count).toBe(0);
       expect(missing.body.markers).toEqual([]);
-      expect(missing.body.unmappedRequests).toEqual([expect.objectContaining({ id: unlocated, title: 'Потрібен мед для Step 8', geoArea: rivne.name })]);
+      expect(missing.body.unmappedRequests).toEqual([]);
     });
 
     it('enforces the 20 km suburb limit in API and database', async () => {
