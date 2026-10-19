@@ -72,7 +72,7 @@ export const validateDemandSubscription = (input: Record<string, unknown>, parti
     const value = input[field];
     if (value != null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1e12 || field.includes('Quantity') && value === 0 || Math.abs(value * 10000 - Math.round(value * 10000)) > 0.001)) fields.push(field);
   }
-  if (input.radiusKm != null && (typeof input.radiusKm !== 'number' || !Number.isFinite(input.radiusKm) || input.radiusKm < 0.2 || input.radiusKm > 200)) fields.push('radiusKm');
+  if (input.radiusKm != null && (typeof input.radiusKm !== 'number' || !Number.isFinite(input.radiusKm) || input.radiusKm < 1 || input.radiusKm > 200)) fields.push('radiusKm');
   if (input.cityOutsideKm != null && (typeof input.cityOutsideKm !== 'number' || !Number.isInteger(input.cityOutsideKm) || input.cityOutsideKm < 0 || input.cityOutsideKm > 20)) fields.push('cityOutsideKm');
   if (input.center != null) {
     const point = input.center as Record<string, unknown>;

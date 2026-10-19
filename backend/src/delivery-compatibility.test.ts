@@ -61,7 +61,12 @@ describe('delivery compatibility', () => {
     expect(validateDeliveryOptions([{ method: 'SELF_PICKUP', radiusKm: -1 }], 'buyer')).toBe(false);
     expect(validateDeliveryOptions([{ method: 'SELF_PICKUP', radiusKm: 0 }], 'buyer')).toBe(false);
     expect(validateDeliveryOptions([{ method: 'SELLER_DELIVERY', radiusKm: 0 }], 'seller')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'SELF_PICKUP', radiusKm: 0.5 }], 'buyer')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'SELLER_DELIVERY', radiusKm: 0.99 }], 'seller')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'SELLER_DELIVERY', radiusKm: Number.NaN }], 'seller')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'SELLER_DELIVERY', radiusKm: Number.POSITIVE_INFINITY }], 'seller')).toBe(false);
     expect(validateDeliveryOptions([{ method: 'SELF_PICKUP', radiusKm: 1 }], 'buyer')).toBe(true);
+    expect(validateDeliveryOptions([{ method: 'SELLER_DELIVERY', radiusKm: 1.5 }], 'seller')).toBe(true);
     expect(validateDeliveryOptions([{ method: 'POSTAL_DELIVERY', nationwide: true }], 'seller')).toBe(true);
   });
 });

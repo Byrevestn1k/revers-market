@@ -137,7 +137,7 @@ if (process.env.DATABASE_URL) {
     }, 30000);
 
     it('enforces radius limits and ignores a corrupted historical subscription center', async () => {
-      const criteria = { categoryId, region: 'Рівненська область', center: { latitude: 50.62, longitude: 26.25 }, radiusKm: 0.2, deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10, place }] };
+      const criteria = { categoryId, region: 'Рівненська область', center: { latitude: 50.62, longitude: 26.25 }, radiusKm: 1, deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10, place }] };
       expect((await seller.post('/api/demand-subscriptions').send({ ...criteria, radiusKm: 200.01 })).status).toBe(400);
       expect((await seller.post('/api/demand-subscriptions').send({ ...criteria, center: { latitude: 0, longitude: 0 } })).status).toBe(400);
       const created = await seller.post('/api/demand-subscriptions').send(criteria);
@@ -154,5 +154,71 @@ if (process.env.DATABASE_URL) {
       expect(second.status).toBe(201);
       expect(await count()).toBe(1);
     }, 30000);
+
+    it('applies the 1 km minimum through Product, Request, Offer and Subscription APIs', async () => {
+      const invalidRadii: unknown[] = [0, 0.5, 0.99, -1, null, '1', 'invalid', Number.NaN, Number.POSITIVE_INFINITY];
+      const sellerOption = (radiusKm: unknown) => [{ method: 'SELLER_DELIVERY', radiusKm, place }];
+      const buyerOption = (radiusKm: unknown) => [{ method: 'SELF_PICKUP', radiusKm }];
+      const productBody = { categoryId, title: `Радіус ${suffix}`, description: '', quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'seller_delivery', geoZone: 'Рівне', settlementCode: rivne, latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' };
+      const productCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM products WHERE owner_id=$1', [users[1]])).rows[0].count);
+      const initialProducts = await productCount();
+      for (const radiusKm of invalidRadii) {
+        const response = await seller.post('/api/products').send({ ...productBody, deliveryOptions: sellerOption(radiusKm) });
+        expect(response.status, JSON.stringify({ radiusKm, body: response.body })).toBe(400);
+      }
+      expect(await productCount()).toBe(initialProducts);
+      const product = await seller.post('/api/products').send({ ...productBody, deliveryOptions: sellerOption(1) });
+      expect(product.status, JSON.stringify(product.body)).toBe(201);
+      const productId = product.body.product.id;
+      expect((await seller.post('/api/products').send({ ...productBody, deliveryOptions: sellerOption(1.5) })).status).toBe(201);
+      expect((await seller.patch(`/api/products/${productId}`).send({ deliveryOptions: sellerOption(0.5) })).status).toBe(400);
+      expect((await pool.query('SELECT delivery_options FROM products WHERE id=$1', [productId])).rows[0].delivery_options[0].radiusKm).toBe(1);
+
+      const initialRequests = Number((await pool.query('SELECT count(*)::int AS count FROM buy_requests WHERE buyer_id=$1', [users[0]])).rows[0].count);
+      for (const radiusKm of invalidRadii) {
+        const response = await buyer.post('/api/buy-requests').send({ ...requestBody(), deliveryOptions: buyerOption(radiusKm) });
+        expect(response.status, JSON.stringify({ radiusKm, body: response.body })).toBe(400);
+      }
+      expect((await pool.query('SELECT count(*)::int AS count FROM buy_requests WHERE buyer_id=$1', [users[0]])).rows[0].count).toBe(initialRequests);
+      const buyRequest = await buyer.post('/api/buy-requests').send({ ...requestBody(), deliveryOptions: buyerOption(1) });
+      expect(buyRequest.status, JSON.stringify(buyRequest.body)).toBe(201);
+      const requestId = buyRequest.body.buyRequest.id;
+      expect((await buyer.post('/api/buy-requests').send({ ...requestBody(), deliveryOptions: buyerOption(1.5) })).status).toBe(201);
+      expect((await buyer.patch(`/api/buy-requests/${requestId}`).send({ deliveryOptions: buyerOption(0.99) })).status).toBe(400);
+      expect((await pool.query('SELECT delivery_options FROM buy_requests WHERE id=$1', [requestId])).rows[0].delivery_options[0].radiusKm).toBe(1);
+
+      const terms = { creationMode: 'manual', title: 'Пропозиція з радіусом', quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Доставка' };
+      for (const radiusKm of invalidRadii) {
+        const response = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: sellerOption(radiusKm) });
+        expect(response.status, JSON.stringify({ radiusKm, body: response.body })).toBe(400);
+      }
+      expect((await pool.query('SELECT count(*)::int AS count FROM offers WHERE buy_request_id=$1', [requestId])).rows[0].count).toBe(0);
+      const offer = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: sellerOption(1) });
+      expect(offer.status, JSON.stringify(offer.body)).toBe(201);
+      const offerId = offer.body.offer.id;
+      expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: sellerOption(1.5) })).status).toBe(201);
+      expect((await seller.patch(`/api/offers/${offerId}`).send({ deliveryOptions: sellerOption(0.5) })).status).toBe(400);
+      expect((await pool.query('SELECT delivery_options FROM offers WHERE id=$1', [offerId])).rows[0].delivery_options[0].radiusKm).toBe(1);
+
+      const center = { latitude: 50.62, longitude: 26.25 };
+      const subscriptionBody = { categoryId, region: 'Рівненська область', center, deliveryOptions: sellerOption(1) };
+      const initialSubscriptions = Number((await pool.query('SELECT count(*)::int AS count FROM demand_subscriptions WHERE user_id=$1', [users[1]])).rows[0].count);
+      for (const radiusKm of invalidRadii) {
+        const territory = await seller.post('/api/demand-subscriptions').send({ ...subscriptionBody, radiusKm });
+        expect(territory.status, JSON.stringify({ radiusKm, body: territory.body })).toBe(400);
+        const delivery = await seller.post('/api/demand-subscriptions').send({ ...subscriptionBody, radiusKm: 1, deliveryOptions: sellerOption(radiusKm) });
+        expect(delivery.status, JSON.stringify({ radiusKm, body: delivery.body })).toBe(400);
+      }
+      expect((await pool.query('SELECT count(*)::int AS count FROM demand_subscriptions WHERE user_id=$1', [users[1]])).rows[0].count).toBe(initialSubscriptions);
+      const subscription = await seller.post('/api/demand-subscriptions').send({ ...subscriptionBody, radiusKm: 1 });
+      expect(subscription.status, JSON.stringify(subscription.body)).toBe(201);
+      const subscriptionId = subscription.body.subscription.id;
+      expect((await seller.post('/api/demand-subscriptions').send({ ...subscriptionBody, radiusKm: 1.5, deliveryOptions: sellerOption(1.5) })).status).toBe(201);
+      expect((await seller.patch(`/api/demand-subscriptions/${subscriptionId}`).send({ radiusKm: 0.5 })).status).toBe(400);
+      expect((await seller.patch(`/api/demand-subscriptions/${subscriptionId}`).send({ deliveryOptions: sellerOption(0.99) })).status).toBe(400);
+      const stored = (await pool.query('SELECT radius_km::float8 AS radius, delivery_options FROM demand_subscriptions WHERE id=$1', [subscriptionId])).rows[0];
+      expect(stored.radius).toBe(1);
+      expect(stored.delivery_options[0].radiusKm).toBe(1);
+    }, 120000);
   });
 }

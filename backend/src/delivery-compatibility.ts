@@ -44,7 +44,7 @@ export function validateDeliveryOptions(value: unknown, role: 'buyer' | 'seller'
     // A zero-radius public point cannot prove that two private locations are
     // identical. New radius rules therefore start at one kilometre; existing
     // zero-radius records remain readable and are handled conservatively below.
-    if (item.radiusKm !== undefined && (typeof item.radiusKm !== 'number' || !Number.isFinite(item.radiusKm) || item.radiusKm <= 0 || item.radiusKm > 500)) return false;
+    if (item.radiusKm !== undefined && (typeof item.radiusKm !== 'number' || !Number.isFinite(item.radiusKm) || item.radiusKm < 1 || item.radiusKm > 500)) return false;
     if (item.region !== undefined && !regions.has(item.region)) return false;
     if (item.regions !== undefined && (!Array.isArray(item.regions) || !item.regions.length || item.regions.length > 30
       || item.regions.some((region: unknown) => !regions.has(region as string)) || new Set(item.regions).size !== item.regions.length)) return false;
