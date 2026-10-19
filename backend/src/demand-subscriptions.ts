@@ -10,6 +10,7 @@ import { settlementAdministrativeBoundary } from './city-boundaries.js';
 import { categoryFilterSql } from './category-filter.js';
 import { MapService } from './map-service.js';
 import { validateDeliveryOptions } from './delivery-compatibility.js';
+import { verifiedDeliveryOptions, verifiedOptionsForMatching, verifiedSettlementPoint, verifiedSubscriptionCenter } from './delivery-geography.js';
 
 type Queryable = Pick<PoolClient, 'query'>;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -108,6 +109,15 @@ const matchRequest = (row: any): MatchRequest => {
   quantity: row.quantity, unit: row.unit, minPrice: row.min_price, maxPrice: row.max_price, currency: row.currency.trim(), receiptMethod: row.receipt_method, deliveryPreferred: row.delivery_preferred, deliveryOptions: row.delivery_options,
   };
 };
+const verifiedMatchRequest = async (row: any): Promise<MatchRequest> => {
+  const request = matchRequest(row);
+  return { ...request, verifiedPoint: await verifiedSettlementPoint(request.settlementCode, request.publicPoint, 1.5) };
+};
+const verifiedCriteria = async (subscription: DemandSubscription): Promise<DemandCriteria> => ({
+  ...subscription,
+  center: await verifiedSubscriptionCenter(subscription.center, subscription.settlementCodes, subscription.regions ?? [], subscription.countryCodes ?? []) ? subscription.center : null,
+  deliveryOptions: await verifiedOptionsForMatching(subscription.deliveryOptions),
+});
 const matchingRequests = async (subscription: DemandSubscription, user: AuthUser, queryable: Queryable = pool) => {
   const result = await queryable.query(`SELECT r.id, r.title, public_point.geo_area AS "geoArea",
       json_build_object('id', c.id, 'name', c.name) AS category, public_point.settlement_code,
@@ -121,7 +131,9 @@ const matchingRequests = async (subscription: DemandSubscription, user: AuthUser
       WHERE r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')
         AND r.buyer_id <> $1 AND c.is_active AND ${categoryFilterSql('r.category_id', 2)}
       ORDER BY r.created_at DESC, r.id DESC`, [user.id, subscription.category.id]);
-  return result.rows.filter(row => matchesDemandCriteria(subscription, matchRequest(row)));
+  const criteria = await verifiedCriteria(subscription);
+  const checked = await Promise.all(result.rows.map(async row => ({ row, request: await verifiedMatchRequest(row) })));
+  return checked.filter(({ request }) => matchesDemandCriteria(criteria, request)).map(({ row }) => row);
 };
 const countedDto = async (subscription: DemandSubscription, user: AuthUser, queryable: Queryable = pool) => ({ ...dto(subscription), matchCount: (await matchingRequests(subscription, user, queryable)).length });
 
@@ -166,6 +178,10 @@ export const saveDemandSubscription = async (user: AuthUser, input: Record<strin
     if (errors.length) { await client.query('ROLLBACK'); return invalid(errors); }
     if ((id === undefined || input.categoryId !== undefined || input.active === true) && !(await client.query('SELECT 1 FROM categories WHERE id = $1 AND is_active', [merged.categoryId])).rowCount) { await client.query('ROLLBACK'); return invalid(['categoryId']); }
     const criteria = merged as unknown as DemandCriteria;
+    if (!await verifiedDeliveryOptions(criteria.deliveryOptions) || !await verifiedSubscriptionCenter(criteria.center, criteria.settlementCodes, criteria.regions ?? [], criteria.countryCodes ?? [])) {
+      await client.query('ROLLBACK');
+      return invalid(criteria.center ? ['center', 'deliveryOptions'] : ['deliveryOptions']);
+    }
     const boundaries: NonNullable<DemandCriteria['settlementBoundaries']> = {};
     if (criteria.cityOutsideKm != null) {
       for (const code of criteria.settlementCodes) {
@@ -217,8 +233,9 @@ export const notifyDemandSubscriptions = async (queryable: Queryable, requestId:
       WHERE s.active AND s.user_id <> $2 AND s.category_id IN (SELECT id FROM request_categories)
         AND s.created_at <= $3
       FOR SHARE OF s`, [row.category_id, row.buyer_id, row.created_at]);
-  const publicRequest = matchRequest(row);
-  const ids = candidates.rows.filter(item => matchesDemandCriteria(item, publicRequest, true)).map(item => item.id);
+  const publicRequest = await verifiedMatchRequest(row);
+  const checked = await Promise.all(candidates.rows.map(async item => ({ item, criteria: await verifiedCriteria(item) })));
+  const ids = checked.filter(({ criteria }) => matchesDemandCriteria(criteria, publicRequest, true)).map(({ item }) => item.id);
   if (!ids.length) return;
   await queryable.query(`
     INSERT INTO notifications (user_id, type, title, body, context, buy_request_id, demand_subscription_id)

@@ -26,7 +26,15 @@ const cityBoundaryCandidates = async (name: string, settlement?: Settlement | nu
     if (settlement && !specialCity) params.set('state', settlement.region)
     const response = await fetch('https://nominatim.openstreetmap.org/search?' + params, { headers: { 'User-Agent': process.env.OSM_USER_AGENT || 'NavpakyMarketplace/1.0 (city-boundary lookup)' }, signal: AbortSignal.timeout(8000) })
     const payload = response.ok ? await response.json() : []
-    const results = Array.isArray(payload) ? payload : []
+    let results = Array.isArray(payload) ? payload : []
+    if (!results.length && settlement && !specialCity) {
+        // Some OSM cities omit the state in their address; the exact KATOTTG
+        // identifier is checked below before such a candidate can be trusted.
+        params.delete('state')
+        const retry = await fetch('https://nominatim.openstreetmap.org/search?' + params, { headers: { 'User-Agent': process.env.OSM_USER_AGENT || 'NavpakyMarketplace/1.0 (city-boundary lookup)' }, signal: AbortSignal.timeout(8000) })
+        const retryPayload = retry.ok ? await retry.json() : []
+        results = Array.isArray(retryPayload) ? retryPayload : []
+    }
     providerCache.set(key, { results, expiresAt: Date.now() + (results.length ? DAY : 60_000) })
     return results
 }
@@ -94,10 +102,10 @@ export async function settlementAdministrativeBoundary(settlement: Settlement): 
             const sameDistrict = settlement.type === 'city' || !settlement.district || placeName(address.county ?? address.state_district ?? address.district ?? '') === placeName(settlement.district)
             const administrative = (item.class ?? item.category) === 'boundary' && item.type === 'administrative'
                 && (['8', '9', '10'].includes(String(item.extratags?.admin_level)) || specialCity && String(item.extratags?.admin_level) === '4')
-            const identifiedPlace = (item.class ?? item.category) === 'place' && item.type === settlement.type
+            const identifiedPlace = (item.class ?? item.category) === 'place'
                 && ['relation', 'way'].includes(item.osm_type) && Number.isSafeInteger(item.osm_id) && item.osm_id > 0 && item.extratags?.katotth === settlement.code
-            return (administrative || identifiedPlace) && address.country_code === 'ua'
-                && sameName && sameRegion && sameDistrict && ['Polygon', 'MultiPolygon'].includes(item.geojson?.type)
+            return (administrative && sameRegion && sameDistrict || identifiedPlace) && address.country_code === 'ua'
+                && sameName && ['Polygon', 'MultiPolygon'].includes(item.geojson?.type)
         }) : []
         if (candidates.length === 1) {
             const item = candidates[0]

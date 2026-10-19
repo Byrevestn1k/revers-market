@@ -28,6 +28,7 @@ export type MatchRequest = {
   region: string | null;
   settlementCode: string | null;
   publicPoint: MapPoint | null;
+  verifiedPoint?: boolean;
   quantity: number | null;
   unit: string | null;
   minPrice: number | null;
@@ -62,7 +63,7 @@ const compareConverted = (value: number, limit: number, [numerator, denominator]
 // Geographic selections form a union. A selected country includes its descendants.
 export function matchesDemandCriteria(criteria: DemandCriteria, request: MatchRequest, requireExactDelivery = false): boolean {
   const cityMatch = Boolean(request.settlementCode && criteria.settlementCodes.includes(request.settlementCode))
-    || criteria.cityOutsideKm != null && Boolean(request.publicPoint && criteria.settlementCodes.some(code => {
+    || criteria.cityOutsideKm != null && Boolean(request.verifiedPoint && request.publicPoint && criteria.settlementCodes.some(code => {
       const boundary = criteria.settlementBoundaries?.[code];
       return boundary && withinCityOrDistance(request.publicPoint!, boundary, criteria.cityOutsideKm!);
     }));
@@ -71,7 +72,7 @@ export function matchesDemandCriteria(criteria: DemandCriteria, request: MatchRe
   if (!(request.countryCode && countries.includes(request.countryCode))
     && !(request.region && regions.includes(request.region)) && !cityMatch) return false;
   if (criteria.radiusKm !== null) {
-    if (!criteria.center || !request.publicPoint) return false;
+    if (!criteria.center || !request.publicPoint || !request.verifiedPoint) return false;
     const distance = distanceKm(criteria.center, request.publicPoint);
     if (!Number.isFinite(distance) || distance > criteria.radiusKm) return false;
   }
@@ -98,7 +99,7 @@ export function matchesDemandCriteria(criteria: DemandCriteria, request: MatchRe
   }
   if (criteria.deliveryOptions || request.deliveryOptions || requireExactDelivery) {
     const result = matchDelivery(
-      { options: request.deliveryOptions ?? null, place: { settlementCode: request.settlementCode, region: request.region, publicPoint: request.publicPoint } },
+      { options: request.deliveryOptions ?? null, place: { settlementCode: request.settlementCode, region: request.region, publicPoint: request.publicPoint, verifiedPoint: request.verifiedPoint } },
       { options: criteria.deliveryOptions ?? null, place: { settlementCode: null, region: null, publicPoint: null } },
     );
     return result.status === 'EXACT_MATCH';

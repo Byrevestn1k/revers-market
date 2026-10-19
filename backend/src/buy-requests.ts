@@ -14,6 +14,7 @@ import { notifyDemandSubscriptions } from './demand-subscriptions.js'
 import { randomUUID } from 'node:crypto'
 import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './photo-storage.js'
 import { matchDelivery, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js'
+import { verifiedDeliveryOptions, verifiedDeliveryPlace, verifiedInputPoint, verifiedOptionsForMatching } from './delivery-geography.js'
 import { isDeepStrictEqual } from 'node:util'
 
 type Queryable = Pick<PoolClient, 'query'>
@@ -212,7 +213,7 @@ const deliveryPlace = (code: string | null, latitude: number | string | null, lo
     settlementCode: code, region: getSettlement(code)?.region ?? null,
     publicPoint: latitude === null || longitude === null ? null : visibility === 'public' ? { latitude: Number(latitude), longitude: Number(longitude) } : approximatePoint({ latitude: Number(latitude), longitude: Number(longitude) }),
 })
-const offerDto = (row: OfferRow) => ({
+const offerDto = async (row: OfferRow) => ({
     id: row.id, seller: { id: row.seller_id, username: row.seller_username, rating: row.seller_rating == null ? null : Number(row.seller_rating), avatarUrl: row.seller_avatar, completedDeals: row.seller_deals ?? 0 }, buyRequestId: row.buy_request_id, requestTitle: row.request_title, requestStatus: row.request_status,
     existingProduct: row.product_id ? { id: row.product_id, title: row.product_title } : null,
     title: row.title ?? row.product_title ?? row.request_title, description: row.description, characteristics: row.characteristics, creationMode: row.creation_mode,
@@ -220,8 +221,8 @@ const offerDto = (row: OfferRow) => ({
     quantity: Number(row.offered_quantity), acceptedQuantity: Number(row.accepted_quantity), unit: row.unit,
     price: { amount: Number(row.unit_price), currency: row.currency }, delivery: row.delivery, deliveryOptions: row.delivery_options, note: row.note,
     deliveryCompatibility: matchDelivery(
-        { options: row.request_delivery_options, place: deliveryPlace(row.request_settlement_code, row.request_latitude, row.request_longitude, row.request_address_visibility) },
-        { options: row.delivery_options, place: deliveryPlace(row.product_settlement_code, row.product_latitude, row.product_longitude, row.product_address_visibility) },
+        { options: row.request_delivery_options, place: await verifiedDeliveryPlace(deliveryPlace(row.request_settlement_code, row.request_latitude, row.request_longitude, row.request_address_visibility)) },
+        { options: await verifiedOptionsForMatching(row.delivery_options), place: await verifiedDeliveryPlace(deliveryPlace(row.product_settlement_code, row.product_latitude, row.product_longitude, row.product_address_visibility)) },
     ),
     additionalPhotoUrl: row.additional_photo_url, termsSnapshot: row.terms, deliverySnapshot: row.delivery_terms,
     photos: row.offer_photos ?? [], pendingNegotiation: row.pending_negotiation, waitingConfirmation: row.waiting_confirmation,
@@ -268,6 +269,7 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     if (input.deadline != null && deadline === null) return invalid(['deadline'])
     if (latitude !== null && (latitude < -90 || latitude > 90)) return invalid(['latitude'])
     if (longitude !== null && (longitude < -180 || longitude > 180)) return invalid(['longitude'])
+    if (!await verifiedInputPoint({ settlementCode: input.settlementCode, label: input.geoArea, countryCode: input.countryCode ?? 'UA', latitude, longitude })) return invalid(['latitude', 'longitude'])
     const deliveryRequired = input.receiptMethod != null ? input.receiptMethod === 'SELLER_DELIVERY' : input.delivery === 'yes' || input.delivery === 'preferred' || input.deliveryRequired === true
     const preferredDelivery = input.receiptMethod != null ? input.receiptMethod === 'SELF_PICKUP' ? 'pickup' : 'seller_delivery' : input.preferredDelivery ?? (input.delivery === 'preferred' ? 'preferred' : null)
     const receiptMethod = input.receiptMethod ?? (preferredDelivery === 'pickup' && !deliveryRequired ? 'SELF_PICKUP' : preferredDelivery === 'seller_delivery' ? 'SELLER_DELIVERY' : null)
@@ -368,6 +370,9 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
         ? (input[key] == null ? null : Number(input[key])) !== (current.rows[0][column] == null ? null : Number(current.rows[0][column]))
         : input[key] !== current.rows[0][column]))
     if ((hasOffers || hasDeals) && geographyChanged) return { status: 409, body: { error: 'DELIVERY_OPTIONS_LOCKED', message: 'Місце й спосіб отримання не можна змінити після появи пропозиції або угоди.' } }
+    if (geographyChanged && !await verifiedInputPoint({ settlementCode: settlement, label: 'geoArea' in input ? input.geoArea : current.rows[0].geo_area,
+        countryCode: country, latitude: 'latitude' in input ? input.latitude : number(current.rows[0].latitude),
+        longitude: 'longitude' in input ? input.longitude : number(current.rows[0].longitude) })) { await client.query('ROLLBACK'); return invalid(['latitude', 'longitude']) }
     if ((hasOffers || hasDeals) && Object.keys(normalizedInput).some((key) => key in allowed && immutableAfterOffers.includes(key))) return { status: 409, body: { error: 'REQUEST_TERMS_LOCKED' } }
     if (input.quantity !== undefined && Number(input.quantity) < Number(current.rows[0].selected_quantity) + Number(current.rows[0].completed_quantity)) return { status: 409, body: { error: 'REQUEST_QUANTITY_BELOW_ALLOCATED' } }
     if (input.status !== undefined && !['cancelled', 'expired'].includes(String(input.status))) return { status: 409, body: { error: 'REQUEST_STATUS_MANAGED_BY_DEALS' } }
@@ -396,14 +401,14 @@ export const listOffers = async (user: AuthUser, requestId: string) => {
     const isSeller = Boolean((await pool.query('SELECT 1 FROM offers WHERE buy_request_id = $1 AND seller_id = $2', [requestId, user.id])).rowCount)
     if (!isBuyer && !isSeller) return { status: 403, body: { error: 'FORBIDDEN' } }
     const result = await pool.query(`${offerSelect} WHERE o.buy_request_id = $1 ${isBuyer ? '' : 'AND o.seller_id = $2'} ORDER BY o.created_at`, isBuyer ? [requestId] : [requestId, user.id])
-    return { status: 200, body: { offers: result.rows.map(offerDto) } }
+    return { status: 200, body: { offers: await Promise.all(result.rows.map(offerDto)) } }
 }
 
 export const listMyOffers = async (user: AuthUser, page = 1) => {
     const safePage = Math.max(1, Number.parseInt(String(page), 10) || 1)
     const count = await pool.query<{ count: string }>('SELECT count(*) FROM offers WHERE seller_id = $1', [user.id])
     const result = await pool.query(`${offerSelect} WHERE o.seller_id = $1 ORDER BY o.updated_at DESC, o.id DESC LIMIT 100 OFFSET $2`, [user.id, (safePage - 1) * 100])
-    return { status: 200, body: { offers: result.rows.map(offerDto), pagination: { page: safePage, pages: Math.ceil(Number(count.rows[0].count) / 100) } } }
+    return { status: 200, body: { offers: await Promise.all(result.rows.map(offerDto)), pagination: { page: safePage, pages: Math.ceil(Number(count.rows[0].count) / 100) } } }
 }
 
 export const recordOfferView = async (user: AuthUser, offerId: string) => {
@@ -437,6 +442,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     if (input.productId && !product?.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
     if (Array.isArray(input.deliveryOptions)) {
         const option = input.deliveryOptions[0] as DeliveryOption
+        if (!await verifiedDeliveryOptions([option])) return invalid(['deliveryOptions'])
         if (input.productId && !(product?.rows[0].delivery_options as DeliveryOption[] | null)?.some(candidate => isDeepStrictEqual(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH', message: 'Цей спосіб не підтверджений вибраним товаром.' } }
         if (!input.productId && ['SELF_PICKUP', 'SELLER_DELIVERY'].includes(option.method) && !option.place?.settlementCode) return invalid(['deliveryOptions'])
         if (!input.productId && option.method === 'SELLER_DELIVERY' && (option.radiusKm ?? 0) > 0 && !option.place?.publicPoint) return invalid(['deliveryOptions'])
@@ -457,7 +463,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     await createNotification(client, request.rows[0].buyer_id, 'order', 'Нова пропозиція', 'Продавець відповів на ваш запит', 'buying', { buyRequestId: requestId })
     await audit(client, user.id, 'offer.created', 'offer', created.rows[0].id, { requestId })
     await client.query('COMMIT'); committed = true
-    return { status: 201, body: { offer: offerDto(result.rows[0]) } }
+    return { status: 201, body: { offer: await offerDto(result.rows[0]) } }
     } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await offerPhotoStorage.remove(photo.storageKey) } client.release() }
 }
 
@@ -571,6 +577,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         const selectedOptions = input.deliveryOptions === undefined ? existing.delivery_options as DeliveryOption[] | null : input.deliveryOptions as DeliveryOption[]
         if (selectedOptions?.length) {
             const option = selectedOptions[0]
+            if (input.deliveryOptions !== undefined && !await verifiedDeliveryOptions([option])) return invalid(['deliveryOptions'])
             if (selectedProductId) {
                 const linkedProduct = await client.query<{ delivery_options: DeliveryOption[] | null }>('SELECT delivery_options FROM products WHERE id=$1 AND owner_id=$2 FOR SHARE', [selectedProductId, user.id])
                 if (!linkedProduct.rows[0]?.delivery_options?.some(candidate => isDeepStrictEqual(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH' } }
@@ -612,7 +619,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
                 await client.query('SELECT pg_advisory_unlock($1, $2)', offerPhotoLock)
             }
         }
-        return { status: 200, body: { offer: offerDto(result.rows[0]) } }
+        return { status: 200, body: { offer: await offerDto(result.rows[0]) } }
     } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await offerPhotoStorage.remove(photo.storageKey) } client.release() }
 }
 

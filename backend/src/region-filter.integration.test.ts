@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
+import { getSettlement } from './settlements.js'
 
 const hasDatabase = Boolean(process.env.DATABASE_URL)
 
@@ -19,8 +20,8 @@ if (hasDatabase) {
                 expect((await seller.post('/api/auth/register').send(sellerPayload)).status).toBe(201)
                 expect((await buyer.post('/api/auth/register').send(buyerPayload)).status).toBe(201)
                 const category = (await guest.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
-                const rivne = (await guest.get('/api/settlements').query({ region: 'Рівненська область', limit: 1 })).body.settlements[0]
-                const kyiv = (await guest.get('/api/settlements').query({ region: 'Київська область', limit: 1 })).body.settlements[0]
+                const rivne = getSettlement('UA56060470010041018')!
+                const kyiv = getSettlement('UA80000000000093317')!
                 expect(category).toBeDefined(); expect(rivne).toBeDefined(); expect(kyiv).toBeDefined()
 
                 const rivneProduct = await seller.post('/api/products').send({ categoryId: category.id, title: `Рівненський товар ${suffix}`, description: suffix, quantity: 10, unit: 'kg', price: 10, currency: 'UAH', deliveryMode: 'pickup', geoZone: rivne.name, settlementCode: rivne.code, latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' })

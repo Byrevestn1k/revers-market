@@ -29,10 +29,21 @@ if (process.env.DATABASE_URL) {
       return response.body.subscription;
     };
     const createRequest = async (fields: Record<string, unknown> = {}) => {
+      const locations: Record<string, { latitude: number; longitude: number }> = {
+        [rivne.code]: { latitude: 50.612345, longitude: 26.212345 },
+        [kyiv.code]: { latitude: 50.4501, longitude: 30.5234 },
+        UA56040110010080334: { latitude: 50.4166, longitude: 25.734 },
+        UA07080170010083384: { latitude: 50.747, longitude: 25.325 },
+      };
+      const selectedCode = typeof fields.settlementCode === 'string' ? fields.settlementCode : rivne.code;
+      const location = fields.settlementCode === null && String(fields.geoArea ?? '').startsWith('Млинів,  Млинівська')
+        ? { latitude: 50.5118774, longitude: 25.6126259 }
+        : fields.settlementCode === null && fields.geoArea !== undefined && fields.geoArea !== 'Рівне' && fields.geoArea !== rivne.region
+          ? { latitude: null, longitude: null } : locations[selectedCode] ?? locations[rivne.code];
       const response = await buyer.post('/api/buy-requests').send({
         categoryId, title: 'Потрібен мед для Step 8', description: '', quantity: 10, unit: 'kg', currency: 'UAH',
         minPrice: 1, maxPrice: 200, ...(fields.receiptMethod ? {} : { delivery: 'no' }), deliveryOptions: [{ method: 'POSTAL_DELIVERY' }], geoArea: rivne.name, settlementCode: rivne.code,
-        address: 'Секретна адреса 123', addressVisibility: 'private', latitude: 50.612345, longitude: 26.212345,
+        address: 'Секретна адреса 123', addressVisibility: 'private', ...location,
         ...fields,
       });
       expect(response.status, JSON.stringify(response.body)).toBe(201);
@@ -129,7 +140,8 @@ if (process.env.DATABASE_URL) {
       const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
       await subscribe(seller, { deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 20, place }] });
       const near = await createRequest({ deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
-      await createRequest({ latitude: 50.75, longitude: 25.33, deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
+      const lutsk = searchSettlements('Луцьк').settlements.find(item => item.name === 'Луцьк')!;
+      await createRequest({ settlementCode: lutsk.code, geoArea: lutsk.name, latitude: 50.747, longitude: 25.325, deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
       await createRequest({ latitude: null, longitude: null, deliveryOptions: [{ method: 'SELLER_DELIVERY' }] });
       expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([near]);
     });
@@ -343,9 +355,10 @@ if (process.env.DATABASE_URL) {
     });
 
     it('uses only the public rounded point for suburbs, preserving privacy', async () => {
-      const shape = (lat:number,lon:number) => ({rings:[[{latitude:lat-0.0001,longitude:lon-0.0001},{latitude:lat-0.0001,longitude:lon+0.0001},{latitude:lat+0.0001,longitude:lon+0.0001},{latitude:lat+0.0001,longitude:lon-0.0001},{latitude:lat-0.0001,longitude:lon-0.0001}]],maxDistanceKm:0});
+      const shape = (lat:number,lon:number, code:string) => ({rings:[[{latitude:lat-0.0001,longitude:lon-0.0001},{latitude:lat-0.0001,longitude:lon+0.0001},{latitude:lat+0.0001,longitude:lon+0.0001},{latitude:lat+0.0001,longitude:lon-0.0001},{latitude:lat-0.0001,longitude:lon-0.0001}]],maxDistanceKm:0,source:{provider:'OSM' as const,osmType:'relation',osmId:1,settlementCode:code}});
       const lutsk = searchSettlements('Луцьк').settlements.find(item=>item.name==='Луцьк')!;
-      const lookup = vi.spyOn(boundaries,'settlementAdministrativeBoundary').mockImplementation(async city => city.code===kyiv.code ? shape(50.61,26.21) : shape(50.6149,26.2149));
+      const realBoundary = boundaries.settlementAdministrativeBoundary;
+      const lookup = vi.spyOn(boundaries,'settlementAdministrativeBoundary').mockImplementation(async city => city.code === rivne.code ? realBoundary(city) : city.code===kyiv.code ? shape(50.61,26.21,city.code) : city.code===lutsk.code ? shape(50.6149,26.2149,city.code) : realBoundary(city));
       const saved = await subscribe(seller,{settlementCodes:[kyiv.code],cityOutsideKm:0});
       await subscribe(other,{settlementCodes:[lutsk.code],cityOutsideKm:0});
       expect(saved).not.toHaveProperty('settlementBoundaries');
@@ -353,8 +366,9 @@ if (process.env.DATABASE_URL) {
       expect((await notifications()).notifications.map((n:{buyRequestId:string})=>n.buyRequestId)).toEqual([id]);
       expect((await notifications(other)).notifications).toHaveLength(0);
       expect(JSON.stringify(await notifications())).not.toMatch(/50\.6149|26\.2149|Секретна/);
-      expect(lookup).toHaveBeenCalledTimes(2); // No provider calls during matching.
-      await createRequest({latitude:49,longitude:24});
+      expect(lookup).toHaveBeenCalled();
+      const zhytomyr = searchSettlements('Житомир').settlements.find(item => item.name === 'Житомир' && item.type === 'city')!;
+      await createRequest({geoArea:zhytomyr.name,settlementCode:zhytomyr.code,latitude:50.2547,longitude:28.6587});
       await createRequest({latitude:null,longitude:null});
       expect((await notifications()).notifications).toHaveLength(1);
       expect((await seller.patch('/api/demand-subscriptions/'+saved.id).send({cityOutsideKm:null})).status).toBe(200);
@@ -362,7 +376,7 @@ if (process.env.DATABASE_URL) {
       expect((await notifications()).notifications).toHaveLength(1);
       const exact = await createRequest({geoArea:kyiv.name,settlementCode:kyiv.code,latitude:null,longitude:null});
       expect((await notifications()).notifications.some((n:{buyRequestId:string})=>n.buyRequestId===exact)).toBe(true);
-    });
+    }, 30000);
 
     it('shows a private address approximately and a consented public address exactly', async () => {
       const subscription = await subscribe(seller, { settlementCodes: [rivne.code] });

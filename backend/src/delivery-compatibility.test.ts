@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { matchDelivery, validateDeliveryOptions, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js';
 
-const rivne: DeliveryPlace = { settlementCode: 'UA56060470010041018', region: 'Рівненська область', publicPoint: { latitude: 50.62, longitude: 26.25 } };
-const lutsk: DeliveryPlace = { settlementCode: null, region: 'Волинська область', publicPoint: { latitude: 50.75, longitude: 25.33 } };
+const rivne: DeliveryPlace = { settlementCode: 'UA56060470010041018', region: 'Рівненська область', publicPoint: { latitude: 50.62, longitude: 26.25 }, verifiedPoint: true };
+const lutsk: DeliveryPlace = { settlementCode: null, region: 'Волинська область', publicPoint: { latitude: 50.75, longitude: 25.33 }, verifiedPoint: true };
 const unknown: DeliveryPlace = { settlementCode: null, region: null, publicPoint: null };
 const buyer = (options: DeliveryOption[], place = rivne) => ({ options, place });
 const seller = (options: DeliveryOption[], place = rivne) => ({ options, place });
@@ -20,6 +20,13 @@ describe('delivery compatibility', () => {
     expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }]), seller([{ method: 'SELLER_DELIVERY', radiusKm: 20 }])).status).toBe('EXACT_MATCH');
     expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }]), seller([{ method: 'SELLER_DELIVERY', radiusKm: 20 }], lutsk)).status).toBe('NO_MATCH');
     expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }], unknown), seller([{ method: 'SELLER_DELIVERY', radiusKm: 20 }])).status).toBe('UNKNOWN');
+  });
+
+  it('does not trust old unverified coordinates even when they coincide', () => {
+    const corrupt = { ...rivne, publicPoint: { latitude: 0, longitude: 0 }, verifiedPoint: false };
+    expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }], corrupt), seller([{ method: 'SELLER_DELIVERY', radiusKm: 10 }], corrupt)).status).toBe('UNKNOWN');
+    expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 0 }], corrupt), seller([{ method: 'SELF_PICKUP' }], corrupt)).status).toBe('UNKNOWN');
+    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }], corrupt), seller([{ method: 'POSTAL_DELIVERY', nationwide: true }])).status).toBe('EXACT_MATCH');
   });
 
   it('checks postal regions and prefers any real exact method', () => {

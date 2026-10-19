@@ -25,7 +25,7 @@ if (hasDatabase) {
                 const grains = categories.find((item: { code: string }) => item.code === 'grains')
                 const vegetables = categories.find((item: { code: string }) => item.code === 'vegetables')
                 const nearProduct = await seller.post('/api/products').send({ categoryId: grains.id, title: 'Тестова пшениця поруч', description: '', quantity: 100, unit: 'kg', price: 20, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київ', latitude: 50.4506, longitude: 30.5239, status: 'active' })
-                const farProduct = await seller.post('/api/products').send({ categoryId: vegetables.id, title: 'Тестові овочі далеко', description: '', quantity: 100, unit: 'kg', price: 30, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Житомир', latitude: 50.9, longitude: 30.5, status: 'active' })
+                const farProduct = await seller.post('/api/products').send({ categoryId: vegetables.id, title: 'Тестові овочі далеко', description: '', quantity: 100, unit: 'kg', price: 30, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Житомир', latitude: 50.2547, longitude: 28.6587, status: 'active' })
                 expect(nearProduct.status).toBe(201)
                 expect(farProduct.status).toBe(201)
                 const createdRequest = await buyer.post('/api/buy-requests').send({ categoryId: grains.id, title: 'Тестовий запит поруч', description: 'Тест мапи', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 10, maxPrice: 20, delivery: 'yes', geoArea: 'Київ', address: 'Точна тестова адреса 42', latitude: 50.451, longitude: 30.524, deadline: '2030-01-01T00:00:00.000Z' })

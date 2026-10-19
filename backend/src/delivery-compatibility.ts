@@ -13,7 +13,7 @@ export type DeliveryOption = {
   nationwide?: boolean;
   place?: DeliveryPlace;
 };
-export type DeliveryPlace = { settlementCode: string | null; region: string | null; publicPoint: MapPoint | null };
+export type DeliveryPlace = { settlementCode: string | null; region: string | null; publicPoint: MapPoint | null; verifiedPoint?: boolean };
 export type DeliveryParty = { options: DeliveryOption[] | null; place: DeliveryPlace };
 export type DeliveryMatch = { status: DeliveryStatus; methods: DeliveryMethod[] };
 
@@ -71,8 +71,9 @@ function compatible(method: DeliveryMethod, buyer: DeliveryOption, seller: Deliv
     if (buyer.region && sellerPlace.region) return buyer.region === sellerPlace.region ? 'EXACT_MATCH' : 'NO_MATCH';
     if (buyer.region) return 'UNKNOWN';
     if (buyer.radiusKm !== undefined) {
-      if (buyer.radiusKm === 0 && buyerPlace.settlementCode && sellerPlace.settlementCode) return buyerPlace.settlementCode === sellerPlace.settlementCode ? 'EXACT_MATCH' : 'NO_MATCH';
+      if (buyer.radiusKm === 0 && buyerPlace.settlementCode && sellerPlace.settlementCode) return buyerPlace.publicPoint && !buyerPlace.verifiedPoint || sellerPlace.publicPoint && !sellerPlace.verifiedPoint ? 'UNKNOWN' : buyerPlace.settlementCode === sellerPlace.settlementCode ? 'EXACT_MATCH' : 'NO_MATCH';
       if (!buyerPlace.publicPoint || !sellerPlace.publicPoint) return 'UNKNOWN';
+      if (!buyerPlace.verifiedPoint || !sellerPlace.verifiedPoint) return 'UNKNOWN';
       return radiusStatus(buyerPlace.publicPoint, sellerPlace.publicPoint, buyer.radiusKm);
     }
   }
@@ -80,8 +81,9 @@ function compatible(method: DeliveryMethod, buyer: DeliveryOption, seller: Deliv
     if (seller.regions?.length && buyerPlace.region) return seller.regions.includes(buyerPlace.region) ? 'EXACT_MATCH' : 'NO_MATCH';
     if (seller.regions?.length) return 'UNKNOWN';
     if (seller.radiusKm !== undefined) {
-      if (seller.radiusKm === 0 && buyerPlace.settlementCode && sellerPlace.settlementCode) return buyerPlace.settlementCode === sellerPlace.settlementCode ? 'EXACT_MATCH' : 'NO_MATCH';
+      if (seller.radiusKm === 0 && buyerPlace.settlementCode && sellerPlace.settlementCode) return buyerPlace.publicPoint && !buyerPlace.verifiedPoint || sellerPlace.publicPoint && !sellerPlace.verifiedPoint ? 'UNKNOWN' : buyerPlace.settlementCode === sellerPlace.settlementCode ? 'EXACT_MATCH' : 'NO_MATCH';
       if (!sellerPlace.publicPoint || !buyerPlace.publicPoint) return 'UNKNOWN';
+      if (!sellerPlace.verifiedPoint || !buyerPlace.verifiedPoint) return 'UNKNOWN';
       return radiusStatus(sellerPlace.publicPoint, buyerPlace.publicPoint, seller.radiusKm);
     }
   }

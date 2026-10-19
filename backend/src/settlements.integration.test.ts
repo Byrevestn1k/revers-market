@@ -22,7 +22,7 @@ if (process.env.DATABASE_URL) {
                 const first = await agent.post('/api/products').send({ ...product, settlementCode: city.code })
                 expect(first.status).toBe(201)
                 expect(first.body.product.settlement.code).toBe(city.code)
-                const second = await agent.post('/api/products').send({ ...product, settlementCode: village.code })
+                const second = await agent.post('/api/products').send({ ...product, settlementCode: village.code, latitude: null, longitude: null })
                 expect(second.status).toBe(201)
                 const markers = await agent.get('/api/map/markers').query({ latitude: 50.62, longitude: 26.25, radiusKm: 10, cityName: city.name, settlementCode: city.code, q: username, showBuyRequests: false })
                 expect(markers.status).toBe(200)
