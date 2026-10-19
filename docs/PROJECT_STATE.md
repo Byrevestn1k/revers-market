@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 14 — IMPLEMENTATION, AWAITING INDEPENDENT REVIEW`.
+**Current step:** `STEP 14 — DONE, INDEPENDENT REVIEW PASS`.
 
-**Last updated:** 2026-10-16
+**Last updated:** 2026-10-19
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -94,13 +94,14 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 11 — Mobile UX corrections | Independent review PASS. Favorites for Products, Buy Requests and Profiles, responsive cards, map marker/cluster behavior and single-result markers were verified with the real local API and database. A direct single marker centers at maximum zoom and opens its object; multi-object clusters open their list in one click. Physical-device keyboard language switching remains a separate P1 `UNRESOLVED`. |
 | `DONE` | STEP 12 — Buy Request UX parity | Creation/editing, up to 8 uploaded photos, cards, category fallback and detail gallery implemented. Independent re-review PASS; integrated into `main`. |
 | `DONE` | STEP 13 — Seller Offer redesign | Three creation paths, owned photo snapshots, editable terms, comparison and Deal snapshot. Final independent REVIEW PASS after photo-retention, lock-order and legacy-photo corrections; integrated into `main`. See [STEP_13_REVIEW.md](STEP_13_REVIEW.md). |
+| `DONE` | STEP 14 — Delivery matching | Independent final REVIEW PASS after geographic and radius-validation corrections. Product, Buy Request, Seller Offer, Demand Subscription, matching and Notifications were checked against real PostgreSQL. See [STEP_14_REVIEW.md](STEP_14_REVIEW.md). |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 14 IMPLEMENTED, REVIEW PENDING.** Migration 046 adds nullable structured delivery options without guessing old territories. Product, Request, Offer and existing Step 8 subscriptions support method-specific geography; matching distinguishes EXACT_MATCH, POSSIBLE_AGREEMENT, NO_MATCH and UNKNOWN. Confirmed subscription alerts require an exact delivery match. The ordinary map remains available and gains an explicit method filter. Deal snapshots retain agreed terms. On an isolated PostgreSQL/PostGIS database, the full backend suite passed 225 tests (1 skipped); migration 046 passed with populated legacy Product, Request, Offer and Deal; focused map/delivery integration passed; TypeScript and production build passed. Real Chromium scenarios A–F and map filter/edit QA passed, including 1440/1280/1024/768/390/320 px checks where recorded in the browser spec. See [STEP_14_IMPLEMENTATION.md](STEP_14_IMPLEMENTATION.md) for the contract. Independent review has not yet happened; physical-device keyboard switching remains UNVERIFIED.
+**STEP 14 DONE — independent REVIEW PASS at `b5d1ad8`.** Migration 046 adds nullable structured delivery options without guessing old territories. Product, Request, Offer and Step 8 subscriptions support method-specific geography; matching distinguishes EXACT_MATCH, POSSIBLE_AGREEMENT, NO_MATCH and UNKNOWN. Coordinates must agree with the claimed settlement, and new radius values start at 1 km. Historical zero-radius matches with missing or unverified points remain UNKNOWN and do not trigger automatic Notifications; confirmed postal regions can match without coordinates. Deal snapshots retain agreed terms. Final focused real-PostgreSQL tests passed 70/70 in eight files; typecheck passed. Direct API checks confirmed HTTP 400 for 0/0.5/0.99 km, HTTP 201 for 1/1.5 km and unchanged database state after a rejected edit. Chromium at 390 px confirmed the UI minimum and no horizontal overflow. Earlier independent Step 14 Browser E2E passed 1/1 at 1440/390 px for unchanged subscription and notification flows. The full backend suite and full Browser E2E were not rerun after the last correction; physical-device keyboard switching remains UNVERIFIED. Details: [STEP_14_REVIEW.md](STEP_14_REVIEW.md); behavior contract: [STEP_14_IMPLEMENTATION.md](STEP_14_IMPLEMENTATION.md).
 
 **STEP 13 DONE.** Migration 045 and three Seller Offer creation paths, owned photos, editing, comparison and Deal snapshots passed final independent review. Correction `1945b3e` fixes advisory/Product lock order, copies surviving photos of legacy Offers when selected, and prevents explicitly removed legacy photos from reappearing. See [STEP_13_REVIEW.md](STEP_13_REVIEW.md). Physical mobile keyboard switching remains UNVERIFIED.
 
