@@ -194,7 +194,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [error, setError] = useState('')
     const [mapQuery, setMapQuery] = useState(() => restored?.mapQuery ?? '')
     const [mapSearch, setMapSearch] = useState(() => restored?.mapSearch ?? '')
-    const [searchIn, setSearchIn] = useState<'title' | 'all' | 'owner'>(() => restored?.searchIn ?? 'title')
+    const [searchIn, setSearchIn] = useState<'title' | 'all' | 'owner'>(() => restored?.searchIn ?? 'all')
     const [searchRevision, setSearchRevision] = useState(0)
     const [focusRevision, setFocusRevision] = useState(0)
     const displayMode = 'sellers' as const
@@ -962,7 +962,33 @@ function App() {
 }
 
 function Home({ user, products, open, explore, create, onChat, favoriteKeys = new Set<string>(), onFavorite }: { user: User; products: Product[]; open: (product: Product) => void; explore: () => void; create: () => void; onChat: (product: Product) => void; favoriteKeys?: Set<string>; onFavorite?: (id: string) => void }) { return <section className="content"><div className="welcome"><div><span className="eyebrow">Понеділок, гарного дня</span><h1>Привіт, {user.username} <span>✦</span></h1><p>Що шукаєте або продаєте сьогодні?</p></div><button className="primary-button compact" onClick={create}>＋ Додати товар</button></div><div className="hero-strip"><div><span className="eyebrow">Локальний маркетплейс</span><h2>Ваш врожай<br /><em>має значення.</em></h2><button className="light-button" onClick={explore}>Переглянути товари <span>→</span></button></div><div className="hero-art">✦</div></div><div className="section-heading"><div><span className="eyebrow">Рекомендоване</span><h2>Товари поруч</h2></div><button className="text-button" onClick={explore}>Дивитись всі →</button></div><div className="product-grid">{products.slice(0, 4).map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} onChat={() => onChat(product)} favorite={favoriteKeys.has('product:' + product.id)} onFavorite={onFavorite ? () => void onFavorite(product.id) : undefined} />)}</div>{!products.length && <Empty text="Поки немає активних товарів" />}</section> }
-function Catalog({ categories, products, loading, search, setSearch, searchNow, page, pages, onPage, open, onChat, favoriteKeys = new Set<string>(), onFavorite }: { categories: Category[]; products: Product[]; loading: boolean; search: string; setSearch: (value: string) => void; searchNow: () => void; page: number; pages: number; onPage: (page: number) => void; open: (product: Product) => void; onChat: (product: Product) => void; favoriteKeys?: Set<string>; onFavorite?: (id: string) => void }) { const [selectedCategory, setSelectedCategory] = useState(''); const [catalogQuery, setCatalogQuery] = useState(''); const [catalogSettlement, setCatalogSettlement] = useState<Settlement | null>(null); const [catalogRegion, setCatalogRegion] = useState(''); const [catalogProducts, setCatalogProducts] = useState(products); const [catalogPage, setCatalogPage] = useState(page); const [catalogPages, setCatalogPages] = useState(pages); const [catalogLoading, setCatalogLoading] = useState(false); const runSearch = async (nextPage = 1, category = selectedCategory) => { setCatalogLoading(true); try { const params = new URLSearchParams({ page: String(nextPage), limit: '8' }); if (search && !catalogRegion) params.set('geoZone', search); if (catalogSettlement) params.set('settlementCode', catalogSettlement.code); if (catalogRegion) params.set('region', catalogRegion); if (catalogQuery.trim()) params.set('q', catalogQuery.trim()); if (category) params.set('categoryId', category); const result = await request(`/api/products?${params}`); setCatalogProducts(result.products); setCatalogPage(result.pagination.page); setCatalogPages(result.pagination.pages) } finally { setCatalogLoading(false) } }; useEffect(() => { if (!selectedCategory && !search && !catalogQuery && !catalogRegion) { setCatalogProducts(products); setCatalogPage(page); setCatalogPages(pages) } }, [products, page, pages, selectedCategory, search, catalogQuery, catalogRegion]); const chooseCategory = (value: string) => { setSelectedCategory(value); runSearch(1, value) }; const busy = loading || catalogLoading; return <section className="content"><div className="view-header"><div><span className="eyebrow">Каталог</span><h1>Знайти товари</h1></div></div><div className="search-bar"><span>⌕</span><input type="search" aria-label="Пошук товару або продавця" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch(1)} placeholder="Товар або логін продавця" /><SettlementPicker value={catalogSettlement} legacyName={catalogRegion || search} onChange={item => { setCatalogSettlement(item); setCatalogRegion(''); setSearch(item?.name ?? '') }} onRegionChange={region => { setCatalogRegion(region ?? ''); setCatalogSettlement(null); setSearch(region ?? '') }} allowClear /><button onClick={() => runSearch(1)}>Пошук</button></div><div className="filter-row"><span className="result-label">Активні товари</span><CategoryPicker categories={categories} value={selectedCategory} onChange={chooseCategory} allowAll /></div>{busy ? <div className="loading">Завантаження каталогу...</div> : catalogProducts.length ? <><div className="product-grid">{catalogProducts.map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} onChat={() => onChat(product)} favorite={favoriteKeys.has('product:' + product.id)} onFavorite={onFavorite ? () => onFavorite(product.id) : undefined} />)}</div><Pagination page={catalogPage} pages={catalogPages} onPage={(nextPage) => { runSearch(nextPage); onPage(nextPage) }} /></> : <Empty text="Нічого не знайдено" />}</section> }
+function Catalog({ categories, products, loading, search, setSearch, searchNow, page, pages, onPage, open, onChat, favoriteKeys = new Set<string>(), onFavorite }: { categories: Category[]; products: Product[]; loading: boolean; search: string; setSearch: (value: string) => void; searchNow: () => void; page: number; pages: number; onPage: (page: number) => void; open: (product: Product) => void; onChat: (product: Product) => void; favoriteKeys?: Set<string>; onFavorite?: (id: string) => void }) { const [selectedCategory, setSelectedCategory] = useState(''); const [catalogQuery, setCatalogQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? ''); const [catalogSettlement, setCatalogSettlement] = useState<Settlement | null>(null); const [catalogRegion, setCatalogRegion] = useState(''); const [catalogProducts, setCatalogProducts] = useState(products); const [catalogPage, setCatalogPage] = useState(page); const [catalogPages, setCatalogPages] = useState(pages); const [catalogLoading, setCatalogLoading] = useState(false); const [catalogError, setCatalogError] = useState(''); const requestVersion = useRef(0); const runSearch = async (nextPage = 1, category = selectedCategory) => {
+        const version = ++requestVersion.current;
+        setCatalogLoading(true);
+        setCatalogError('');
+        const url = new URL(window.location.href);
+        if (catalogQuery.trim()) url.searchParams.set('q', catalogQuery.trim());
+        else url.searchParams.delete('q');
+        window.history.replaceState({}, '', url.pathname + url.search);
+        try {
+            const params = new URLSearchParams({ page: String(nextPage), limit: '8' });
+            if (search && !catalogRegion) params.set('geoZone', search);
+            if (catalogSettlement) params.set('settlementCode', catalogSettlement.code);
+            if (catalogRegion) params.set('region', catalogRegion);
+            if (catalogQuery.trim()) params.set('q', catalogQuery.trim());
+            if (category) params.set('categoryId', category);
+            const result = await request(`/api/products?${params}`);
+            if (requestVersion.current === version) {
+                setCatalogProducts(result.products);
+                setCatalogPage(result.pagination.page);
+                setCatalogPages(result.pagination.pages);
+            }
+        } catch (error) {
+            if (requestVersion.current === version) setCatalogError((error as Error).message);
+        } finally {
+            if (requestVersion.current === version) setCatalogLoading(false);
+        }
+    }; useEffect(() => { if (!selectedCategory && !search && !catalogQuery && !catalogRegion) { setCatalogProducts(products); setCatalogPage(page); setCatalogPages(pages) } }, [products, page, pages, selectedCategory, search, catalogQuery, catalogRegion]); useEffect(() => { if (catalogQuery) void runSearch(1); return () => { requestVersion.current += 1 } }, []); const chooseCategory = (value: string) => { setSelectedCategory(value); runSearch(1, value) }; const busy = loading || catalogLoading; return <section className="content"><div className="view-header"><div><span className="eyebrow">Каталог</span><h1>Знайти товари</h1></div></div><div className="search-bar"><span>⌕</span><input type="search" aria-label="Пошук товару або продавця" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch(1)} placeholder="Товар або логін продавця" /><SettlementPicker value={catalogSettlement} legacyName={catalogRegion || search} onChange={item => { setCatalogSettlement(item); setCatalogRegion(''); setSearch(item?.name ?? '') }} onRegionChange={region => { setCatalogRegion(region ?? ''); setCatalogSettlement(null); setSearch(region ?? '') }} allowClear /><button onClick={() => runSearch(1)}>Пошук</button></div><div className="filter-row"><span className="result-label">Активні товари</span><CategoryPicker categories={categories} value={selectedCategory} onChange={chooseCategory} allowAll /></div>{catalogError && <p role="alert" className="form-error">{catalogError}</p>}{busy ? <div className="loading">Завантаження каталогу...</div> : catalogProducts.length ? <><div className="product-grid">{catalogProducts.map((product) => <Card key={product.id} product={product} onOpen={() => open(product)} onChat={() => onChat(product)} favorite={favoriteKeys.has('product:' + product.id)} onFavorite={onFavorite ? () => onFavorite(product.id) : undefined} />)}</div><Pagination page={catalogPage} pages={catalogPages} onPage={(nextPage) => { runSearch(nextPage); onPage(nextPage) }} /></> : <Empty text="Нічого не знайдено" />}</section> }
 function Mine({ products, loading, error, retry, open, create, edit, remove, setStatus }: { products: Product[]; loading: boolean; error: string; retry: () => void; open: (product: Product) => void; create: () => void; edit: (product: Product) => void; remove: (product: Product) => void; setStatus: (product: Product, status: string) => void }) {
     const [group, setGroup] = useState<ActivityGroup | null>(null)
     const selectedGroup = group ?? activityGroups.product.find(item => activityItems('product', products, item.id).length)?.id ?? 'active'
@@ -1070,6 +1096,11 @@ function OfferForm({ buyRequest, viewerId, products, notify, onDone }: { buyRequ
 
 function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>(), onFavorite }: { mine: Product[]; notify: (message: string) => void; viewerId: string; favoriteKeys?: Set<string>; onFavorite?: (targetType: FavoriteTargetType, targetId: string) => Promise<void> }) {
     const [requests, setRequests] = useState<BuyRequest[]>([])
+    const [requestQuery, setRequestQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
+    const [submittedQuery, setSubmittedQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
+    const [requestPage, setRequestPage] = useState(1)
+    const [requestPages, setRequestPages] = useState(1)
+    const requestVersion = useRef(0)
     const [openForm, setOpenForm] = useState('')
     const [myOffers, setMyOffers] = useState<Offer[]>([])
     const [offerGroup, setOfferGroup] = useState<ActivityGroup | null>(null)
@@ -1078,15 +1109,31 @@ function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>
     const [chat, setChat] = useState<{ conversationId: string; title: string } | null>(null)
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState('')
-    const load = async () => {
+    const load = async (query = submittedQuery, page = requestPage) => {
+        const version = ++requestVersion.current
         setLoading(true)
         setLoadError('')
         try {
-            setRequests((await request('/api/buy-requests')).buyRequests.filter((item: BuyRequest) => item.buyer?.id !== viewerId))
-            setMyOffers(await loadActivityPages<Offer>('/api/offers/mine', 'offers'))
-        } catch (error) { setLoadError((error as Error).message) } finally { setLoading(false) }
+            const params = new URLSearchParams({ page: String(page), limit: '50', excludeMine: 'true' })
+            if (query.trim()) params.set('q', query.trim())
+            const [result, offers] = await Promise.all([request('/api/buy-requests?' + params), loadActivityPages<Offer>('/api/offers/mine', 'offers')])
+            if (version !== requestVersion.current) return
+            setRequests(result.buyRequests)
+            setRequestPage(result.pagination?.page ?? page)
+            setRequestPages(result.pagination?.pages ?? 1)
+            setMyOffers(offers)
+        } catch (error) { if (version === requestVersion.current) setLoadError((error as Error).message) } finally { if (version === requestVersion.current) setLoading(false) }
     }
     useEffect(() => { load() }, [])
+    const searchRequests = () => {
+        const query = requestQuery.trim()
+        setSubmittedQuery(query)
+        const url = new URL(window.location.href)
+        if (query) url.searchParams.set('q', query)
+        else url.searchParams.delete('q')
+        window.history.replaceState(window.history.state, '', url.pathname + url.search)
+        void load(query, 1)
+    }
     const withdraw = (offer: Offer) => setWithdrawingOffer(offer)
     const openOfferChat = async (offer: Offer) => {
         try { const result = await request(`/api/offers/${offer.id}/conversation`, { method: 'POST', body: '{}' }); openConversationRoute(result.conversation.id) } catch (error) { notify((error as Error).message) }
@@ -1097,8 +1144,8 @@ function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>
     const focusedOfferId = new URLSearchParams(window.location.search).get('offer')
     const focusedOffer = myOffers.find(offer => offer.id === focusedOfferId)
     const selectedOfferGroup = offerGroup ?? (focusedOffer ? activityGroup('offer', focusedOffer) : activityGroups.offer.find(item => activityItems('offer', myOffers, item.id).length)?.id) ?? 'attention'
-    return <section className="content"><div className="view-header"><div><span className="eyebrow">Продаю</span><h1>Мої пропозиції</h1><p className="view-subtitle">Стежте за відповідями на запити покупців і домовленостями.</p></div><button className="outline-button" onClick={load}>↻ Оновити</button></div>
-        {loading ? <div className="loading">Завантаження запитів і пропозицій…</div> : loadError ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити пропозиції</h3><p>{loadError}</p><button className="primary-button compact" onClick={load}>Спробувати ще раз</button></div> : <>
+    return <section className="content"><div className="view-header"><div><span className="eyebrow">Продаю</span><h1>Мої пропозиції</h1><p className="view-subtitle">Стежте за відповідями на запити покупців і домовленостями.</p></div><button className="outline-button" onClick={() => void load()}>↻ Оновити</button></div>
+        {loading ? <div className="loading">Завантаження запитів і пропозицій…</div> : loadError ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити пропозиції</h3><p>{loadError}</p><button className="primary-button compact" onClick={() => void load()}>Спробувати ще раз</button></div> : <>
         <ActivityTabs kind="offer" items={myOffers} active={selectedOfferGroup} onChange={next => { setOfferGroup(next); setEditingOffer('') }} />
         <div className="request-list">{activityItems('offer', myOffers, selectedOfferGroup).map((offer) => <article key={offer.id} className="request-card"><header><div><span className="eyebrow">Моя пропозиція на запит</span><h3>{offer.title || offer.requestTitle}</h3><a href={isActiveRequest(offer.requestStatus) ? '/buy-requests/' + encodeURIComponent(offer.buyRequestId) : '/requests?offer=' + encodeURIComponent(offer.id)}>Запит: {offer.requestTitle}</a>{offer.existingProduct && <small>Мій товар: {offer.existingProduct.title}</small>}</div><span className="status status-paused">{OFFER_STATUS[offer.status] ?? offer.status}</span></header>
             {!isActiveRequest(offer.requestStatus) && <p className="form-hint">Запит: {REQUEST_STATUS[offer.requestStatus] ?? offer.requestStatus}. Пропозиція збережена в історії.</p>}
@@ -1114,7 +1161,8 @@ function RequestsMarket({ mine, notify, viewerId, favoriteKeys = new Set<string>
             {editingOffer === offer.id && canEditSellerOffer(offer) && <OfferEditForm offer={offer} products={mine} notify={notify} onDone={() => { setEditingOffer(''); load() }} />}
         </article>)}{!activityItems('offer', myOffers, selectedOfferGroup).length && <Empty text={myOffers.length ? activityGroups.offer.find(item => item.id === selectedOfferGroup)!.empty : 'Ви ще не надсилали пропозицій'} />}</div>
         <div className="view-header" style={{ marginTop: '2rem' }}><div><span className="eyebrow">Попит</span><h2>Запити покупців</h2><p className="view-subtitle">Відгукніться своєю пропозицією на запити поруч.</p></div></div>
-        <div className="request-list">{requests.map((item) => <BuyRequestCard key={item.id} item={item} onOpen={() => window.location.assign('/buy-requests/' + encodeURIComponent(item.id))} favorite={favoriteKeys.has(favoriteKey('buy_request', item.id))} onFavorite={onFavorite}>{openForm === item.id ? <OfferForm buyRequest={item} viewerId={viewerId} products={mine} notify={notify} onDone={() => { setOpenForm(''); load() }} /> : <div className="request-actions"><button className="primary-button compact" onClick={() => setOpenForm(item.id)}>Запропонувати</button><button className="outline-button compact" onClick={() => openRequestChat(item)}>♧ Написати покупцю</button></div>}</BuyRequestCard>)}{!requests.length && <Empty text="Відкритих запитів поки немає" />}</div></>}
+        <div className="search-bar request-search-bar"><span>⌕</span><input type="search" aria-label="Пошук запитів покупців" value={requestQuery} onChange={(event) => setRequestQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && searchRequests()} placeholder="Назва, опис або категорія" /><button onClick={searchRequests}>Пошук запитів</button></div>
+        <div className="request-list">{requests.map((item) => <BuyRequestCard key={item.id} item={item} onOpen={() => window.location.assign('/buy-requests/' + encodeURIComponent(item.id))} favorite={favoriteKeys.has(favoriteKey('buy_request', item.id))} onFavorite={onFavorite}>{openForm === item.id ? <OfferForm buyRequest={item} viewerId={viewerId} products={mine} notify={notify} onDone={() => { setOpenForm(''); load() }} /> : <div className="request-actions"><button className="primary-button compact" onClick={() => setOpenForm(item.id)}>Запропонувати</button><button className="outline-button compact" onClick={() => openRequestChat(item)}>♧ Написати покупцю</button></div>}</BuyRequestCard>)}{!requests.length && <Empty text={submittedQuery ? 'За цим запитом нічого не знайдено' : 'Відкритих запитів поки немає'} />}</div><Pagination page={requestPage} pages={requestPages} onPage={(page) => void load(submittedQuery, page)} /></>}
         {chat && <ChatPanel chat={chat} onClose={() => setChat(null)} notify={notify} />}
         {withdrawingOffer && <ConfirmationDialog title="Відкликати пропозицію?" confirmLabel="Відкликати пропозицію" destructive onClose={() => setWithdrawingOffer(null)} onConfirm={async () => { try { await request(`/api/offers/${withdrawingOffer.id}`, { method: 'DELETE' }); notify('Пропозицію відкликано'); setWithdrawingOffer(null); load() } catch (error) { notify((error as Error).message) } }}><p>Покупець більше не зможе обрати цю пропозицію. Її попередні домовленості не змінюються.</p></ConfirmationDialog>}
     </section>
