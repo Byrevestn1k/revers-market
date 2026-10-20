@@ -4,13 +4,14 @@ import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
-import { smartSearchSql } from './smart-search.js'
+import { listingSearchColumns, smartSearchSql } from './smart-search.js'
 import { approximatePoint, regionCondition, settlementCondition } from './map-service.js'
 import { ExternalUrlPhotoStorage, type PhotoStorage, type StoredPhoto } from './photo-storage.js'
 import { validateProductInput, type ProductInput, type ProductStatus } from './product-validation.js'
 import { verifiedDeliveryOptions, verifiedInputPoint } from './delivery-geography.js'
 
 type ProductRow = {
+    total_count?: string
     settlement_code?: string | null
     public_address?: string | null
     id: string; owner_id: string; owner_username: string; category_id: string; category_code: string; category_name: string; category_image_index: number | null
@@ -53,7 +54,7 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
 })
 
 const productSelect = `
-    SELECT p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index,
+    SELECT count(*) OVER() AS total_count, p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index,
            CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
            p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.delivery_options, p.geo_zone,
            p.settlement_code, p.latitude, p.longitude, p.pickup_address, p.address_visibility, p.map_location_mode, p.status, p.expires_at, p.created_at, p.updated_at
@@ -165,15 +166,24 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     if (typeof query.geoZone === 'string' && query.geoZone.trim()) { parameters.push(query.geoZone.trim()); conditions.push(`p.geo_zone ILIKE $${parameters.length}`) }
     const search = query.searchIn === 'owner'
         ? null
-        : smartSearchSql({ title: 'p.title', description: 'p.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'p.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'p.search_text' }, typeof query.q === 'string' ? query.q : undefined, parameters, query.searchIn === 'title')
+        : smartSearchSql(listingSearchColumns('product'), typeof query.q === 'string' ? query.q : undefined, parameters, query.searchIn === 'title')
     if (query.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, parameters))
     if (search) conditions.push(search.condition)
     const where = conditions.join(' AND ')
-    const count = await pool.query<{ count: string }>(`SELECT count(*) FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${where}`, parameters)
+    const countParameters = [...parameters]
     parameters.push(limit, (page - 1) * limit)
     const rows = await pool.query<ProductRow>(`${productSelect} WHERE ${where} ORDER BY ${search ? `${search.rank} DESC, ` : ''}p.created_at DESC, p.id DESC LIMIT $${parameters.length - 1} OFFSET $${parameters.length}`, parameters)
-    const products = await Promise.all(rows.rows.map(async (row) => ({ ...row, photos: (await pool.query<PhotoRow>('SELECT id, storage_key, url, alt, sort_order FROM product_photos WHERE product_id = $1 ORDER BY sort_order, id', [row.id])).rows })))
-    const total = Number(count.rows[0].count)
+    const photosByProduct = new Map<string, PhotoRow[]>()
+    if (rows.rows.length) {
+        const photos = await pool.query<PhotoRow & { product_id: string }>('SELECT product_id, id, storage_key, url, alt, sort_order FROM product_photos WHERE product_id = ANY($1::uuid[]) ORDER BY product_id, sort_order, id', [rows.rows.map(row => row.id)])
+        for (const photo of photos.rows) {
+            const group = photosByProduct.get(photo.product_id)
+            if (group) group.push(photo)
+            else photosByProduct.set(photo.product_id, [photo])
+        }
+    }
+    const products = rows.rows.map(row => ({ ...row, photos: photosByProduct.get(row.id) ?? [] }))
+    const total = rows.rows.length ? Number(rows.rows[0].total_count) : page === 1 ? 0 : Number((await pool.query<{ count: string }>(`SELECT count(*) FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${where}`, countParameters)).rows[0].count)
     return { status: 200, body: { products: products.map((product) => toProductDto(product, product.owner_id === user?.id)), pagination: { page, limit, total, pages: Math.ceil(total / limit) } } }
 }
 

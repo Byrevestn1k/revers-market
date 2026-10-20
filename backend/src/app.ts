@@ -22,6 +22,7 @@ import { externalAuthRouter } from './external-auth.js'
 import type { exchangeProfile } from './external-auth-providers.js'
 import { deleteDemandSubscription, getDemandSubscriptionMatches, getDemandSubscription, listDemandSubscriptions, saveDemandSubscription } from './demand-subscriptions.js'
 import { listFavorites, removeFavorite, setFavorite } from './favorites.js'
+import { createSearchRateLimiter } from './search-rate-limit.js'
 
 const mapService = new MapService()
 
@@ -47,6 +48,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.use(express.json({ limit: '8mb' }))
     app.use('/uploads', express.static(fileURLToPath(new URL('../uploads', import.meta.url))))
     app.use('/api/auth/external', externalAuthRouter(options.providerExchange))
+    app.get(['/api/products', '/api/buy-requests', '/api/map/markers'], createSearchRateLimiter())
 
     app.get('/health', withResult(async () => {
         const database = await checkDatabase()

@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg'
 import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
-import { smartSearchSql } from './smart-search.js'
+import { listingSearchColumns, smartSearchSql } from './smart-search.js'
 import { withinCityOrDistance, type CityBoundary } from './city-boundaries.js'
 import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import { requestPublicLocationSql } from './request-public-location.js'
@@ -147,7 +147,7 @@ export class MapService {
             const index = parameters.push(filters.deliveryMethod)
             conditions.push(`(p.delivery_options @> jsonb_build_array(jsonb_build_object('method', $${index}::text)) OR (p.delivery_options IS NULL AND p.delivery_mode = CASE $${index}::text WHEN 'SELF_PICKUP' THEN 'pickup' WHEN 'SELLER_DELIVERY' THEN 'seller_delivery' WHEN 'POSTAL_DELIVERY' THEN 'carrier' ELSE 'flexible' END))`)
         }
-        const search = filters.searchIn === 'owner' ? null : smartSearchSql({ title: 'p.title', description: 'p.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'p.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'p.search_text' }, filters.q, parameters, filters.searchIn === 'title')
+        const search = filters.searchIn === 'owner' ? null : smartSearchSql(listingSearchColumns('product'), filters.q, parameters, filters.searchIn === 'title')
         if (filters.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], filters.q, parameters))
         if (search) conditions.push(search.condition)
         const result = await this.queryable.query(`SELECT p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode, p.delivery_options,
@@ -187,7 +187,7 @@ export class MapService {
             const index = parameters.push(filters.deliveryMethod)
             conditions.push(`(r.delivery_options @> jsonb_build_array(jsonb_build_object('method', $${index}::text)) OR (r.delivery_options IS NULL AND r.receipt_method = $${index}::text))`)
         }
-        const search = filters.searchIn === 'owner' ? null : smartSearchSql({ title: 'r.title', description: 'r.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'r.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'r.search_text' }, filters.q, parameters, filters.searchIn === 'title')
+        const search = filters.searchIn === 'owner' ? null : smartSearchSql(listingSearchColumns('buyRequest'), filters.q, parameters, filters.searchIn === 'title')
         if (filters.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], filters.q, parameters))
         if (search) conditions.push(search.condition)
         const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, r.delivery_options, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index, photo.url AS photo_url,

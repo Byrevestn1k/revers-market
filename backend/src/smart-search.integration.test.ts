@@ -29,7 +29,11 @@ if (process.env.DATABASE_URL) {
           expect(created.status).toBe(201);
           ids.push(created.body.product.id);
         }
-        const list = async (q: string, extra: Record<string, string> = {}) => (await agent.get('/api/products').query({ q, ownerUsername: username, ...extra })).body;
+        const list = async (q: string, extra: Record<string, string> = {}) => {
+          const response = await agent.get('/api/products').query({ q, ownerUsername: username, ...extra });
+          expect(response.status, JSON.stringify(response.body)).toBe(200);
+          return response.body;
+        };
         const ranked = await list('червоний дитячий велосипед');
         expect(ranked.products.map((item: { id: string }) => item.id)).toEqual([ids[2], ids[3], ids[0]]);
         expect((await list('велосипед дитячий')).products.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([ids[0], ids[2], ids[3]]));
@@ -39,7 +43,15 @@ if (process.env.DATABASE_URL) {
         expect((await list('велоси')).products.map((item: { id: string }) => item.id)).toContain(ids[2]);
         expect((await list(category.name)).products.map((item: { id: string }) => item.id)).toContain(ids[0]);
         expect((await list('несуществующий товар xyz')).products).toEqual([]);
+        expect((await list("'; DROP TABLE products; --")).products).toEqual([]);
+        expect((await list('%_')).products).toEqual([]);
+        expect((await list('z'.repeat(400))).products).toEqual([]);
         expect((await list('червоний дитячий велосипед', { limit: '1', page: '2' })).pagination).toMatchObject({ total: 3, pages: 3 });
+        const firstPage = await list('червоний дитячий велосипед', { limit: '1', page: '1' });
+        const secondPage = await list('червоний дитячий велосипед', { limit: '1', page: '2' });
+        expect(firstPage.products[0].id).toBe(ids[2]);
+        expect(secondPage.products[0].id).toBe(ids[3]);
+        expect(secondPage.products[0].id).not.toBe(firstPage.products[0].id);
         expect((await list('червоний дитячий велосипед', { geoZone: 'невідоме' })).products).toEqual([]);
         const model23 = await agent.post('/api/products').send({ ...base, title: 'Samsung Galaxy S23 Ultra', description: 'Смартфон' });
         const model24 = await agent.post('/api/products').send({ ...base, title: 'Samsung Galaxy S24 Ultra', description: 'Смартфон' });
@@ -48,6 +60,18 @@ if (process.env.DATABASE_URL) {
         expect((await list('Samsung Galaxy S23')).products[0].id).toBe(model23.body.product.id);
         expect((await list('S23')).products.map((item: { id: string }) => item.id)).toEqual([model23.body.product.id]);
         expect((await list('самсунг')).products.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([model23.body.product.id, model24.body.product.id]));
+        const phone13 = await agent.post('/api/products').send({ ...base, title: 'iPhone 13 Pro', description: 'Телефон' });
+        const phone14 = await agent.post('/api/products').send({ ...base, title: 'iPhone 14 Pro', description: 'Телефон' });
+        const drill12 = await agent.post('/api/products').send({ ...base, title: 'Bosch GSR 12V', description: 'Шуруповерт' });
+        const drill18 = await agent.post('/api/products').send({ ...base, title: 'Bosch GSR 18V', description: 'Шуруповерт' });
+        const apples = await agent.post('/api/products').send({ ...base, title: 'Яблука 20', description: 'Сорт Голден' });
+        expect([phone13, phone14, drill12, drill18, apples].map(response => response.status)).toEqual([201, 201, 201, 201, 201]);
+        expect((await list('iPhone 13 Pro')).products.map((item: { id: string }) => item.id)).toEqual([phone13.body.product.id]);
+        expect((await list('Bosch GSR 12V')).products.map((item: { id: string }) => item.id)).toEqual([drill12.body.product.id]);
+        expect((await list('яблука голден 20 кг')).products.map((item: { id: string }) => item.id)).toContain(apples.body.product.id);
+        const fiveWords = await agent.post('/api/products').send({ ...base, title: 'Велосипед Trek 20', description: 'Червоний дитячий' });
+        expect(fiveWords.status).toBe(201);
+        expect((await list('червоний дитячий велосипед trek 20')).products.map((item: { id: string }) => item.id)).toContain(fiveWords.body.product.id);
         const pump = await agent.post('/api/products').send({ ...base, title: 'Насос', description: 'Для води 12В' });
         const wrongVoltage = await agent.post('/api/products').send({ ...base, title: 'Насос', description: 'Для води 220В' });
         expect(pump.status).toBe(201);

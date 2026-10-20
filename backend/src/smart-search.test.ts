@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { searchTokens, smartSearchSql } from './smart-search.js';
+import { listingSearchColumns, searchTokens, smartSearchSql } from './smart-search.js';
 
-const columns = { title: 'p.title', description: 'p.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'p.unit', owner: 'u.username', indexedText: 'p.search_text' };
+const columns = listingSearchColumns('product');
 
 describe('smart search input', () => {
   it('keeps all meaningful words in any order, including models and units', () => {

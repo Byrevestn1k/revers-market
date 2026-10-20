@@ -11,7 +11,7 @@ import { audit, createNotification, usersAreBlocked } from './community-service.
 import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
-import { smartSearchSql } from './smart-search.js'
+import { listingSearchColumns, smartSearchSql } from './smart-search.js'
 import { notifyDemandSubscriptions } from './demand-subscriptions.js'
 import { randomUUID } from 'node:crypto'
 import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './photo-storage.js'
@@ -82,7 +82,7 @@ const asDateOrNull = (value: unknown): string | null => {
     return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
-const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index, u.username AS buyer_username,
+const requestSelect = `SELECT count(*) OVER() AS total_count, r.*, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index, u.username AS buyer_username,
     (SELECT count(*)::int FROM offers ro WHERE ro.buy_request_id = r.id) AS offer_count,
     COALESCE((SELECT jsonb_agg(jsonb_build_object('url', rp.url, 'alt', rp.alt) ORDER BY rp.sort_order, rp.id) FROM buy_request_photos rp WHERE rp.buy_request_id = r.id), '[]'::jsonb) AS photos
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id`
@@ -323,17 +323,18 @@ export const listBuyRequests = async (query: Record<string, unknown>, user?: Aut
     }
     const search = query.searchIn === 'owner'
         ? null
-        : smartSearchSql({ title: 'r.title', description: 'r.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'r.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'r.search_text' }, typeof query.q === 'string' ? query.q : undefined, params, query.searchIn === 'title')
+        : smartSearchSql(listingSearchColumns('buyRequest'), typeof query.q === 'string' ? query.q : undefined, params, query.searchIn === 'title')
     if (query.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, params))
     if (search) conditions.push(search.condition)
     const mine = Boolean(user && query.mine === 'true')
     const page = Math.max(1, Number.parseInt(String(query.page ?? '1'), 10) || 1)
     const limit = Math.min(50, Math.max(1, Number.parseInt(String(query.limit ?? '50'), 10) || 50))
     const where = conditions.join(' AND ')
-    const count = await pool.query<{ count: string }>(`SELECT count(*) FROM buy_requests r JOIN users u ON u.id = r.buyer_id JOIN categories c ON c.id = r.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${where}`, params)
+    const countParams = [...params]
     const order = search ? `${search.rank} DESC, r.created_at DESC, r.id DESC` : mine ? 'r.updated_at DESC, r.id DESC' : 'r.created_at DESC, r.id DESC'
     const result = await pool.query(`${requestSelect} WHERE ${where} ORDER BY ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, (page - 1) * limit])
-    return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)), pagination: { page, limit, total: Number(count.rows[0].count), pages: Math.ceil(Number(count.rows[0].count) / limit) } } }
+    const total = result.rows.length ? Number(result.rows[0].total_count) : page === 1 ? 0 : Number((await pool.query<{ count: string }>(`SELECT count(*) FROM buy_requests r JOIN users u ON u.id = r.buyer_id JOIN categories c ON c.id = r.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${where}`, countParams)).rows[0].count)
+    return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)), pagination: { page, limit, total, pages: Math.ceil(total / limit) } } }
 }
 
 export const updateBuyRequest = async (user: AuthUser, id: string, input: Record<string, unknown>) => {

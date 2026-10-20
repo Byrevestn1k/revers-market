@@ -1,8 +1,8 @@
 # Project state
 
-**Current step:** `STEP 15 — READY FOR REVIEW (implementation branch)`.
+**Current step:** `STEP 15 — READY FOR RE-REVIEW (implementation branch)`.
 
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-20
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
@@ -95,14 +95,14 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 12 — Buy Request UX parity | Creation/editing, up to 8 uploaded photos, cards, category fallback and detail gallery implemented. Independent re-review PASS; integrated into `main`. |
 | `DONE` | STEP 13 — Seller Offer redesign | Three creation paths, owned photo snapshots, editable terms, comparison and Deal snapshot. Final independent REVIEW PASS after photo-retention, lock-order and legacy-photo corrections; integrated into `main`. See [STEP_13_REVIEW.md](STEP_13_REVIEW.md). |
 | `DONE` | STEP 14 — Delivery matching | Independent final REVIEW PASS after geographic and radius-validation corrections. Product, Buy Request, Seller Offer, Demand Subscription, matching and Notifications were checked against real PostgreSQL. See [STEP_14_REVIEW.md](STEP_14_REVIEW.md). |
-| `READY FOR REVIEW` | STEP 15 — Smart Search | Shared PostgreSQL ranking for Product, Buy Request and map; existing listing fields only. Full backend suite, focused PostgreSQL tests and real Chromium E2E passed. See [STEP_15_SEARCH.md](STEP_15_SEARCH.md). |
+| `READY FOR RE-REVIEW` | STEP 15 — Smart Search | Indexed candidate selection, exact COUNT, stable pagination and public search rate limit added after the first review. Broad 10 000-row searches remain above the ~500 ms target; see measured limits in [STEP_15_SEARCH.md](STEP_15_SEARCH.md). |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 15 READY FOR REVIEW.** Migration 047 indexes existing public listing text with `pg_trgm`; a shared scorer ranks multiword, prefix, controlled morphology and typo matches across fields. No new characteristics, brand or model input fields were added per the user's decision. Public Buy Request pagination and catalog query restoration are included. The full backend suite passed 236 tests (1 environment-specific skip); a real Chromium QA flow passed at 1440/1280/1024/768/390/320 px. Synthetic `EXPLAIN ANALYZE` runs at 100/1000/10000 rows show several-second queries on a broad 10000-row category; production-scale profiling remains open. This is implementation evidence, not an independent Reviewer PASS. See [STEP_15_SEARCH.md](STEP_15_SEARCH.md).
+**STEP 15 READY FOR RE-REVIEW.** Migrations 047–049 and shared search code handle multiword, prefix, controlled morphology and typo matches across existing Product and Buy Request fields. The first review found slow full scans; the correction adds indexed candidates, stored word forms, separate match/rank functions, exact COUNT without reranking, stable pages and a local search rate limit. No new characteristics, brand or model input fields were added per the user's decision. The full real-PostgreSQL backend suite passed 237 tests (1 environment-specific skip); focused search tests, typecheck/build and narrow Chromium QA at 1440/390 px passed. On 10 000 same-category records, selective Product HTTP search takes about 242 ms, while broad 3-word search takes about 1445 ms; the ~500 ms goal is not met for broad queries. This is implementation evidence, not an independent Reviewer PASS. See [STEP_15_SEARCH.md](STEP_15_SEARCH.md).
 
 **STEP 14 DONE — independent REVIEW PASS at `b5d1ad8`.** Migration 046 adds nullable structured delivery options without guessing old territories. Product, Request, Offer and Step 8 subscriptions support method-specific geography; matching distinguishes EXACT_MATCH, POSSIBLE_AGREEMENT, NO_MATCH and UNKNOWN. Coordinates must agree with the claimed settlement, and new radius values start at 1 km. Historical zero-radius matches with missing or unverified points remain UNKNOWN and do not trigger automatic Notifications; confirmed postal regions can match without coordinates. Deal snapshots retain agreed terms. Final focused real-PostgreSQL tests passed 70/70 in eight files; typecheck passed. Direct API checks confirmed HTTP 400 for 0/0.5/0.99 km, HTTP 201 for 1/1.5 km and unchanged database state after a rejected edit. Chromium at 390 px confirmed the UI minimum and no horizontal overflow. Earlier independent Step 14 Browser E2E passed 1/1 at 1440/390 px for unchanged subscription and notification flows. The full backend suite and full Browser E2E were not rerun after the last correction; physical-device keyboard switching remains UNVERIFIED. Details: [STEP_14_REVIEW.md](STEP_14_REVIEW.md); behavior contract: [STEP_14_IMPLEMENTATION.md](STEP_14_IMPLEMENTATION.md).
 
@@ -116,7 +116,7 @@ Earlier exact decimal conversion, country/region/city union, repeated territory 
 
 ## REQUIRED CONTEXT
 
-For Step 15 review: this file; [STEP_15_SEARCH.md](STEP_15_SEARCH.md); [PRODUCT.md](PRODUCT.md); migration 047, shared search module, Product/Buy Request/map entry points and their focused tests. Do not load historical documents by default.
+For Step 15 re-review: this file; [STEP_15_SEARCH.md](STEP_15_SEARCH.md); [PRODUCT.md](PRODUCT.md); migrations 047–049, shared search module, Product/Buy Request/map entry points and their focused tests. Do not load historical documents by default.
 
 ## AI WORKFLOW
 
