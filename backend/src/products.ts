@@ -4,6 +4,7 @@ import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
+import { smartSearchSql } from './smart-search.js'
 import { approximatePoint, regionCondition, settlementCondition } from './map-service.js'
 import { ExternalUrlPhotoStorage, type PhotoStorage, type StoredPhoto } from './photo-storage.js'
 import { validateProductInput, type ProductInput, type ProductStatus } from './product-validation.js'
@@ -56,7 +57,7 @@ const productSelect = `
            CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
            p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.delivery_options, p.geo_zone,
            p.settlement_code, p.latitude, p.longitude, p.pickup_address, p.address_visibility, p.map_location_mode, p.status, p.expires_at, p.created_at, p.updated_at
-    FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id`
+    FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id`
 
 const getProductRow = async (queryable: Queryable, id: string, ownerId?: string): Promise<ProductWithPhotos | null> => {
     const conditions = ownerId ? 'p.id = $1 AND (p.status = \'active\' OR p.owner_id = $2)' : 'p.id = $1 AND p.status = \'active\''
@@ -162,11 +163,15 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
         conditions.push(regionCondition('p.settlement_code', 'p.geo_zone', region, parameters))
     }
     if (typeof query.geoZone === 'string' && query.geoZone.trim()) { parameters.push(query.geoZone.trim()); conditions.push(`p.geo_zone ILIKE $${parameters.length}`) }
-    conditions.push(...textSearchConditions(query.searchIn === 'title' ? ['p.title'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, parameters))
+    const search = query.searchIn === 'owner'
+        ? null
+        : smartSearchSql({ title: 'p.title', description: 'p.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'p.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'p.search_text' }, typeof query.q === 'string' ? query.q : undefined, parameters, query.searchIn === 'title')
+    if (query.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, parameters))
+    if (search) conditions.push(search.condition)
     const where = conditions.join(' AND ')
-    const count = await pool.query<{ count: string }>(`SELECT count(*) FROM products p JOIN users u ON u.id = p.owner_id WHERE ${where}`, parameters)
+    const count = await pool.query<{ count: string }>(`SELECT count(*) FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${where}`, parameters)
     parameters.push(limit, (page - 1) * limit)
-    const rows = await pool.query<ProductRow>(`${productSelect} WHERE ${where} ORDER BY p.created_at DESC, p.id DESC LIMIT $${parameters.length - 1} OFFSET $${parameters.length}`, parameters)
+    const rows = await pool.query<ProductRow>(`${productSelect} WHERE ${where} ORDER BY ${search ? `${search.rank} DESC, ` : ''}p.created_at DESC, p.id DESC LIMIT $${parameters.length - 1} OFFSET $${parameters.length}`, parameters)
     const products = await Promise.all(rows.rows.map(async (row) => ({ ...row, photos: (await pool.query<PhotoRow>('SELECT id, storage_key, url, alt, sort_order FROM product_photos WHERE product_id = $1 ORDER BY sort_order, id', [row.id])).rows })))
     const total = Number(count.rows[0].count)
     return { status: 200, body: { products: products.map((product) => toProductDto(product, product.owner_id === user?.id)), pagination: { page, limit, total, pages: Math.ceil(total / limit) } } }

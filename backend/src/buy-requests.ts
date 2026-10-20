@@ -10,6 +10,8 @@ import { refreshRequestQuantities } from './request-quantities.js'
 import { audit, createNotification, usersAreBlocked } from './community-service.js'
 import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
 import { categoryFilterSql } from './category-filter.js'
+import { textSearchConditions } from './text-search.js'
+import { smartSearchSql } from './smart-search.js'
 import { notifyDemandSubscriptions } from './demand-subscriptions.js'
 import { randomUUID } from 'node:crypto'
 import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './photo-storage.js'
@@ -83,7 +85,7 @@ const asDateOrNull = (value: unknown): string | null => {
 const requestSelect = `SELECT r.*, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index, u.username AS buyer_username,
     (SELECT count(*)::int FROM offers ro WHERE ro.buy_request_id = r.id) AS offer_count,
     COALESCE((SELECT jsonb_agg(jsonb_build_object('url', rp.url, 'alt', rp.alt) ORDER BY rp.sort_order, rp.id) FROM buy_request_photos rp WHERE rp.buy_request_id = r.id), '[]'::jsonb) AS photos
-    FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id`
+    FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id`
 const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.description AS request_description,
     r.category_id, r.requested_quantity AS request_quantity, r.unit AS request_unit, r.min_unit_price AS request_min_price, r.max_unit_price AS request_max_price,
     r.preferred_delivery AS request_delivery, r.receipt_method AS request_receipt_method, r.delivery_options AS request_delivery_options,
@@ -305,6 +307,7 @@ export const getBuyRequest = async (id: string, user?: AuthUser) => {
 export const listBuyRequests = async (query: Record<string, unknown>, user?: AuthUser) => {
     const params: unknown[] = []
     const conditions = [user && query.mine === 'true' ? `r.buyer_id = $${params.push(user.id)}` : `r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`]
+    if (user && query.mine !== 'true' && query.excludeMine === 'true') conditions.push(`r.buyer_id <> $${params.push(user.id)}`)
     if (typeof query.buyerUsername === 'string' && query.buyerUsername.trim()) { params.push(query.buyerUsername.trim().toLowerCase()); conditions.push(`u.username_normalized = $${params.length}`) }
     if (typeof query.categoryId === 'string' && uuid(query.categoryId)) conditions.push(categoryFilterSql('r.category_id', params.push(query.categoryId)))
     if (typeof query.countryCode === 'string' && query.countryCode.trim()) conditions.push(`r.country_code = $${params.push(query.countryCode.trim().toUpperCase())}`)
@@ -318,15 +321,19 @@ export const listBuyRequests = async (query: Record<string, unknown>, user?: Aut
         if (!settlementCodesInRegion(region).length) return invalid(['region'])
         conditions.push(regionCondition('r.settlement_code', 'r.geo_area', region, params))
     }
+    const search = query.searchIn === 'owner'
+        ? null
+        : smartSearchSql({ title: 'r.title', description: 'r.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'r.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'r.search_text' }, typeof query.q === 'string' ? query.q : undefined, params, query.searchIn === 'title')
+    if (query.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, params))
+    if (search) conditions.push(search.condition)
     const mine = Boolean(user && query.mine === 'true')
-    const page = mine ? Math.max(1, Number.parseInt(String(query.page ?? '1'), 10) || 1) : 1
-    const limit = 50
+    const page = Math.max(1, Number.parseInt(String(query.page ?? '1'), 10) || 1)
+    const limit = Math.min(50, Math.max(1, Number.parseInt(String(query.limit ?? '50'), 10) || 50))
     const where = conditions.join(' AND ')
-    const count = mine ? await pool.query<{ count: string }>(`SELECT count(*) FROM buy_requests r JOIN users u ON u.id = r.buyer_id WHERE ${where}`, params) : null
-    const result = mine
-        ? await pool.query(`${requestSelect} WHERE ${where} ORDER BY r.updated_at DESC, r.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, (page - 1) * limit])
-        : await pool.query(`${requestSelect} WHERE ${where} ORDER BY r.created_at DESC, r.id DESC LIMIT 50`, params)
-    return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)), ...(mine ? { pagination: { page, pages: Math.ceil(Number(count!.rows[0].count) / limit) } } : {}) } }
+    const count = await pool.query<{ count: string }>(`SELECT count(*) FROM buy_requests r JOIN users u ON u.id = r.buyer_id JOIN categories c ON c.id = r.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${where}`, params)
+    const order = search ? `${search.rank} DESC, r.created_at DESC, r.id DESC` : mine ? 'r.updated_at DESC, r.id DESC' : 'r.created_at DESC, r.id DESC'
+    const result = await pool.query(`${requestSelect} WHERE ${where} ORDER BY ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, (page - 1) * limit])
+    return { status: 200, body: { buyRequests: result.rows.map((row) => requestDto(row, user?.id === row.buyer_id)), pagination: { page, limit, total: Number(count.rows[0].count), pages: Math.ceil(Number(count.rows[0].count) / limit) } } }
 }
 
 export const updateBuyRequest = async (user: AuthUser, id: string, input: Record<string, unknown>) => {

@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg'
 import { pool } from './db/client.js'
 import { categoryFilterSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
+import { smartSearchSql } from './smart-search.js'
 import { withinCityOrDistance, type CityBoundary } from './city-boundaries.js'
 import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import { requestPublicLocationSql } from './request-public-location.js'
@@ -26,6 +27,7 @@ export type MapMarker = MapPoint & {
     owner?: { id: string; username: string; nickname: string | null; avatarUrl: string | null }
     approximate: boolean
     distanceBand: string
+    relevance?: number
 }
 
 export interface MapProviderAdapter {
@@ -124,7 +126,8 @@ export class MapService {
         const markers: MapMarker[] = []
         if (filters.showProducts) markers.push(...await this.products(center, filters))
         if (filters.showBuyRequests) markers.push(...await this.buyRequests(center, filters))
-        return markers.filter(marker => !filters.cityBoundary || withinCityOrDistance(marker, filters.cityBoundary, filters.cityOutsideKm ?? 0)).sort((left, right) => left.title.localeCompare(right.title, 'uk'))
+        return markers.filter(marker => !filters.cityBoundary || withinCityOrDistance(marker, filters.cityBoundary, filters.cityOutsideKm ?? 0))
+            .sort((left, right) => filters.q && filters.searchIn !== 'owner' ? (right.relevance ?? 0) - (left.relevance ?? 0) || left.title.localeCompare(right.title, 'uk') || left.id.localeCompare(right.id) : left.title.localeCompare(right.title, 'uk'))
     }
 
     private async products(center: MapPoint, filters: MapFilterState): Promise<MapMarker[]> {
@@ -144,14 +147,16 @@ export class MapService {
             const index = parameters.push(filters.deliveryMethod)
             conditions.push(`(p.delivery_options @> jsonb_build_array(jsonb_build_object('method', $${index}::text)) OR (p.delivery_options IS NULL AND p.delivery_mode = CASE $${index}::text WHEN 'SELF_PICKUP' THEN 'pickup' WHEN 'SELLER_DELIVERY' THEN 'seller_delivery' WHEN 'POSTAL_DELIVERY' THEN 'carrier' ELSE 'flexible' END))`)
         }
-        conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['p.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['p.title', 'p.description', 'u.username', 'u.nickname'], filters.q, parameters))
+        const search = filters.searchIn === 'owner' ? null : smartSearchSql({ title: 'p.title', description: 'p.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'p.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'p.search_text' }, filters.q, parameters, filters.searchIn === 'title')
+        if (filters.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], filters.q, parameters))
+        if (search) conditions.push(search.condition)
         const result = await this.queryable.query(`SELECT p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode, p.delivery_options,
             (p.map_location_mode IN ('pin', 'address') OR p.address_visibility = 'public' OR (p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND p.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(p.geo_zone, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(p.geo_zone) = lower(u.location_display))))) AS is_public_point,
             CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
             (u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%') AS is_demo,
-            photo.url AS photo_url, ${distanceSql(distancePoint)} AS distance_km
-            FROM products p JOIN categories c ON c.id = p.category_id JOIN users u ON u.id = p.owner_id
+            photo.url AS photo_url, ${distanceSql(distancePoint)} AS distance_km, ${search?.rank ?? '0'} AS relevance
+            FROM products p JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id JOIN users u ON u.id = p.owner_id
             CROSS JOIN LATERAL (SELECT CASE WHEN u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%' THEN 100000::numeric ELSE 100::numeric END AS factor) privacy
             CROSS JOIN LATERAL (SELECT
                 CASE WHEN p.map_location_mode IN ('pin', 'address') OR p.address_visibility = 'public' THEN p.latitude WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND p.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(p.geo_zone, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(p.geo_zone) = lower(u.location_display))) THEN u.public_latitude ELSE floor(p.latitude * privacy.factor + 0.5) / privacy.factor END AS latitude,
@@ -160,7 +165,7 @@ export class MapService {
                 CASE WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND p.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(p.geo_zone, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(p.geo_zone) = lower(u.location_display))) THEN u.settlement_code ELSE p.settlement_code END AS settlement_code
             ) public_point
             LEFT JOIN LATERAL (SELECT url FROM product_photos WHERE product_id = p.id ORDER BY sort_order, id LIMIT 1) photo ON true
-            WHERE ${conditions.join(' AND ')}`, parameters)
+            WHERE ${conditions.join(' AND ')} ORDER BY p.id`, parameters)
         return result.rows.map((row) => this.marker(row, 'product'))
     }
 
@@ -182,13 +187,15 @@ export class MapService {
             const index = parameters.push(filters.deliveryMethod)
             conditions.push(`(r.delivery_options @> jsonb_build_array(jsonb_build_object('method', $${index}::text)) OR (r.delivery_options IS NULL AND r.receipt_method = $${index}::text))`)
         }
-        conditions.push(...textSearchConditions(filters.searchIn === 'title' ? ['r.title'] : filters.searchIn === 'owner' ? ['u.username', 'u.nickname'] : ['r.title', 'r.description', 'u.username', 'u.nickname'], filters.q, parameters))
+        const search = filters.searchIn === 'owner' ? null : smartSearchSql({ title: 'r.title', description: 'r.description', category: 'c.name', parentCategory: 'parent_c.name', unit: 'r.unit', owner: "concat_ws(' ', u.username, u.nickname)", indexedText: 'r.search_text' }, filters.q, parameters, filters.searchIn === 'title')
+        if (filters.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], filters.q, parameters))
+        if (search) conditions.push(search.condition)
         const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, r.delivery_options, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index, photo.url AS photo_url,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
             (r.address_visibility = 'public') AS is_public_point,
             CASE WHEN r.address_visibility = 'public' THEN r.delivery_address ELSE NULL END AS public_address,
-            ${distanceSql(distancePoint)} AS distance_km FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id
-            ${requestPublicLocationSql} LEFT JOIN LATERAL (SELECT url FROM buy_request_photos WHERE buy_request_id = r.id ORDER BY sort_order, id LIMIT 1) photo ON true WHERE ${conditions.join(' AND ')}`, parameters)
+            ${distanceSql(distancePoint)} AS distance_km, ${search?.rank ?? '0'} AS relevance FROM buy_requests r JOIN categories c ON c.id = r.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id JOIN users u ON u.id = r.buyer_id
+            ${requestPublicLocationSql} LEFT JOIN LATERAL (SELECT url FROM buy_request_photos WHERE buy_request_id = r.id ORDER BY sort_order, id LIMIT 1) photo ON true WHERE ${conditions.join(' AND ')} ORDER BY r.id`, parameters)
         return result.rows.map((row) => this.marker(row, 'buyRequest'))
     }
 
@@ -198,6 +205,6 @@ export class MapService {
         const point = row.is_public_point ? coordinates : approximatePoint(coordinates, row.is_demo ? 5 : 2)
         const distance = Number(row.distance_km)
         const distanceBand = distance <= 1 ? 'до 1 км' : distance <= 3 ? '1–3 км' : distance <= 5 ? '3–5 км' : distance <= 10 ? '5–10 км' : distance <= 20 ? '10–20 км' : 'понад 20 км'
-        return { id: row.id, kind, title: row.title, geoZone: row.geo_zone ?? row.geo_area, category: { id: row.category_id, name: row.category_name, imageIndex: row.image_index }, ...(row.owner_id ? { owner: { id: row.owner_id, username: row.owner_username, nickname: row.owner_nickname ?? null, avatarUrl: row.owner_avatar_url ?? null } } : {}), ...(row.public_address ? { publicAddress: row.public_address } : {}), ...(kind === 'product' ? { photoUrl: row.photo_url ?? null, price: { amount: Number(row.price), currency: row.currency }, quantity: Number(row.quantity) - Number(row.reserved_quantity ?? 0), unit: row.unit, deliveryMode: row.delivery_mode } : { photoUrl: row.photo_url ?? null, quantity: Number(row.quantity), unit: row.unit }), deliveryOptions: row.delivery_options ?? null, ...point, approximate: !row.is_public_point, distanceBand }
+        return { id: row.id, kind, title: row.title, geoZone: row.geo_zone ?? row.geo_area, category: { id: row.category_id, name: row.category_name, imageIndex: row.image_index }, ...(row.owner_id ? { owner: { id: row.owner_id, username: row.owner_username, nickname: row.owner_nickname ?? null, avatarUrl: row.owner_avatar_url ?? null } } : {}), ...(row.public_address ? { publicAddress: row.public_address } : {}), ...(kind === 'product' ? { photoUrl: row.photo_url ?? null, price: { amount: Number(row.price), currency: row.currency }, quantity: Number(row.quantity) - Number(row.reserved_quantity ?? 0), unit: row.unit, deliveryMode: row.delivery_mode } : { photoUrl: row.photo_url ?? null, quantity: Number(row.quantity), unit: row.unit }), deliveryOptions: row.delivery_options ?? null, ...point, approximate: !row.is_public_point, distanceBand, relevance: Number(row.relevance ?? 0) }
     }
 }
