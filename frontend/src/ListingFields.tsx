@@ -1,17 +1,48 @@
+import { useEffect, useState } from 'react'
 import CategoryPicker from './CategoryPicker'
 import type { Category } from './categories'
 import { CURRENCIES, LISTING_UNITS } from './listing-options'
 import './listing-ui.css'
 
 export function FieldError({ message }: { message?: string }) { return message ? <span className="field-error" role="alert">{message}</span> : null }
-export function ListingBasics({ categories, categoryId, onCategoryChange, title, onTitleChange, description, errors = {}, categoryDisabled = false }: {
+export function ListingBasics({ categories, categoryId, onCategoryChange, title, onTitleChange, description, errors = {}, categoryDisabled = false, targetType, targetId }: {
     categories: Category[]; categoryId: string; onCategoryChange: (id: string) => void
     title: string; onTitleChange: (value: string) => void; description?: string; errors?: Record<string, string>; categoryDisabled?: boolean
+    targetType?: 'product' | 'buy_request'; targetId?: string
 }) {
+    const [draftDescription, setDraftDescription] = useState(description ?? '')
+    const [assessment, setAssessment] = useState<{ level: string; reason: string | null; suggestions: { id: string; path: string }[] } | null>(null)
+    const [appealMessage, setAppealMessage] = useState('')
+    useEffect(() => {
+        if (title.trim().length < 2) { setAssessment(null); return }
+        const controller = new AbortController()
+        const timer = window.setTimeout(() => {
+            void fetch(`${import.meta.env.VITE_API_URL ?? ''}/api/categories/recommend`, {
+                method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, description: draftDescription, categoryId: categoryId || undefined }), signal: controller.signal,
+            }).then(response => response.ok ? response.json() : null).then(value => { if (value) setAssessment(value) }).catch(() => undefined)
+        }, 650)
+        return () => { window.clearTimeout(timer); controller.abort() }
+    }, [title, draftDescription, categoryId])
+    const appeal = async () => {
+        if (!targetType || !categoryId) return
+        const response = await fetch(`${import.meta.env.VITE_API_URL ?? ''}/api/category-appeals`, {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetType, targetId, categoryId, title, description: draftDescription }),
+        })
+        const body = await response.json()
+        setAppealMessage(response.ok ? 'Оскарження збережено для розгляду.' : body.message ?? 'Не вдалося подати оскарження.')
+    }
     return <fieldset className="listing-section"><legend>Про оголошення</legend>
         <label>Назва товару<input name="title" value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Наприклад, велосипед Trek Marlin 5" required minLength={2} maxLength={160} /><FieldError message={errors.title} /></label>
         <div className="listing-field"><span>Категорія та підкатегорія</span><CategoryPicker categories={categories} value={categoryId} onChange={onCategoryChange} required disabled={categoryDisabled} /><FieldError message={errors.categoryId} /></div>
-        <label>Опис<textarea name="description" defaultValue={description ?? ''} rows={4} maxLength={5000} placeholder="Стан, характеристики та важливі умови" /><FieldError message={errors.description} /></label>
+        {assessment && assessment.suggestions.length > 0 && <div className="category-recommendation" aria-live="polite">
+            <strong>{assessment.reason ?? 'Рекомендована категорія:'}</strong>
+            <div>{assessment.suggestions.map(item => <button type="button" key={item.id} disabled={categoryDisabled} onClick={() => onCategoryChange(item.id)}>{item.path}</button>)}</div>
+            {assessment.level === 'block' && targetType && <button type="button" className="text-button" onClick={() => void appeal()}>Оскаржити визначення категорії</button>}
+            {appealMessage && <small role="status">{appealMessage}</small>}
+        </div>}
+        <label>Опис<textarea name="description" value={draftDescription} onChange={event => setDraftDescription(event.target.value)} rows={4} maxLength={5000} placeholder="Стан, характеристики та важливі умови" /><FieldError message={errors.description} /></label>
     </fieldset>
 }
 export function QuantityFields({ quantity = 1, unit = 'piece', errors = {} }: { quantity?: number; unit?: string; errors?: Record<string, string> }) {

@@ -42,6 +42,9 @@
 .product-form .listing-section { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 18px; border: 1px solid #dce7df; border-radius: 12px; }
 .listing-section legend { padding: 0 6px; color: #24423a; font-size: 15px; font-weight: 800; }
 .listing-field { display: grid; gap: 7px; font-size: 13px; }
+.category-recommendation { display: grid; gap: 8px; padding: 11px; border: 1px solid #b9d8c5; border-radius: 8px; background: #f3faf5; overflow-wrap: anywhere; }
+.category-recommendation > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.category-recommendation button { max-width: 100%; white-space: normal; text-align: left; border: 1px solid #9fcab0; border-radius: 6px; padding: 6px 9px; color: #24423a; background: white; cursor: pointer; }
 .location-field-label { display: flex; align-items: center; gap: 7px; color: #687771; font-size: 12px; font-weight: 700; }
 .location-hint { position: relative; display: inline-grid; place-items: center; width: 19px; height: 19px; flex: 0 0 19px; cursor: help; outline: none; }
 .location-hint-badge { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; background: #17825a; color: white; font-size: 11px; font-weight: 800; }
