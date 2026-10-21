@@ -6,6 +6,8 @@ const rows = [
   ['apiculture', 'market-agriculture', 'Продукти бджільництва'],
   ['honey_raw', 'apiculture', 'Мед'],
   ['processed_food', 'market-agriculture', 'Фермерська переробка'],
+  ['fruits', 'market-agriculture', 'Фрукти'],
+  ['apples', 'fruits', 'Яблука'],
   ['dairy', 'market-agriculture', 'Молочні продукти'],
   ['milk', 'dairy', 'Молоко'],
   ['market-auto', null, 'Авто'],
@@ -13,12 +15,20 @@ const rows = [
   ['market-auto--prychepy-budynky-na-kolesakh', 'market-auto', 'Причепи'],
   ['market-hobbies', null, 'Хобі'],
   ['market-hobbies--velo--velosypedy', 'market-hobbies', 'Велосипеди'],
+  ['market-children', null, 'Діти'],
+  ['market-children--ihrashky', 'market-children', 'Іграшки'],
+  ['market-children--ihrashky--ihrashkovyy-transport', 'market-children--ihrashky', 'Іграшковий транспорт'],
+  ['market-children--ihrashky--lyalky-ta-pupsy', 'market-children--ihrashky', 'Ляльки'],
   ['market-fashion', null, 'Мода'],
+  ['market-fashion--aksesuary--sharfy-i-rukavychky', 'market-fashion', 'Рукавички'],
   ['market-fashion--krasa-zdorov-ya', 'market-fashion', 'Краса'],
   ['market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah', 'market-fashion', 'Медичний одяг'],
   ['market-business-services', null, 'Бізнес'],
   ['market-business-services--prodazh-obladnannya-dlya-biznesu', 'market-business-services', 'Продаж обладнання'],
   ['market-electronics', null, 'Електроніка'],
+  ['market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony', 'market-electronics', 'Смартфони'],
+  ['market-home-garden', null, 'Дім'],
+  ['market-home-garden--mebli--mebli-dlya-vitalni', 'market-home-garden', 'Меблі для вітальні'],
 ].map(([code, parent_id, name]) => ({ id: code!, code: code!, parent_id, name: name! }));
 const queryable = { query: async () => ({ rows }) } as any;
 
@@ -68,5 +78,38 @@ describe('category control set', () => {
     ] as const;
     for (const [title, categoryId, level] of cases) expect((await assessCategory({ title, categoryId }, queryable)).level, title).toBe(level);
     expect((await assessCategory({ title: 'Автомобіль Renault', description: 'Насправді продається мед', categoryId: 'honey_raw' }, queryable)).level).toBe('warn');
+  });
+  it('replays the 18 independent Sol review examples', async () => {
+    const cases = [
+      ['Натуральний мед 3 л', 'market-auto--lehkovi-avtomobili', 'block', 'honey_raw'],
+      ['Дитячий велосипед Trek', 'processed_food', 'block', 'market-hobbies--velo--velosypedy'],
+      ['Автомобіль медового кольору', 'market-auto--lehkovi-avtomobili', 'allow', 'market-auto--lehkovi-avtomobili'],
+      ['Електрична медогонка', 'market-business-services--prodazh-obladnannya-dlya-biznesu', 'allow', 'market-business-services--prodazh-obladnannya-dlya-biznesu'],
+      ['Медичний халат', 'market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah', 'allow', 'market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah'],
+      ['Причіп для перевезення вуликів', 'market-auto--prychepy-budynky-na-kolesakh', 'allow', 'market-auto--prychepy-budynky-na-kolesakh'],
+      ['Насос 12 В', 'market-electronics', 'allow', null],
+      ['Продаю яблука, велосипед у подарунок', 'apples', 'allow', 'apples'],
+      ['Іграшковий автомобіль Toyota', 'market-children--ihrashky--ihrashkovyy-transport', 'allow', 'market-children--ihrashky--ihrashkovyy-transport'],
+      ['Медичний халат для ляльки', 'market-children--ihrashky--lyalky-ta-pupsy', 'allow', 'market-children--ihrashky--lyalky-ta-pupsy'],
+      ['Велосипедні рукавички Trek', 'market-fashion--aksesuary--sharfy-i-rukavychky', 'allow', 'market-fashion--aksesuary--sharfy-i-rukavychky'],
+      ['Продаю яблука, дитячий велосипед Trek у подарунок', 'apples', 'allow', 'apples'],
+      ['Яблука Гала 5 кг', 'market-auto--lehkovi-avtomobili', 'block', 'apples'],
+      ['Смартфон Samsung Galaxy', 'honey_raw', 'block', 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony'],
+      ['Диван кутовий новий', 'honey_raw', 'block', 'market-home-garden--mebli--mebli-dlya-vitalni'],
+      ['Мёд липовый свежий', 'honey_raw', 'allow', 'honey_raw'],
+      ['Детский велосипед Giant', 'processed_food', 'block', 'market-hobbies--velo--velosypedy'],
+      ['Игрушечный автомобиль Toyota', 'market-children--ihrashky--ihrashkovyy-transport', 'allow', 'market-children--ihrashky--ihrashkovyy-transport'],
+    ] as const;
+    let topThree = 0, eligible = 0, falseBlocks = 0, missedBlocks = 0, falseWarnings = 0, unresolved = 0;
+    for (const [title, categoryId, expected, truth] of cases) {
+      const result = await assessCategory({ title, categoryId }, queryable);
+      if (truth) { eligible++; if (result.suggestions.some(suggestion => suggestion.id === truth)) topThree++; }
+      if (expected === 'allow' && result.level === 'block') falseBlocks++;
+      if (expected === 'allow' && result.level === 'warn') falseWarnings++;
+      if (expected === 'block' && result.level !== 'block') missedBlocks++;
+      if (!result.suggestions.length) unresolved++;
+    }
+    expect({ falseBlocks, missedBlocks, falseWarnings }).toEqual({ falseBlocks: 0, missedBlocks: 0, falseWarnings: 0 });
+    console.info('Step 16 Sol replay:', { topThree, eligible, falseBlocks, missedBlocks, falseWarnings, unresolved });
   });
 });
