@@ -23,6 +23,8 @@ import type { exchangeProfile } from './external-auth-providers.js'
 import { deleteDemandSubscription, getDemandSubscriptionMatches, getDemandSubscription, listDemandSubscriptions, saveDemandSubscription } from './demand-subscriptions.js'
 import { listFavorites, removeFavorite, setFavorite } from './favorites.js'
 import { createSearchRateLimiter } from './search-rate-limit.js'
+import { assessCategory, createCategoryRecommendationRateLimit } from './category-recommendation.js'
+import { createCategoryAppeal, listCategoryAppeals, updateCategoryAppeal } from './category-appeals.js'
 
 const mapService = new MapService()
 
@@ -91,6 +93,14 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
 
     app.get('/api/categories', withResult(() => listCategories()))
     app.get('/api/categories/popular', withResult(() => listPopularCategories()))
+    app.post('/api/categories/recommend', requireAuth, createCategoryRecommendationRateLimit(), withResult(async (request) => {
+        const { title, description, categoryId, unit } = request.body ?? {}
+        if (typeof title !== 'string' || title.length > 160 || typeof description !== 'undefined' && (typeof description !== 'string' || description.length > 5000) || typeof categoryId !== 'undefined' && typeof categoryId !== 'string') return { status: 400, body: { error: 'VALIDATION_ERROR' } }
+        return { status: 200, body: await assessCategory({ title, description, categoryId, unit }) }
+    }))
+    app.post('/api/category-appeals', requireAuth, withResult((request) => createCategoryAppeal(request.authUser!, request.body ?? {})))
+    app.get('/api/moderation/category-appeals', requireAuth, withResult((request) => listCategoryAppeals(request.authUser!)))
+    app.patch('/api/moderation/category-appeals/:id', requireAuth, withResult((request) => updateCategoryAppeal(request.authUser!, String(request.params.id), request.body?.status)))
 
     app.get('/api/settlements', (request, response) => {
         if (request.query.mode === 'regions') { response.json(listSettlementRegions()); return }

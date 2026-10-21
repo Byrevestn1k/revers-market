@@ -10,6 +10,8 @@ import { refreshRequestQuantities } from './request-quantities.js'
 import { audit, createNotification, usersAreBlocked } from './community-service.js'
 import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
 import { categoryFilterSql } from './category-filter.js'
+import { assessCategory, categoryBlock } from './category-recommendation.js'
+import { categoryDuplicates } from './category-duplicates.js'
 import { textSearchConditions } from './text-search.js'
 import { listingSearchColumns, smartSearchSql } from './smart-search.js'
 import { notifyDemandSubscriptions } from './demand-subscriptions.js'
@@ -257,6 +259,8 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     if (errors.length) return invalid(errors)
     if (Array.isArray(input.photos) && input.photos.some((photo: PhotoUpload) => photo.url)) return invalid(['photos'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
+    const assessment = await assessCategory({ title: String(input.title), description: String(input.description ?? ''), categoryId: String(input.categoryId), unit: String(input.unit) })
+    if (assessment.level === 'block') return categoryBlock(assessment)
     const exactPrice = asNumberOrNull(input.exactPrice)
     const minPrice = asNumberOrNull(input.minPrice)
     const maxPrice = asNumberOrNull(input.maxPrice)
@@ -277,14 +281,21 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     const receiptMethod = input.receiptMethod ?? (preferredDelivery === 'pickup' && !deliveryRequired ? 'SELF_PICKUP' : preferredDelivery === 'seller_delivery' ? 'SELLER_DELIVERY' : null)
     const client = await pool.connect()
     let requestId: string
+    let duplicateNotice: Awaited<ReturnType<typeof categoryDuplicates>>['notice'] = null
     const storedPhotos: StoredPhoto[] = []
     try {
     await client.query('BEGIN')
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.id])
+    const duplicates = await categoryDuplicates(client, 'buy_request', user.id, String(input.title), String(input.description ?? ''), String(input.categoryId))
+    duplicateNotice = duplicates.notice
+    if (duplicates.massAbuse) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'CATEGORY_DUPLICATE_ABUSE', message: 'Однаковий запит уже розміщено в кількох категоріях.', duplicate: duplicates.notice } } }
     const created = await client.query<{ id: string }>(
         'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode, country_code, receipt_method, delivery_options) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id',
         [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'multiple_sellers', input.countryCode ?? 'UA', receiptMethod, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions)],
     )
     requestId = created.rows[0].id
+    if (assessment.level === 'warn') await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_warning', 'buy_request', requestId, JSON.stringify({ suggestions: assessment.suggestions })])
+    if (duplicates.notice) await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_duplicate', 'buy_request', requestId, JSON.stringify(duplicates.notice)])
     if (Array.isArray(input.photos)) await saveRequestPhotos(client, requestId, input.photos as PhotoUpload[], storedPhotos)
     await notifyDemandSubscriptions(client, requestId)
     await client.query('COMMIT')
@@ -294,7 +305,7 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
         throw error
     } finally { client.release() }
     const response = await getBuyRequest(requestId, user)
-    return { ...response, status: 201 }
+    return { ...response, status: 201, body: { ...response.body, ...(assessment.level === 'warn' ? { categoryWarning: assessment } : {}), ...(duplicateNotice ? { duplicate: duplicateNotice } : {}) } }
 }
 
 export const getBuyRequest = async (id: string, user?: AuthUser) => {
@@ -358,16 +369,32 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     if (!assignments.length && input.photos === undefined) return invalid(['buyRequest'])
     const client = await pool.connect()
     let committed = false
+    let categoryWarning: Awaited<ReturnType<typeof assessCategory>> | null = null
     const storedPhotos: StoredPhoto[] = []
     let removedPhotos: string[] = []
     try {
     await client.query('BEGIN')
-    const current = await client.query('SELECT status, fulfilled_quantity, country_code, settlement_code, geo_area, latitude, longitude, delivery_address, map_location_mode, receipt_method, requested_quantity, selected_quantity, completed_quantity, fulfillment_mode, delivery_options FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
+    const current = await client.query('SELECT category_id, title, description, unit, status, fulfilled_quantity, country_code, settlement_code, geo_area, latitude, longitude, delivery_address, map_location_mode, receipt_method, requested_quantity, selected_quantity, completed_quantity, fulfillment_mode, delivery_options FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const country = 'countryCode' in input ? input.countryCode : current.rows[0].country_code
     const settlement = 'settlementCode' in input ? input.settlementCode : current.rows[0].settlement_code
     if (settlement != null && country != null && country !== 'UA') return invalid(['countryCode'])
     if (input.categoryId !== undefined && !(await categoryExists(client, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
+    if (['categoryId', 'title', 'description', 'unit'].some(key => key in input)) {
+        const previous = current.rows[0]
+        const assessment = await assessCategory({ title: String(input.title ?? previous.title), description: String(input.description ?? previous.description), categoryId: String(input.categoryId ?? previous.category_id), unit: String(input.unit ?? previous.unit) }, client)
+        if (assessment.level === 'block') return categoryBlock(assessment)
+        if (assessment.level === 'warn') categoryWarning = assessment
+    }
+    let duplicateNotice: Awaited<ReturnType<typeof categoryDuplicates>>['notice'] = null
+    if (['categoryId', 'title', 'description'].some(key => key in input)) {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.id])
+        const previous = current.rows[0]
+        const duplicates = await categoryDuplicates(client, 'buy_request', user.id,
+            String(input.title ?? previous.title), String(input.description ?? previous.description), String(input.categoryId ?? previous.category_id), id)
+        duplicateNotice = duplicates.notice
+        if (duplicates.massAbuse) return { status: 409, body: { error: 'CATEGORY_DUPLICATE_ABUSE', message: 'Однаковий запит уже розміщено в кількох категоріях.', duplicate: duplicates.notice } }
+    }
     const immutableAfterOffers = ['categoryId', 'productId', 'quantity', 'unit', 'currency']
     const hasOffers = Boolean((await client.query('SELECT 1 FROM offers WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
     const hasDeals = Boolean((await client.query('SELECT 1 FROM orders WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
@@ -387,6 +414,8 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     const { idParam, ownerParam } = withOwnerConditions(values, id, user.id)
     const result = await client.query(`UPDATE buy_requests SET ${assignments.length ? assignments.join(', ') + ', ' : ''}closed_at = CASE WHEN status = 'cancelled' THEN now() ELSE closed_at END, updated_at = now() WHERE id = ${idParam} AND buyer_id = ${ownerParam} AND status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled') RETURNING id`, values)
     if (!result.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
+    if (duplicateNotice) await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_duplicate', 'buy_request', id, JSON.stringify(duplicateNotice)])
+    if (categoryWarning) await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_warning', 'buy_request', id, JSON.stringify({ suggestions: categoryWarning.suggestions })])
     if (Array.isArray(input.photos)) {
         const photoResult = await saveRequestPhotos(client, id, input.photos as PhotoUpload[], storedPhotos)
         if (!Array.isArray(photoResult)) return photoResult
@@ -398,7 +427,8 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     }
     await client.query('COMMIT'); committed = true
     for (const storageKey of removedPhotos) await requestPhotoStorage.remove(storageKey)
-    return getBuyRequest(id, user)
+    const response = await getBuyRequest(id, user)
+    return { ...response, body: { ...response.body, ...(categoryWarning ? { categoryWarning } : {}), ...(duplicateNotice ? { duplicate: duplicateNotice } : {}) } }
     } finally { if (!committed) { await client.query('ROLLBACK'); for (const photo of storedPhotos) await requestPhotoStorage.remove(photo.storageKey) } client.release() }
 }
 

@@ -12,8 +12,8 @@ if (process.env.DATABASE_URL) {
             try {
                 expect((await agent.post('/api/auth/register').send({ username, email: `${username}@example.com`, countryCode: 'UA', phone: '+38050' + suffix.slice(-7), password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' })).status).toBe(201)
                 const categories = (await agent.get('/api/categories')).body.categories
-                const root = categories.find((item: any) => item.code === 'market-children')
-                const leaf = categories.find((item: any) => item.parentId === root.id)
+                const root = categories.find((item: any) => item.code === 'market-hobbies')
+                const leaf = categories.find((item: any) => item.code === 'market-hobbies--velo--velosypedy')
                 const location = { address: 'Рівне, Тестова приватна вулиця, 17', latitude: 50.625951, longitude: 26.270642 }
                 const created = await agent.post('/api/products').send({ categoryId: leaf.id, title: `Велосипед Trek ${suffix}`, description: `Самокат ${suffix}`, quantity: 3, unit: 'piece', price: 1200, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status: 'active', ...location, photos: [{ url: 'https://example.com/bike-1.jpg' }, { url: 'https://example.com/bike-2.jpg' }] })
                 expect(created.status).toBe(201)

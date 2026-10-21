@@ -181,9 +181,27 @@ export const createReport = async (user: AuthUser, input: Record<string, unknown
     const targetId = input.targetId
     const reason = input.reason
     const details = input.details
-    if (typeof targetType !== 'string' || !allowed.includes(targetType) || typeof targetId !== 'string' || typeof reason !== 'string' || reason.trim().length < 2) return invalid('Вкажіть об’єкт і причину скарги')
+    if (typeof targetType !== 'string' || !allowed.includes(targetType) || typeof targetId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId) || typeof reason !== 'string' || reason.trim().length < 2 || reason.length > 160) return invalid('Вкажіть об’єкт і причину скарги')
     if (details !== undefined && (typeof details !== 'string' || details.length > 5000)) return invalid('Деталі скарги надто довгі')
     const trimmedDetails = details === undefined || details === null ? '' : details.trim()
+    if (reason.trim() === 'Неправильна категорія') {
+        if (!['product', 'buy_request'].includes(targetType)) return invalid('Оберіть товар або запит')
+        const table = targetType === 'product' ? 'products' : 'buy_requests'
+        const client = await pool.connect()
+        try {
+            await client.query('BEGIN')
+            await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${targetType}:${targetId}:category`])
+            const target = await client.query(`SELECT 1 FROM ${table} WHERE id = $1`, [targetId])
+            if (!target.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'LISTING_NOT_FOUND' } } }
+            const previous = await client.query(`SELECT 1 FROM reports WHERE reporter_id = $1 AND target_type = $2 AND target_id = $3 AND reason = $4 AND status IN ('open', 'under_review')`, [user.id, targetType, targetId, reason.trim()])
+            if (previous.rowCount) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'REPORT_EXISTS', message: 'Ви вже повідомили про цю категорію.' } } }
+            const result = await client.query('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5) RETURNING id, target_type AS "targetType", target_id AS "targetId", reason, details, status, created_at AS "createdAt"', [user.id, targetType, targetId, reason.trim(), trimmedDetails])
+            await client.query('COMMIT')
+            await audit(pool, user.id, 'report.created', 'report', result.rows[0].id, { targetType, targetId })
+            return { status: 201, body: { report: result.rows[0] } }
+        } catch (error) { await client.query('ROLLBACK'); throw error }
+        finally { client.release() }
+    }
     const result = await pool.query('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5) RETURNING id, target_type AS "targetType", target_id AS "targetId", reason, details, status, created_at AS "createdAt"', [user.id, targetType, targetId, reason.trim(), trimmedDetails])
     await audit(pool, user.id, 'report.created', 'report', result.rows[0].id, { targetType: input.targetType, targetId: input.targetId })
     return { status: 201, body: { report: result.rows[0] } }

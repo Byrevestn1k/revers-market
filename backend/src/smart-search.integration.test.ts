@@ -16,6 +16,7 @@ if (process.env.DATABASE_URL) {
         expect((await agent.post('/api/auth/register').send({ username, email: `${username}@example.com`, countryCode: 'UA', phone: '+38050' + suffix.slice(-7), password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' })).status).toBe(201);
         const category = (await agent.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains');
         const categoryId = category.id;
+        const bicycleCategoryId = (await agent.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'market-hobbies--velo--velosypedy').id;
         const rivne = searchSettlements('Рівне').settlements.find(item => item.name === 'Рівне' && item.region === 'Рівненська область')!;
         const base = { categoryId, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', status: 'active', geoZone: rivne.name, settlementCode: rivne.code, latitude: 50.6199, longitude: 26.2516 };
         const ids: string[] = [];
@@ -25,7 +26,7 @@ if (process.env.DATABASE_URL) {
           { title: 'Червоний дитячий велосипед', description: 'Повний збіг у назві' },
           { title: 'Дитячий Trek', description: 'Червоний велосипед' },
         ]) {
-          const created = await agent.post('/api/products').send({ ...base, ...item });
+          const created = await agent.post('/api/products').send({ ...base, ...item, ...(/велосипед/i.test(item.title) ? { categoryId: bicycleCategoryId } : {}) });
           expect(created.status).toBe(201);
           ids.push(created.body.product.id);
         }
@@ -69,7 +70,7 @@ if (process.env.DATABASE_URL) {
         expect((await list('iPhone 13 Pro')).products.map((item: { id: string }) => item.id)).toEqual([phone13.body.product.id]);
         expect((await list('Bosch GSR 12V')).products.map((item: { id: string }) => item.id)).toEqual([drill12.body.product.id]);
         expect((await list('яблука голден 20 кг')).products.map((item: { id: string }) => item.id)).toContain(apples.body.product.id);
-        const fiveWords = await agent.post('/api/products').send({ ...base, title: 'Велосипед Trek 20', description: 'Червоний дитячий' });
+        const fiveWords = await agent.post('/api/products').send({ ...base, categoryId: bicycleCategoryId, title: 'Велосипед Trek 20', description: 'Червоний дитячий' });
         expect(fiveWords.status).toBe(201);
         expect((await list('червоний дитячий велосипед trek 20')).products.map((item: { id: string }) => item.id)).toContain(fiveWords.body.product.id);
         const pump = await agent.post('/api/products').send({ ...base, title: 'Насос', description: 'Для води 12В' });
@@ -79,7 +80,7 @@ if (process.env.DATABASE_URL) {
         expect((await list('насос для води 12 В')).products.map((item: { id: string }) => item.id)).toEqual([pump.body.product.id]);
         expect((await list('насос для води 12v')).products.map((item: { id: string }) => item.id)).toEqual([pump.body.product.id]);
 
-        const buy = await agent.post('/api/buy-requests').send({ categoryId, title: 'Шукаю велосипед', description: 'Червоний дитячий Trek', quantity: 1, unit: 'kg', currency: 'UAH', countryCode: 'UA', geoArea: rivne.name, settlementCode: rivne.code, latitude: 50.6199, longitude: 26.2516 });
+        const buy = await agent.post('/api/buy-requests').send({ categoryId: bicycleCategoryId, title: 'Шукаю велосипед', description: 'Червоний дитячий Trek', quantity: 1, unit: 'piece', currency: 'UAH', countryCode: 'UA', geoArea: rivne.name, settlementCode: rivne.code, latitude: 50.6199, longitude: 26.2516 });
         expect(buy.status).toBe(201);
         const requestId = buy.body.buyRequest.id;
         const requests = await agent.get('/api/buy-requests').query({ q: 'червоний дитячий велосипед', buyerUsername: username });
