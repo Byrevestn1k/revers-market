@@ -46,7 +46,7 @@ test('real category recommendation, blocked product and request, report and resp
     await page.locator('input[name="title"]').fill('Насос універсальний Step16');
     await selectCategory(page, /Легкові автомобілі$/);
     await page.waitForTimeout(850);
-    await expect(page.locator('.category-recommendation')).toHaveCount(0);
+    await expect(page.locator('.category-recommendation')).toContainText('Категорію не вдалося визначити точно');
     await page.locator('input[name="title"]').fill(title);
     await expect(page.locator('.category-recommendation')).toContainText('Мед');
     await selectCategory(page, /Легкові автомобілі$/);
@@ -163,7 +163,7 @@ test('real category recommendation, blocked product and request, report and resp
       await login(sellerPage, 'Seller A', '/buy-requests/' + requestId);
       await sellerPage.getByRole('button', { name: 'Запропонувати товар' }).click();
       const offerForm = sellerPage.locator('.seller-offer-form');
-      await offerForm.locator('input[type="number"]').nth(1).fill('100');
+      await offerForm.getByLabel(/Ціна за/).fill('100');
       await offerForm.getByRole('checkbox', { name: 'Можна домовитися' }).check();
       await offerForm.getByRole('button', { name: 'Переглянути умови' }).click();
       const createdOffer = sellerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/buy-requests/${requestId}/offers` && response.request().method() === 'POST');

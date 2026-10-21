@@ -11,7 +11,7 @@ export function ListingBasics({ categories, categoryId, onCategoryChange, title,
     targetType?: 'product' | 'buy_request'; decisionId?: string | null
 }) {
     const [draftDescription, setDraftDescription] = useState(description ?? '')
-    const [assessment, setAssessment] = useState<{ level: string; reason: string | null; suggestions: { id: string; path: string }[] } | null>(null)
+    const [assessment, setAssessment] = useState<{ level: string; certainty: 'identified' | 'uncertain'; reason: string | null; suggestions: { id: string; path: string }[] } | null>(null)
     const [appealMessage, setAppealMessage] = useState('')
     useEffect(() => {
         if (title.trim().length < 2) { setAssessment(null); return }
@@ -36,9 +36,9 @@ export function ListingBasics({ categories, categoryId, onCategoryChange, title,
     return <fieldset className="listing-section"><legend>Про оголошення</legend>
         <label>Назва товару<input name="title" value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Наприклад, велосипед Trek Marlin 5" required minLength={2} maxLength={160} /><FieldError message={errors.title} /></label>
         <div className="listing-field"><span>Категорія та підкатегорія</span><CategoryPicker categories={categories} value={categoryId} onChange={onCategoryChange} required disabled={categoryDisabled} /><FieldError message={errors.categoryId} /></div>
-        {assessment && assessment.suggestions.length > 0 && <div className="category-recommendation" aria-live="polite">
-            <strong>{assessment.reason ?? 'Рекомендована категорія:'}</strong>
-            <div>{assessment.suggestions.map(item => <button type="button" key={item.id} disabled={categoryDisabled} onClick={() => onCategoryChange(item.id)}>{item.path}</button>)}</div>
+        {assessment && (assessment.suggestions.length > 0 || assessment.certainty === 'uncertain' && Boolean(categoryId)) && <div className="category-recommendation" aria-live="polite">
+            <strong>{assessment.reason ?? (assessment.certainty === 'uncertain' ? 'Категорію не вдалося визначити точно. Перевірте свій вибір.' : 'Рекомендована категорія:')}</strong>
+            {assessment.suggestions.length > 0 && <div>{assessment.suggestions.map(item => <button type="button" key={item.id} disabled={categoryDisabled} onClick={() => onCategoryChange(item.id)}>{item.path}</button>)}</div>}
             {decisionId && targetType && <button type="button" className="text-button" onClick={() => void appeal()}>Оскаржити відхилення</button>}
             {appealMessage && <small role="status">{appealMessage}</small>}
         </div>}

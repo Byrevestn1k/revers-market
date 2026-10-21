@@ -18,11 +18,25 @@ if (process.env.DATABASE_URL) {
       const baseRequest = { title: 'Куплю мед натуральний', description: 'Потрібен мед у відрах', quantity: 1, unit: 'kg', currency: 'UAH', geoArea: 'Київ' };
       try {
         expect((await seller.post('/api/auth/register').send({ username, email: `${username}@example.com`, countryCode: 'UA', phone: '+38050' + suffix.slice(-7), password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' })).status).toBe(201);
+        const carCover = id('market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky');
+        const laptopBag = id('market-electronics--noutbuky-ta-aksesuary--aksesuary-dlya-noutbukiv');
+        const correctAccessory = await seller.post('/api/products').send({ ...baseProduct, title: 'Чохол для автомобіля Toyota', description: 'Захисний чохол на легкове авто', unit: 'piece', categoryId: carCover });
+        expect(correctAccessory.status).toBe(201);
+        expect(correctAccessory.body.categoryWarning).toBeUndefined();
+        const wrongRelationalCategory = await seller.post('/api/products').send({ ...baseProduct, title: 'Чохол для автомобіля Skoda', description: 'Захисний чохол на легкове авто', unit: 'piece', categoryId: honey });
+        expect(wrongRelationalCategory.status).toBe(201);
+        expect(wrongRelationalCategory.body.categoryWarning).toMatchObject({ level: 'warn', suggestions: [{ id: carCover }] });
+        const correctAccessoryRequest = await seller.post('/api/buy-requests').send({ ...baseRequest, title: 'Куплю сумку для ноутбука Lenovo', description: 'Потрібна сумка для ноутбука', unit: 'piece', categoryId: laptopBag });
+        expect(correctAccessoryRequest.status).toBe(201);
+        expect(correctAccessoryRequest.body.categoryWarning).toBeUndefined();
+        const wrongRelationalRequest = await seller.post('/api/buy-requests').send({ ...baseRequest, title: 'Куплю сумку для ноутбука Asus', description: 'Потрібна сумка для ноутбука', unit: 'piece', categoryId: honey });
+        expect(wrongRelationalRequest.status).toBe(201);
+        expect(wrongRelationalRequest.body.categoryWarning).toMatchObject({ level: 'warn', suggestions: [{ id: laptopBag }] });
         const badProduct = await seller.post('/api/products').send({ ...baseProduct, categoryId: auto });
         expect(badProduct.status).toBe(422);
         expect(badProduct.body).toMatchObject({ error: 'CATEGORY_MISMATCH', suggestions: [{ id: honey }], decisionId: expect.any(String) });
         const decision = await pool.query('SELECT user_id, target_type, category_id, reason, rules_version, status FROM category_block_decisions WHERE id = $1', [badProduct.body.decisionId]);
-        expect(decision.rows[0]).toMatchObject({ target_type: 'product', category_id: auto, status: 'blocked', rules_version: 'step16-context-v2' });
+        expect(decision.rows[0]).toMatchObject({ target_type: 'product', category_id: auto, status: 'blocked', rules_version: 'step16-subject-relations-v3' });
         const repeatedDecision = await seller.post('/api/products').send({ ...baseProduct, categoryId: auto });
         expect(repeatedDecision.status).toBe(422);
         expect(repeatedDecision.body.decisionId).toBe(badProduct.body.decisionId);
@@ -31,6 +45,9 @@ if (process.env.DATABASE_URL) {
         expect(badRequest.body.decisionId).toEqual(expect.any(String));
         const recommended = await seller.post('/api/categories/recommend').send({ title: baseProduct.title, description: baseProduct.description, categoryId: auto });
         expect(recommended.body.level).toBe('block');
+        expect(recommended.body.certainty).toBe('identified');
+        const uncertain = await seller.post('/api/categories/recommend').send({ title: 'Насос 12В', categoryId: auto });
+        expect(uncertain.body).toMatchObject({ level: 'allow', certainty: 'uncertain' });
         const durations: number[] = [];
         for (let index = 0; index < 20; index++) {
           const started = performance.now();

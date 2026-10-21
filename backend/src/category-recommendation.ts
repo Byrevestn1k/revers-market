@@ -7,8 +7,8 @@ import { searchTokens } from './smart-search.js';
 type Queryable = Pick<PoolClient, 'query'>;
 type Category = { id: string; parent_id: string | null; code: string; name: string };
 export type CategorySuggestion = { id: string; name: string; path: string };
-export type CategoryAssessment = { level: 'allow' | 'warn' | 'block'; reason: string | null; suggestions: CategorySuggestion[] };
-export const CATEGORY_RULE_VERSION = 'step16-context-v2';
+export type CategoryAssessment = { level: 'allow' | 'warn' | 'block'; certainty: 'identified' | 'uncertain'; reason: string | null; suggestions: CategorySuggestion[] };
+export const CATEGORY_RULE_VERSION = 'step16-subject-relations-v3';
 
 // Resolve the offered item before words naming its purpose, compatibility or a gift.
 const subjects = [
@@ -17,7 +17,7 @@ const subjects = [
   { pattern: /(?:^|\s)(?:(?:іграшков\S*|игрушечн\S*)\s+(?:автомобіл\S*|автомобил\S*|машин\S*|авто)|(?:масштабн\S*\s+)?модел\S*\s+(?:автомобіл\S*|автомобил\S*))(?=\s|$)/u, codes: ['market-children--ihrashky--ihrashkovyy-transport'], family: 'toy_vehicle' },
   { pattern: /(?:^|\s)(?:(?:велосипедн\S*\s+)?(?:рукавичк\S*|перчатк\S*))(?:\s+для\s+велосипед\S*)?(?=\s|$)/u, codes: ['market-fashion--aksesuary--sharfy-i-rukavychky'], family: 'gloves' },
   { pattern: /(?:^|\s)(?:малюнок|рисунок|картина)\s+(?:автомобіл\S*|автомобил\S*|машин\S*)(?=\s|$)/u, codes: ['market-hobbies'], family: 'art' },
-  { pattern: /(?:^|\s)(?:чохл\S*|чехл\S*)\s+автомоб\S*(?=\s|$)/u, codes: ['market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky'], family: 'accessory' },
+  { pattern: /(?:^|\s)(?:чох(?:ол|л)\S*|чех(?:ол|л)\S*)\s+автомоб\S*(?=\s|$)/u, codes: ['market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky'], family: 'accessory' },
   { pattern: /(?:^|\s)(?:обладнанн\S*|оборудован\S*|насос\S*)\s+для\s+(?:(?:фасуванн\S*|фасовк\S*)\s+)?(?:меду|меда|бджільництв\S*|пчеловодств\S*)(?=\s|$)/u, codes: ['market-business-services--prodazh-obladnannya-dlya-biznesu--promyslove-obladnannya', 'market-business-services--prodazh-obladnannya-dlya-biznesu'], family: 'equipment' },
   { pattern: /(?:^|\s)(?:медогонк\S*|медогон\S*|honey\s+extractor)(?=\s|$)/u, codes: ['market-business-services--prodazh-obladnannya-dlya-biznesu', 'apiculture'], family: 'equipment' },
   { pattern: /(?:^|\s)(?:медичн\S*|медицинск\S*)\s+халат\S*(?=\s|$)/u, codes: ['market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah'], family: 'clothes' },
@@ -50,6 +50,33 @@ const confirmingContext: Record<string, RegExp> = {
 };
 const normalize = (text: string) => text.toLocaleLowerCase('uk-UA').replace(/[’ʼ`´]/g, "'").replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
+type Subject = { readonly codes: readonly string[]; readonly family: string };
+type SubjectResolution = { subject?: Subject; head: string; hardEvidence: boolean; conflict: boolean };
+const purposeMarker = /\s+(?:для|до|під|под|на)\s+/u;
+const bundleMarker = /\s+(?:із|з|с|со)\s+(?:комплектом|набором|комплектом\s+із|набором\s+из)\s+/u;
+const carTarget = /(?:автомоб\S*|авто|машин\S*|toyota|renault|ford|skoda|bmw|mercedes)/u;
+const bikeTarget = /(?:велосипед\S*|велосипєд\S*|велобайк\S*)/u;
+const phoneTarget = /(?:телефон\S*|смартфон\S*|iphone)/u;
+const laptopTarget = /(?:ноутбук\S*|ноутбуков\S*|ноут\S*)/u;
+const tractorTarget = /(?:трактор\S*|сільгосптехнік\S*|сельхозтехник\S*)/u;
+// The left noun is the item for sale; the right noun only narrows compatibility.
+// These codes are existing category nodes, never new catalog entries.
+const relationalSubjects: { head: RegExp; target: RegExp; codes: readonly string[]; family: string }[] = [
+  { head: /(?:чох(?:ол|л)\S*|чех(?:ол|л)\S*)/u, target: carTarget, codes: ['market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky'], family: 'accessory' },
+  { head: /(?:чох(?:ол|л)\S*|чех(?:ол|л)\S*)/u, target: phoneTarget, codes: ['market-electronics--telefony-ta-aksesuary--aksesuary-dlya-telefoniv'], family: 'accessory' },
+  { head: /(?:килимк\S*|коврик\S*)/u, target: carTarget, codes: ['market-auto-parts--aksesuary-dlya-avto--avtomobilni-kylymky'], family: 'accessory' },
+  { head: /фар\S*/u, target: carTarget, codes: ['market-auto-parts--avtozapchastyny--fary-ta-osvitlennya'], family: 'part' },
+  { head: /(?:запчаст\S*|детал\S*|частин\S*)/u, target: tractorTarget, codes: ['market-auto-parts--zapchastyny-dlya-silhosptekhniky'], family: 'part' },
+  { head: /(?:запчаст\S*|детал\S*|частин\S*)/u, target: carTarget, codes: ['market-auto-parts--avtozapchastyny'], family: 'part' },
+  { head: /(?:запчаст\S*|детал\S*|частин\S*)/u, target: bikeTarget, codes: ['market-hobbies--velo--veloaksesuary'], family: 'part' },
+  { head: /(?:сумк\S*|сумочк\S*|сумка\S*)/u, target: laptopTarget, codes: ['market-electronics--noutbuky-ta-aksesuary--aksesuary-dlya-noutbukiv'], family: 'accessory' },
+  { head: /(?:сумк\S*|сумочк\S*|сумка\S*)/u, target: bikeTarget, codes: ['market-hobbies--velo--veloaksesuary'], family: 'accessory' },
+  { head: /(?:зарядн\S*|зарядк\S*|зарядочн\S*)/u, target: carTarget, codes: ['market-auto-parts--aksesuary-dlya-avto--puskovi-ta-zaryadni-prystroyi'], family: 'accessory' },
+  { head: /(?:корм\S*|корма\S*)/u, target: /(?:собак\S*|пес\S*|пс\S*)/u, codes: ['market-animals--zootovary--tovary-dlya-sobak'], family: 'animal_supply' },
+  { head: /(?:кабел\S*|кабель\S*|провод\S*)/u, target: /(?:сонячн\S*|солнечн\S*|solar)/u, codes: ['market-electronics--aksesuary-y-komplektuyuchi'], family: 'accessory' },
+  { head: /рамк\S*/u, target: /(?:вулик\S*|вуликів|уль\S*)/u, codes: ['apiculture'], family: 'beekeeping' },
+];
+
 const giftMarker = /\s+(?:у|в)\s+(?:подарунок|подарок)(?:\s|$)/u;
 function primaryText(text: string) {
   const giftAt = text.search(giftMarker);
@@ -60,8 +87,34 @@ function primaryText(text: string) {
   return before.slice(0, Math.max(...positions, 0)).trim() || before.trim();
 }
 function subjectMatches(text: string) {
-  return subjects.map(subject => ({ subject, index: text.search(subject.pattern) }))
+  return subjects.map(subject => {
+    const match = subject.pattern.exec(text);
+    return { subject, index: match?.index ?? -1, end: match ? match.index + match[0].length : -1 };
+  })
     .filter(match => match.index >= 0).sort((a, b) => a.index - b.index);
+}
+
+function resolveSubject(rawTitle: string): SubjectResolution {
+  const core = normalize(primaryText(rawTitle.toLocaleLowerCase('uk-UA')));
+  const purpose = purposeMarker.exec(core);
+  const bundle = bundleMarker.exec(core);
+  const cut = Math.min(purpose?.index ?? core.length, bundle?.index ?? core.length);
+  const head = core.slice(0, cut).trim();
+  const target = purpose ? core.slice(purpose.index + purpose[0].length) : '';
+  const headMatches = subjectMatches(head);
+  const first = headMatches[0];
+  const conflictingHeads = first ? headMatches.some(match => match.index >= first.end && match.subject.family !== first.subject.family) : false;
+  if (purpose && /(?:^|\s)(?:ляльк\S*|кукл\S*)(?=\s|$)/u.test(target) && head)
+    return { subject: { codes: ['market-children--ihrashky--lyalky-ta-pupsy', 'market-children--ihrashky--aksesuary-dlya-lyalok-ta-pupsiv'], family: 'doll_item' }, head, hardEvidence: false, conflict: false };
+  if (purpose) {
+    const equipment = subjectMatches(core).find(match => match.subject.family === 'equipment' && match.index < purpose.index);
+    if (equipment) return { subject: equipment.subject, head, hardEvidence: true, conflict: false };
+    const related = relationalSubjects.find(rule => rule.head.test(head) && rule.target.test(target));
+    if (related) return { subject: related, head, hardEvidence: false, conflict: false };
+  }
+  if (/(?:^|\s)(?:іграшков\S*|игрушечн\S*)(?=\s|$)/u.test(head) && !headMatches.length)
+    return { subject: { codes: ['market-children--ihrashky'], family: 'toy' }, head, hardEvidence: false, conflict: false };
+  return { subject: headMatches[0]?.subject, head, hardEvidence: Boolean(headMatches.length), conflict: conflictingHeads };
 }
 
 let categoryCache: { expires: number; items: Category[] } | null = null;
@@ -76,13 +129,15 @@ export async function assessCategory(input: { title: string; description?: strin
   const items = await categories(queryable);
   const byCode = new Map(items.map(item => [item.code, item]));
   const byId = new Map(items.map(item => [item.id, item]));
-  const title = normalize(input.title.slice(0, 160));
   const description = normalize((input.description ?? '').slice(0, 5000));
+  const resolution = resolveSubject(input.title.slice(0, 160));
   const core = normalize(primaryText(input.title.slice(0, 160).toLocaleLowerCase('uk-UA')));
-  const titleMatches = subjectMatches(core);
-  const subject = titleMatches[0]?.subject;
-  const descriptiveSubject = giftMarker.test(description) ? undefined : subjectMatches(primaryText(description))[0]?.subject;
+  const subject = resolution.subject;
+  const descriptiveSubject = giftMarker.test(description) ? undefined : resolveSubject((input.description ?? '').slice(0, 5000)).subject;
   const detected = subject ?? descriptiveSubject;
+  const conflict = Boolean(resolution.conflict || subject && descriptiveSubject && subject.family !== descriptiveSubject.family);
+  const confirmedDirect = Boolean(subject && resolution.hardEvidence && core.split(' ').length >= 2 && confirmingContext[subject.family]?.test(core + ' ' + description));
+  const certainty = subject && !conflict && (!resolution.hardEvidence || confirmedDirect) ? 'identified' : 'uncertain';
   const chosen = input.categoryId ? byId.get(input.categoryId) : undefined;
   const path = (category: Category) => {
     const trail = [category.name];
@@ -92,7 +147,7 @@ export async function assessCategory(input: { title: string; description?: strin
   };
   const categoryCandidates = detected?.codes.map(code => byCode.get(code)).filter((item): item is Category => Boolean(item)) ?? [];
   if (!categoryCandidates.length) {
-    const words = searchTokens(input.title).filter(word => word.length >= 4);
+    const words = searchTokens(resolution.head || input.title).filter(word => word.length >= 4);
     categoryCandidates.push(...items.map(item => {
       const name = normalize(item.name);
       const score = words.reduce((total, word) => total + (name.split(' ').some(part => part.length >= 4 && part.slice(0, 5) === word.slice(0, 5)) ? 1 : 0), 0);
@@ -101,7 +156,7 @@ export async function assessCategory(input: { title: string; description?: strin
   }
   const suggestions = categoryCandidates
     .map(item => ({ id: item.id, name: item.name, path: path(item) })).slice(0, 3);
-  if (!chosen || !detected || !suggestions.length) return { level: 'allow', reason: null, suggestions };
+  if (!chosen || !detected || !suggestions.length) return { level: 'allow', certainty, reason: null, suggestions };
   const acceptable = detected.codes.some(code => {
     const target = byCode.get(code);
     if (!target) return false;
@@ -112,17 +167,14 @@ export async function assessCategory(input: { title: string; description?: strin
     while (current) { if (current.id === chosen.id) return true; current = current.parent_id ? byId.get(current.parent_id) : undefined; }
     return false;
   });
-  if (acceptable) return { level: 'allow', reason: null, suggestions };
+  if (acceptable) return { level: 'allow', certainty, reason: null, suggestions };
   // No hard decision if title and description indicate different subjects,
   // or if the subject appears only in the description.
-  const otherTitleSubject = titleMatches.find(match => match.subject.family !== subject?.family &&
-    !/^(?:для|під|под|на|з|с)$/u.test(core.slice(0, match.index).trim().split(' ').at(-1) ?? ''));
-  const conflict = Boolean(otherTitleSubject || subject && descriptiveSubject && subject.family !== descriptiveSubject.family);
-  const strong = Boolean(subject && !conflict && (!ambiguous.test(core) || subject.family === 'equipment') && core.split(' ').length >= 2 && confirmingContext[subject.family]?.test(core + ' ' + description));
+  const strong = Boolean(confirmedDirect && !conflict && (!ambiguous.test(core) || subject?.family === 'equipment'));
   const chosenRoot = (() => { let item: Category | undefined = chosen; while (item?.parent_id) item = byId.get(item.parent_id); return item?.code; })();
   const detectedRoot = (() => { let item: Category | undefined = byCode.get(detected.codes[0]); while (item?.parent_id) item = byId.get(item.parent_id); return item?.code; })();
   const level = strong && chosenRoot && detectedRoot && chosenRoot !== detectedRoot ? 'block' : 'warn';
-  return { level, reason: level === 'block'
+  return { level, certainty, reason: level === 'block'
     ? 'Обрана категорія не відповідає товару. Виберіть відповідну категорію або уточніть опис.'
     : 'Можливо, для цього оголошення більше підходить інша категорія.', suggestions };
 }
