@@ -123,7 +123,8 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
     if (!await verifiedInputPoint({ settlementCode: input.settlementCode, label: input.geoZone, latitude: input.latitude, longitude: input.longitude })) return invalid(['latitude', 'longitude'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE', message: 'Категорія недоступна' } }
     const assessment = await assessCategory({ title: String(input.title), description: String(input.description ?? ''), categoryId: String(input.categoryId), unit: String(input.unit) })
-    if (assessment.level === 'block' && input.status !== 'draft') return categoryBlock(assessment)
+    if (assessment.level === 'block' && input.status !== 'draft') return categoryBlock(user, 'product', null,
+        String(input.categoryId), String(input.title), String(input.description ?? ''), assessment)
     const product = input as unknown as ProductInput
     const client = await pool.connect()
     let storedPhotos: StoredPhoto[] = []
@@ -229,7 +230,11 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
                 title: String(input.title ?? previousProduct.title), description: String(input.description ?? previousProduct.description),
                 categoryId: String(input.categoryId ?? previousProduct.category_id), unit: String(input.unit ?? previousProduct.unit),
             }, client)
-            if (assessment.level === 'block' && (input.status ?? previousProduct.status) !== 'draft') { await client.query('ROLLBACK'); return categoryBlock(assessment) }
+            if (assessment.level === 'block' && (input.status ?? previousProduct.status) !== 'draft') {
+                await client.query('ROLLBACK')
+                return categoryBlock(user, 'product', id, String(input.categoryId ?? previousProduct.category_id),
+                    String(input.title ?? previousProduct.title), String(input.description ?? previousProduct.description), assessment)
+            }
             if (assessment.level === 'warn') categoryWarning = assessment
         }
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.id])

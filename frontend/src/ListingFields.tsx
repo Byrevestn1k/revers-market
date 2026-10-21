@@ -5,10 +5,10 @@ import { CURRENCIES, LISTING_UNITS } from './listing-options'
 import './listing-ui.css'
 
 export function FieldError({ message }: { message?: string }) { return message ? <span className="field-error" role="alert">{message}</span> : null }
-export function ListingBasics({ categories, categoryId, onCategoryChange, title, onTitleChange, description, errors = {}, categoryDisabled = false, targetType, targetId }: {
+export function ListingBasics({ categories, categoryId, onCategoryChange, title, onTitleChange, description, errors = {}, categoryDisabled = false, targetType, decisionId }: {
     categories: Category[]; categoryId: string; onCategoryChange: (id: string) => void
     title: string; onTitleChange: (value: string) => void; description?: string; errors?: Record<string, string>; categoryDisabled?: boolean
-    targetType?: 'product' | 'buy_request'; targetId?: string
+    targetType?: 'product' | 'buy_request'; decisionId?: string | null
 }) {
     const [draftDescription, setDraftDescription] = useState(description ?? '')
     const [assessment, setAssessment] = useState<{ level: string; reason: string | null; suggestions: { id: string; path: string }[] } | null>(null)
@@ -25,10 +25,10 @@ export function ListingBasics({ categories, categoryId, onCategoryChange, title,
         return () => { window.clearTimeout(timer); controller.abort() }
     }, [title, draftDescription, categoryId])
     const appeal = async () => {
-        if (!targetType || !categoryId) return
+        if (!targetType || !decisionId) return
         const response = await fetch(`${import.meta.env.VITE_API_URL ?? ''}/api/category-appeals`, {
             method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ targetType, targetId, categoryId, title, description: draftDescription }),
+            body: JSON.stringify({ decisionId }),
         })
         const body = await response.json()
         setAppealMessage(response.ok ? 'Оскарження збережено для розгляду.' : body.message ?? 'Не вдалося подати оскарження.')
@@ -39,7 +39,7 @@ export function ListingBasics({ categories, categoryId, onCategoryChange, title,
         {assessment && assessment.suggestions.length > 0 && <div className="category-recommendation" aria-live="polite">
             <strong>{assessment.reason ?? 'Рекомендована категорія:'}</strong>
             <div>{assessment.suggestions.map(item => <button type="button" key={item.id} disabled={categoryDisabled} onClick={() => onCategoryChange(item.id)}>{item.path}</button>)}</div>
-            {assessment.level === 'block' && targetType && <button type="button" className="text-button" onClick={() => void appeal()}>Оскаржити визначення категорії</button>}
+            {decisionId && targetType && <button type="button" className="text-button" onClick={() => void appeal()}>Оскаржити відхилення</button>}
             {appealMessage && <small role="status">{appealMessage}</small>}
         </div>}
         <label>Опис<textarea name="description" value={draftDescription} onChange={event => setDraftDescription(event.target.value)} rows={4} maxLength={5000} placeholder="Стан, характеристики та важливі умови" /><FieldError message={errors.description} /></label>

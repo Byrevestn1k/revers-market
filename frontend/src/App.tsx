@@ -61,7 +61,7 @@ type MapPoint = { latitude: number; longitude: number }
 type MapMarker = SellerProductPoint & { approximate: boolean }
 type MapReturnState = { center: MapPoint; zoom: number; radius: number; nearbyRadius: number; geoZone: string; region: string; geoSettlement: Settlement | null; localCategoryId: string; deliveryMethod?: DeliveryMethod | ''; showProducts: boolean; showBuyRequests: boolean; mapQuery: string; mapSearch: string; searchIn: 'title' | 'all' | 'owner'; searchScope: 'city' | 'nearby' | 'area' | 'country'; resultPage: number }
 type BuyRequest = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; countryCode?: string | null; receiptMethod?: ReceiptMethod | null; deliveryOptions?: DeliveryOption[] | null; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; geoArea: string; settlement?: Settlement | null; category: { id: string; name: string; imageIndex?: number | null }; quantity: number; fulfilledQuantity: number; selectedQuantity: number; completedQuantity: number; remainingQuantity: number; fulfillmentMode: 'single_seller' | 'multiple_sellers'; unit: string; status: string; offerCount?: number; createdAt?: string; updatedAt?: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null; address?: string | null }; deadline: string | null }
-type ApiError = Error & { fields?: string[]; status?: number }
+type ApiError = Error & { fields?: string[]; status?: number; decisionId?: string }
 const API = import.meta.env.VITE_API_URL ?? ''
 const FALLBACK = 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=900&q=80'
 const STATUS: Record<string, string> = { draft: 'Чернетка', active: 'Активний', paused: 'Призупинений', sold: 'Проданий', expired: 'Завершений' }
@@ -74,7 +74,7 @@ async function request(path: string, options?: RequestInit) {
     try { response = await fetch(`${API}${path}`, { ...options, credentials: 'include', headers: { 'Content-Type': 'application/json', ...options?.headers } }) }
     catch { throw new Error('Не вдалося підключитися до сервера. Перевірте, чи запущений backend.') }
     const body = response.status === 204 ? null : await response.json()
-    if (!response.ok) { const error = new Error(body?.message ?? 'Не вдалося виконати запит') as ApiError; error.fields = body?.fields ?? []; error.status = response.status; throw error }
+    if (!response.ok) { const error = new Error(body?.message ?? 'Не вдалося виконати запит') as ApiError; error.fields = body?.fields ?? []; error.status = response.status; error.decisionId = body?.decisionId; throw error }
     return body
 }
 async function loadActivityPages<T>(path: string, key: 'products' | 'buyRequests' | 'offers'): Promise<T[]> {
@@ -581,6 +581,7 @@ const listingErrors = (error: ApiError) => Object.fromEntries((error.fields ?? [
 
 function ProductEditor({ categories, product, onSaved, onCancel }: { categories: Category[]; product?: Product; onSaved: (location?: AddressValue) => void; onCancel: () => void }) {
     const [duplicateNotice, setDuplicateNotice] = useState<{ message: string; existing: { id: string }[] } | null>(null)
+    const [decisionId, setDecisionId] = useState<string | null>(null)
     const [title, setTitle] = useState(product?.title ?? '')
     const [categoryId, setCategoryId] = useState(product?.category.id ?? '')
     const [photos, setPhotos] = useState(() => product?.photos.map((photo) => photo.url) ?? [])
@@ -635,13 +636,13 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
         if (product && !Object.keys(payload).length) { setError('Змін немає.'); return }
         setBusy(true)
         try { const result = await request(product ? '/api/products/' + product.id : '/api/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); if (result.duplicate) setDuplicateNotice(result.duplicate); else onSaved(location) }
-        catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)) }
+        catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)); setDecisionId((caught as ApiError).decisionId ?? null) }
         finally { setBusy(false) }
     }
     if (duplicateNotice) return <section className="form-view"><h1>Товар збережено</h1><p>{duplicateNotice.message}</p><a href={'/products/' + duplicateNotice.existing[0].id}>Відкрити схоже оголошення</a><button className="primary-button" type="button" onClick={() => onSaved(location)}>Продовжити</button></section>
     return <section className="form-view"><div className="view-header"><div><span className="eyebrow">Пропозиція продавця</span><h1>{product ? 'Редагувати товар' : 'Додати товар'}</h1></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Закрити форму">×</button></div>
         <form className="product-form listing-form" onSubmit={submit}>
-            <ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} description={product?.description} errors={errors} targetType="product" targetId={product?.id} />
+            <ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} description={product?.description} errors={errors} targetType="product" decisionId={decisionId} />
             <fieldset className="listing-section"><legend>Фото товару</legend><div className="photo-drop">
                 {photos.map((photo, index) => <div key={`${photo}-${index}`}><img className="photo-preview" src={photo.startsWith('/') ? imageUrl(photo) : photo} alt={`Фото товару ${index + 1}`} /><label>Посилання на фото {index + 1}<input type="url" value={photo.startsWith('data:') || photo.startsWith('/') ? '' : photo} onChange={(event) => setImages(photos.map((current, currentIndex) => currentIndex === index ? event.target.value : current))} placeholder="https://…" /></label><button type="button" className="text-button" onClick={() => setImages(photos.filter((_, currentIndex) => currentIndex !== index))}>Прибрати фото</button></div>)}
                 <label>Завантажити фото<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => readFile(event.target.files?.[0])} /></label>
@@ -666,6 +667,7 @@ const ProductForm = ProductEditor
 
 function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Category[]; onSaved: (location?: AddressValue) => void; onCancel: () => void }) {
     const [duplicateNotice, setDuplicateNotice] = useState<{ message: string; existing: { id: string }[] } | null>(null)
+    const [decisionId, setDecisionId] = useState<string | null>(null)
     const [title, setTitle] = useState('')
     const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([])
     const [categoryId, setCategoryId] = useState('')
@@ -695,13 +697,13 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
         }
         setBusy(true)
         try { const result = await request('/api/buy-requests', { method: 'POST', body: JSON.stringify(payload) }); if (result.duplicate) setDuplicateNotice(result.duplicate); else onSaved(location) }
-        catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)) }
+        catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)); setDecisionId((caught as ApiError).decisionId ?? null) }
         finally { setBusy(false) }
     }
     if (duplicateNotice) return <section className="form-view"><h1>Запит збережено</h1><p>{duplicateNotice.message}</p><a href={'/buy-requests/' + duplicateNotice.existing[0].id}>Відкрити схожий запит</a><button className="primary-button" type="button" onClick={() => onSaved(location)}>Продовжити</button></section>
     return <section className="form-view"><div className="view-header"><div><span className="eyebrow">Запит покупця</span><h1>Створити запит на купівлю</h1></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Закрити форму">×</button></div>
         <form className="product-form request-form listing-form" onSubmit={submit}>
-            <ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} errors={errors} targetType="buy_request" />
+            <ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} errors={errors} targetType="buy_request" decisionId={decisionId} />
             <fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={setPhotos} max={8} error={errors.photos} /></fieldset>
             <fieldset className="listing-section"><legend>Кількість і бюджет</legend><QuantityFields errors={errors} />
                 <div className="field-row"><label>Ціна від, за одиницю<input name="minPrice" type="number" min="0" step=".01" placeholder="Не вказано" /><FieldError message={errors.minPrice} /></label><label>Ціна до, за одиницю<input name="maxPrice" type="number" min="0" step=".01" placeholder="Не вказано" /><FieldError message={errors.maxPrice} /></label></div>
@@ -1253,6 +1255,7 @@ function MyRequests({ notify, create }: { notify: (message: string) => void; cre
 
 function RequestEditDialog({ item, notify, onClose, onDone }: { item: BuyRequest; notify: (message: string) => void; onClose: () => void; onDone: () => void }) {
     const [title, setTitle] = useState(item.title)
+    const [decisionId, setDecisionId] = useState<string | null>(null)
     const [photos, setPhotos] = useState<string[]>(() => item.photos?.map(photo => photo.url) ?? [])
     const [photosChanged, setPhotosChanged] = useState(false)
     const [categories, setCategories] = useState<Category[]>([])
@@ -1271,9 +1274,9 @@ function RequestEditDialog({ item, notify, onClose, onDone }: { item: BuyRequest
         if (photosChanged) payload.photos = photos.map(photo => ({ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: title.trim() }))
         if (!termsLocked) Object.assign(payload, { categoryId, quantity: Number(data.quantity), unit: data.unit, currency: data.currency, fulfillmentMode })
         setBusy(true); setError(''); setErrors({})
-        try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify(payload) }); notify('Запит оновлено'); onDone() } catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)) } finally { setBusy(false) }
+        try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify(payload) }); notify('Запит оновлено'); onDone() } catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)); setDecisionId((caught as ApiError).decisionId ?? null) } finally { setBusy(false) }
     }
-    return <DealDialog title="Редагувати запит" onClose={onClose} busy={busy}><form className="offer-form listing-form" onSubmit={submit}><ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} description={item.description} errors={errors} categoryDisabled={termsLocked} targetType="buy_request" targetId={item.id} /><fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={next => { setPhotos(next); setPhotosChanged(true) }} max={8} error={errors.photos} /></fieldset><fieldset disabled={termsLocked}><QuantityFields quantity={item.quantity} unit={item.unit} errors={errors} /><CurrencyField currency={item.price.currency} error={errors.currency} /><label><input type="radio" name="fulfillmentMode" checked={fulfillmentMode === 'single_seller'} onChange={() => setFulfillmentMode('single_seller')} /> Один продавець</label><label><input type="radio" name="fulfillmentMode" checked={fulfillmentMode === 'multiple_sellers'} onChange={() => setFulfillmentMode('multiple_sellers')} /> Кілька продавців</label></fieldset>{termsLocked && <p className="form-hint">Категорію, кількість, одиниці, валюту, місце та способи отримання вже не можна змінити, бо є пропозиції або угоди. Зміни бюджету діятимуть лише для нових пропозицій; погоджені умови угод збережуться.</p>}<div className="field-row"><label>Ціна від<input name="minPrice" type="number" min="0" step=".01" defaultValue={item.price.min ?? ''} /></label><label>Ціна до<input name="maxPrice" type="number" min="0" step=".01" defaultValue={item.price.max ?? ''} /></label></div><fieldset disabled={termsLocked}><label>Країна<select name="countryCode" defaultValue={item.countryCode ?? 'UA'}>{COUNTRIES.map(country => <option key={country.code} value={country.code}>{country.name}</option>)}</select></label><ListingLocationFields value={location} onChange={setLocation} request={request} onBusyChange={setLocationBusy} error={errors.location || errors.settlementCode || errors.geoArea || errors.address} /></fieldset><DeliveryOptionsFields role="buyer" value={deliveryOptions} onChange={setDeliveryOptions} disabled={termsLocked} /><FieldError message={errors.deliveryOptions} /><label>Потрібно до<input name="deadline" type="date" defaultValue={item.deadline?.slice(0, 10) ?? ''} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="deal-actions"><button type="button" className="outline-button" disabled={busy} onClick={onClose}>Скасувати</button><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : 'Зберегти'}</button></div></form></DealDialog>
+    return <DealDialog title="Редагувати запит" onClose={onClose} busy={busy}><form className="offer-form listing-form" onSubmit={submit}><ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} description={item.description} errors={errors} categoryDisabled={termsLocked} targetType="buy_request" decisionId={decisionId} /><fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={next => { setPhotos(next); setPhotosChanged(true) }} max={8} error={errors.photos} /></fieldset><fieldset disabled={termsLocked}><QuantityFields quantity={item.quantity} unit={item.unit} errors={errors} /><CurrencyField currency={item.price.currency} error={errors.currency} /><label><input type="radio" name="fulfillmentMode" checked={fulfillmentMode === 'single_seller'} onChange={() => setFulfillmentMode('single_seller')} /> Один продавець</label><label><input type="radio" name="fulfillmentMode" checked={fulfillmentMode === 'multiple_sellers'} onChange={() => setFulfillmentMode('multiple_sellers')} /> Кілька продавців</label></fieldset>{termsLocked && <p className="form-hint">Категорію, кількість, одиниці, валюту, місце та способи отримання вже не можна змінити, бо є пропозиції або угоди. Зміни бюджету діятимуть лише для нових пропозицій; погоджені умови угод збережуться.</p>}<div className="field-row"><label>Ціна від<input name="minPrice" type="number" min="0" step=".01" defaultValue={item.price.min ?? ''} /></label><label>Ціна до<input name="maxPrice" type="number" min="0" step=".01" defaultValue={item.price.max ?? ''} /></label></div><fieldset disabled={termsLocked}><label>Країна<select name="countryCode" defaultValue={item.countryCode ?? 'UA'}>{COUNTRIES.map(country => <option key={country.code} value={country.code}>{country.name}</option>)}</select></label><ListingLocationFields value={location} onChange={setLocation} request={request} onBusyChange={setLocationBusy} error={errors.location || errors.settlementCode || errors.geoArea || errors.address} /></fieldset><DeliveryOptionsFields role="buyer" value={deliveryOptions} onChange={setDeliveryOptions} disabled={termsLocked} /><FieldError message={errors.deliveryOptions} /><label>Потрібно до<input name="deadline" type="date" defaultValue={item.deadline?.slice(0, 10) ?? ''} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="deal-actions"><button type="button" className="outline-button" disabled={busy} onClick={onClose}>Скасувати</button><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : 'Зберегти'}</button></div></form></DealDialog>
 }
 
 function ChatPanel({ chat, onClose, notify }: { chat: { conversationId: string; title: string }; onClose: () => void; notify: (message: string) => void }) {
