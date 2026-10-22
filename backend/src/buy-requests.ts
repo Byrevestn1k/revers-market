@@ -4,6 +4,7 @@ import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
 import { validateBuyRequestInput, validateOfferInput } from './buy-request-validation.js'
+import { currencyLabel } from './currency-label.js'
 import { approximatePoint } from './map-service.js'
 import { createOrderConversation } from './order-service.js'
 import { refreshRequestQuantities } from './request-quantities.js'
@@ -249,7 +250,6 @@ const validateAcceptance = (
     if (!acceptableRequestStatuses.includes(request.status)) return { ok: false, status: 409, body: { error: 'OFFER_OR_REQUEST_NOT_ACCEPTABLE' } }
     const remainingOffer = Number(offer.offered_quantity) - Number(offer.accepted_quantity)
     const remainingRequest = Number(request.requested_quantity) - Number(request.selected_quantity) - Number(request.completed_quantity)
-    if (request.fulfillment_mode === 'single_seller' && remainingOffer < remainingRequest) return { ok: false, status: 409, body: { error: 'OFFER_QUANTITY_INSUFFICIENT' } }
     if (quantity > remainingOffer || quantity > remainingRequest) return { ok: false, status: 409, body: { error: 'QUANTITY_EXCEEDS_REMAINING' } }
     return { ok: true }
 }
@@ -290,7 +290,7 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     if (duplicates.massAbuse) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'CATEGORY_DUPLICATE_ABUSE', message: 'Однаковий запит уже розміщено в кількох категоріях.', duplicate: duplicates.notice } } }
     const created = await client.query<{ id: string }>(
         'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode, country_code, receipt_method, delivery_options) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id',
-        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'multiple_sellers', input.countryCode ?? 'UA', receiptMethod, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions)],
+        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'single_seller', input.countryCode ?? 'UA', receiptMethod, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions)],
     )
     requestId = created.rows[0].id
     if (assessment.level === 'warn') await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_warning', 'buy_request', requestId, JSON.stringify({ suggestions: assessment.suggestions })])
@@ -396,7 +396,10 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     const immutableAfterOffers = ['categoryId', 'productId', 'quantity', 'unit', 'currency']
     const hasOffers = Boolean((await client.query('SELECT 1 FROM offers WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
     const hasDeals = Boolean((await client.query('SELECT 1 FROM orders WHERE buy_request_id = $1 LIMIT 1', [id])).rowCount)
-    if (input.fulfillmentMode !== undefined && input.fulfillmentMode !== current.rows[0].fulfillment_mode && (hasOffers || hasDeals)) return { status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED', message: 'Режим виконання не можна змінити після появи пропозиції або угоди.' } }
+    if (input.fulfillmentMode === 'single_seller' && input.fulfillmentMode !== current.rows[0].fulfillment_mode) {
+        const sellers = await client.query("SELECT DISTINCT seller_id FROM orders WHERE buy_request_id = $1 AND status NOT IN ('cancelled', 'failed', 'rejected', 'expired') LIMIT 2", [id])
+        if (sellers.rowCount && sellers.rowCount > 1) return { status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED', message: 'Режим одного продавця недоступний: запит уже має угоди з різними продавцями.' } }
+    }
     if (input.deliveryOptions !== undefined && !isDeepStrictEqual(input.deliveryOptions, current.rows[0].delivery_options) && (hasOffers || hasDeals)) return { status: 409, body: { error: 'DELIVERY_OPTIONS_LOCKED', message: 'Способи отримання не можна змінити після появи пропозиції або угоди.' } }
     const geographyFields: Record<string, string> = { countryCode: 'country_code', settlementCode: 'settlement_code', geoArea: 'geo_area', latitude: 'latitude', longitude: 'longitude', address: 'delivery_address', mapLocationMode: 'map_location_mode', receiptMethod: 'receipt_method' }
     const geographyChanged = Object.entries(geographyFields).some(([key, column]) => key in input && (key === 'latitude' || key === 'longitude'
@@ -527,10 +530,8 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
             }
         }
         if (request.rows[0].deadline && request.rows[0].deadline <= new Date()) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'BUY_REQUEST_CLOSED', message: 'Строк запиту вже минув.' } } }
-        if (request.rows[0].fulfillment_mode !== 'single_seller' && (typeof requestedQuantity !== 'number' || !Number.isFinite(requestedQuantity) || requestedQuantity <= 0)) { await client.query('ROLLBACK'); return invalid(['quantity']) }
-        const selectionQuantity = request.rows[0].fulfillment_mode === 'single_seller'
-            ? Number(request.rows[0].requested_quantity) - Number(request.rows[0].selected_quantity) - Number(request.rows[0].completed_quantity)
-            : requestedQuantity as number
+        if (typeof requestedQuantity !== 'number' || !Number.isFinite(requestedQuantity) || requestedQuantity <= 0) { await client.query('ROLLBACK'); return invalid(['quantity']) }
+        const selectionQuantity = requestedQuantity
         if (selectionQuantity <= 0 || Math.abs(selectionQuantity * 1000 - Math.round(selectionQuantity * 1000)) > 0.00001) { await client.query('ROLLBACK'); return invalid(['quantity']) }
         const acceptance = validateAcceptance(row, request.rows[0], selectionQuantity)
         if (!acceptance.ok) { await client.query('ROLLBACK'); return { ...acceptance, body: { ...acceptance.body, remainingQuantity: Number(request.rows[0].requested_quantity) - Number(request.rows[0].selected_quantity) - Number(request.rows[0].completed_quantity), message: 'Залишок або доступність пропозиції змінилися. Оновіть умови перед вибором.' } } }
@@ -543,7 +544,10 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const delivery = agreed ? { delivery: agreed.delivery, price: Number(agreed.delivery_price), options: row.delivery_options } : { delivery: row.delivery, price: Number(row.delivery_terms?.price ?? 0), options: row.delivery_options }
         if ((input.expectedDelivery !== undefined && input.expectedDelivery !== delivery.delivery) || (input.expectedDeliveryPrice !== undefined && input.expectedDeliveryPrice !== delivery.price)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'TERMS_CHANGED', message: 'Умови доставки змінилися. Перегляньте новий підсумок.' } } }
         if (await usersAreBlocked(client, user.id, row.seller_id)) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'USER_BLOCKED' } } }
-        if (request.rows[0].fulfillment_mode === 'single_seller' && Number(request.rows[0].selected_quantity) > 0) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'REQUEST_ALREADY_ALLOCATED' } } }
+        if (request.rows[0].fulfillment_mode === 'single_seller') {
+            const chosenSeller = await client.query<{ seller_id: string }>("SELECT seller_id FROM orders WHERE buy_request_id = $1 AND status NOT IN ('cancelled', 'failed', 'rejected', 'expired') LIMIT 1", [linked.buy_request_id])
+            if (chosenSeller.rows[0] && chosenSeller.rows[0].seller_id !== row.seller_id) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'REQUEST_ALREADY_ALLOCATED', message: 'Для цього запиту вже обрано іншого продавця.' } } }
+        }
         const accepted = Number(row.accepted_quantity) + selectionQuantity
         const offerStatus = accepted === Number(row.offered_quantity) ? 'accepted' : 'partially_accepted'
         await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
@@ -629,7 +633,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         }
         await client.query(`UPDATE offers SET terms = terms || jsonb_build_object('note', note, 'additionalPhotoUrl', additional_photo_url), delivery_terms = delivery_terms || jsonb_build_object('delivery', delivery) WHERE id=$1`, [offerId])
         const conversation = (await client.query('SELECT id FROM conversations WHERE offer_id=$1',[offerId])).rows[0]
-        const updateText = input.price !== undefined ? `Продавець змінив ціну пропозиції: ${existing.unit_price} → ${input.price} ${existing.currency}. Погоджені раніше умови залишаються в історії.` : 'Продавець оновив пропозицію. Перегляньте актуальні умови.'
+        const updateText = input.price !== undefined ? `Продавець змінив ціну пропозиції: ${existing.unit_price} → ${input.price} ${currencyLabel(existing.currency)}. Погоджені раніше умови залишаються в історії.` : 'Продавець оновив пропозицію. Перегляньте актуальні умови.'
         if (conversation) {
             await client.query("INSERT INTO messages (conversation_id,sender_id,body,kind) VALUES ($1,$2,$3,'system')", [conversation.id,user.id,updateText])
         }

@@ -87,7 +87,7 @@ test(`real seller -> buyer -> selling alert -> canonical Request -> matches map 
     await buyer.locator('textarea[name="description"]').fill(description);
     await buyer.locator('input[name="quantity"]').fill('12.5');
     await buyer.locator('select[name="unit"]').selectOption('kg');
-    await buyer.getByRole('radio', { name: /Можна кількома продавцями/ }).check();
+    await buyer.getByRole('checkbox', { name: 'Можна придбати частинами у різних продавців' }).check();
     await buyer.locator('select[name="receiptMethod"]').selectOption('SELLER_DELIVERY');
     await buyer.locator('input[name="deadline"]').fill(deadline);
     await expect(buyer.getByText(cityOnly ? 'Оберіть місце для мапи.' : '✓ Точку для мапи визначено', { exact: true })).toBeVisible();

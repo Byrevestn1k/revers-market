@@ -239,7 +239,7 @@ for (const width of [1440, 390, 320]) {
     await page.getByRole('textbox', { name: 'Назва товару' }).fill('Потрібен мед');
     await page.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill('Мед');
     await page.getByRole('option', { name: /Мед/ }).click();
-    await page.getByRole('radio', { name: /Можна кількома продавцями/ }).check();
+    await page.getByRole('checkbox', { name: 'Можна придбати частинами у різних продавців' }).check();
     const receipt = page.getByRole('combobox', { name: 'Спосіб отримання', exact: true });
     await expect(receipt).toHaveValue('');
     await receipt.selectOption('SELF_PICKUP');

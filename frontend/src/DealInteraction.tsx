@@ -2,7 +2,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState, type FormEven
 import { createPortal } from 'react-dom'
 import { MessagesContext } from './messages-state'
 import type { Conversation } from './messages-state'
-import { unitLabel } from './listing-options'
+import { unitLabel, listingPrice } from './listing-options'
 import { CategoryImage } from './CategoryPicker'
 import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
 import type { Category } from './categories'
@@ -22,7 +22,7 @@ export function closeChatActionMenus(except?: number) {
     window.dispatchEvent(new CustomEvent(chatActionsCloseEvent, { detail: { except } }))
 }
 
-const amount = (value: number, currency: string) => `${new Intl.NumberFormat('uk-UA').format(value)} ${currency}`
+const amount = listingPrice
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 const patch = (body: unknown): RequestInit => ({ method: 'PATCH', body: JSON.stringify(body) })
 const activeRequest = (item: DealRequest) => ['open','partially_selected','partially_completed','partially_fulfilled'].includes(item.status) && (!item.deadline || new Date(item.deadline) > new Date())
@@ -233,7 +233,7 @@ export function SelectOfferDialog({ offer, item, http, onClose, onDone }: { offe
             if (data.context) {
                 const max = Math.min(data.context.quantity, data.context.remaining)
                 setMaximum(max); setBasePrice(data.context.price); setDelivery(data.context.delivery); setBaseDeliveryPrice(data.context.deliveryPrice ?? 0)
-                setQuantity(accepted?.quantity ?? (item.fulfillmentMode === 'single_seller' ? data.context.remaining : max))
+                setQuantity(accepted?.quantity ?? max)
                 if (!data.context.available) { setError('Пропозиція вже неактуальна або запит закрито.'); return }
             }
             setReady(true)
@@ -252,7 +252,7 @@ export function SelectOfferDialog({ offer, item, http, onClose, onDone }: { offe
     return <DealDialog title="Домовитися з продавцем?" onClose={onClose} busy={busy}><form onSubmit={submit}>
         <p><strong>{offer.seller.username}</strong><br />{offer.title ?? item.title}</p>
         {agreed && <p className="form-hint">Використовуємо погоджені в чаті умови.</p>}
-        <label>Кількість ({unitLabel(offer.unit)})<input type="number" min="0.001" step="0.001" max={maximum} value={quantity} readOnly={item.fulfillmentMode === 'single_seller' || Boolean(agreed)} onChange={e => setQuantity(Number(e.target.value))} required /></label>
+        <label>Кількість ({unitLabel(offer.unit)})<input type="number" min="0.001" step="0.001" max={maximum} value={quantity} readOnly={Boolean(agreed)} onChange={e => setQuantity(Number(e.target.value))} required /></label>
         <small>Зараз можна обрати до {maximum} {unitLabel(offer.unit)}.</small>
         <dl className="deal-totals"><dt>Ціна за {unitLabel(offer.unit)}</dt><dd>{amount(price, offer.price.currency)}</dd><dt>Товар</dt><dd>{amount(Math.round(quantity * price * 100) / 100, offer.price.currency)}</dd><dt>Отримання</dt><dd>{agreed?.delivery ?? delivery}</dd>{deliveryPrice > 0 && <><dt>Доставка</dt><dd>{amount(deliveryPrice, offer.price.currency)}</dd></>}<dt>Разом</dt><dd><strong>{amount(Math.round(quantity * price * 100) / 100 + deliveryPrice, offer.price.currency)}</strong></dd></dl>
         <p className="form-hint">Оплата та передача товару відбуваються безпосередньо між вами та продавцем.</p>
@@ -278,7 +278,8 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
     }
     useEffect(() => { void load() }, [item.id, item.remainingQuantity])
     const contact = async (offer: DealOffer) => { if (busy) return; setBusy(true); try { const data = await http(`/api/offers/${offer.id}/conversation`, post({})); window.history.pushState({}, '', `/messages/${encodeURIComponent(data.conversation.id)}`); window.dispatchEvent(new PopStateEvent('popstate')); window.scrollTo(0, 0) } catch (caught) { notify((caught as Error).message) } finally { setBusy(false) } }
-    const selectable = (offer: DealOffer) => activeRequest(item) && item.remainingQuantity > 0 && ['submitted','partially_accepted'].includes(offer.status) && (!offer.validUntil || new Date(offer.validUntil) > new Date()) && offer.quantity > offer.acceptedQuantity && (item.fulfillmentMode !== 'single_seller' || (item.selectedQuantity === 0 && offer.quantity - offer.acceptedQuantity >= item.remainingQuantity))
+    const chosenSeller = item.fulfillmentMode === 'single_seller' ? orders.find((order: any) => !['cancelled', 'failed', 'rejected', 'expired'].includes(order.status))?.seller.id : null
+    const selectable = (offer: DealOffer) => activeRequest(item) && item.remainingQuantity > 0 && ['submitted','partially_accepted'].includes(offer.status) && (!offer.validUntil || new Date(offer.validUntil) > new Date()) && offer.quantity > offer.acceptedQuantity && (!chosenSeller || chosenSeller === offer.seller.id)
     const sorted = [...offers].filter(o => !onlyAvailable || selectable(o)).sort((a,b) => sort === 'price' ? a.price.amount - b.price.amount : sort === 'rating' ? (b.seller.rating ?? 0) - (a.seller.rating ?? 0) : 0)
     return <section className="request-offers">
         <div className="request-progress" aria-label="Виконання запиту"><div className="request-progress-bar"><span style={{ width: `${item.completedQuantity / item.quantity * 100}%` }} /><i style={{ width: `${item.selectedQuantity / item.quantity * 100}%` }} /></div><p>Отримано: <b>{item.completedQuantity}</b> · Домовлено: <b>{item.selectedQuantity}</b> · Ще потрібно: <b>{item.remainingQuantity} {unitLabel(item.unit)}</b></p>{item.remainingQuantity === 0 && item.completedQuantity < item.quantity && <p>Увесь потрібний обсяг уже погоджено. Очікуємо завершення угод.</p>}</div>
@@ -290,9 +291,8 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
             <OfferImage key={offer.photos?.[0]?.url || offer.additionalPhotoUrl || 'fallback'} url={offer.photos?.[0]?.url || offer.additionalPhotoUrl} alt={offer.title || 'Фото пропозиції'} category={offer.request?.category} className="deal-offer-photo" />
             <h4>{offer.title ?? offer.existingProduct?.title ?? item.title}</h4>
             <p>Пропонує {offer.quantity} {unitLabel(offer.unit)} · {offer.delivery}</p>
-            {item.fulfillmentMode === 'multiple_sellers' && <p>Ви можете обрати до {Math.max(0, Math.min(offer.quantity - offer.acceptedQuantity, item.remainingQuantity))} {unitLabel(offer.unit)}.</p>}
-            {item.fulfillmentMode === 'single_seller' && offer.quantity - offer.acceptedQuantity < item.remainingQuantity && <p className="form-hint">Ця пропозиція не покриває весь потрібний обсяг. Для цього запиту ви обрали покупку в одного продавця.</p>}
-            {!selectable(offer) && !(item.fulfillmentMode === 'single_seller' && offer.quantity - offer.acceptedQuantity < item.remainingQuantity) && <p className="form-hint">{item.remainingQuantity <= 0 ? 'Увесь обсяг уже погоджено.' : 'Зараз ця пропозиція недоступна для вибору.'}</p>}
+            {selectable(offer) && <p>Ви можете обрати до {Math.max(0, Math.min(offer.quantity - offer.acceptedQuantity, item.remainingQuantity))} {unitLabel(offer.unit)}.</p>}
+            {!selectable(offer) && <p className="form-hint">{chosenSeller && chosenSeller !== offer.seller.id ? 'Для цього запиту вже обрано іншого продавця.' : item.remainingQuantity <= 0 ? 'Увесь обсяг уже погоджено.' : 'Зараз ця пропозиція недоступна для вибору.'}</p>}
             <div className="deal-actions"><button className="outline-button" disabled={busy} onClick={() => contact(offer)}>Написати продавцю</button><button className="primary-button" disabled={!selectable(offer)} onClick={() => setSelection(offer)}>Обрати пропозицію</button></div>
             <details onToggle={e => {if (e.currentTarget.open) void http(`/api/offers/${offer.id}/view`, post({})).catch(() => undefined)}}><summary>Детальніше та інші дії</summary><OfferDetails offer={offer} /><p>Доставка: {offer.delivery}. {offer.validUntil ? `Актуальна до ${new Date(offer.validUntil).toLocaleDateString('uk-UA')}` : 'Строк не вказано.'}</p><button className="text-button" onClick={() => contact(offer)}>Запропонувати інші умови</button>{['submitted','partially_accepted'].includes(offer.status) && offer.acceptedQuantity === 0 && <button className="text-button" onClick={() => setRejecting(offer)}>Відхилити пропозицію</button>}<ParticipantActions id={offer.seller.id} http={http} notify={notify} /></details>
         </article>)}

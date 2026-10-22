@@ -79,7 +79,7 @@ test('safe category flow publishes, warns, allows manual change and accepts a re
     try {
       const otherPage = await viewer.newPage();
       await login(otherPage, 'Buyer A', '/products/' + wrongId);
-      await otherPage.getByRole('button', { name: 'Поскаржитися на категорію' }).click();
+      await otherPage.getByRole('button', { name: 'Повідомити про проблему з оголошенням' }).click();
       const reported = otherPage.waitForResponse(r => new URL(r.url()).pathname === '/api/reports' && r.request().method() === 'POST');
       await otherPage.getByRole('button', { name: 'Надіслати скаргу' }).click();
       expect((await reported).status()).toBe(201);
@@ -102,7 +102,7 @@ test('safe category flow publishes, warns, allows manual change and accepts a re
     await fits(page, 390);
     await fits(page, 1440);
     await page.locator('input[name="quantity"]').fill('1');
-    await page.getByRole('radio', { name: /Можна кількома продавцями/ }).check();
+    await page.getByRole('checkbox', { name: 'Можна придбати частинами у різних продавців' }).check();
     await page.getByRole('checkbox', { name: 'Можна домовитися' }).check();
     const createdRequest = page.waitForResponse(r => new URL(r.url()).pathname === '/api/buy-requests' && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Опублікувати запит' }).click();

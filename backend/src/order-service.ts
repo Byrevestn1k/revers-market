@@ -4,6 +4,7 @@ import { pool } from './db/client.js'
 import { createNotification, audit as auditOrder, usersAreBlocked } from './community-service.js'
 import { refreshRequestQuantities } from './request-quantities.js'
 import { lockDeal, dealEvent } from './deal-events.js'
+import { currencyLabel } from './currency-label.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 export const orderStatuses = ['draft', 'active', 'offer_received', 'accepted', 'selected', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed', 'completed', 'failed', 'cancelled', 'rejected', 'expired'] as const
@@ -139,7 +140,7 @@ export const confirmDeal = async (user: AuthUser, orderId: string) => {
         if (order.seller_confirmed_at || order.status === 'in_progress') { await client.query('COMMIT'); return getOrder(user, orderId) }
         if (order.status !== 'selected') { await client.query('ROLLBACK'); return { status: 409, body: { error: 'DEAL_NOT_WAITING_FOR_SELLER' } } }
         await client.query("UPDATE orders SET status = 'in_progress', seller_confirmed_at = now(), updated_at = now() WHERE id = $1", [orderId])
-        await dealEvent(client, order, user.id, 'SELLER_CONFIRMED', 'Домовленість підтверджена', `${order.quantity} ${order.unit} × ${order.unit_price} ${order.currency}. Узгодьте передачу товару.`)
+        await dealEvent(client, order, user.id, 'SELLER_CONFIRMED', 'Домовленість підтверджена', `${order.quantity} ${order.unit} × ${order.unit_price} ${currencyLabel(order.currency)}. Узгодьте передачу товару.`)
         await client.query('COMMIT')
         return getOrder(user, orderId)
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
@@ -213,7 +214,7 @@ export const markDealCompleted = async (user: AuthUser, orderId: string, input: 
         await refreshRequestQuantities(client, order.buy_request_id)
         await dealEvent(client, order, user.id, disagreement ? 'RESULT_DISAGREEMENT' : counterpartMarked ? 'ORDER_COMPLETED_CONFIRMED' : 'ORDER_MARKED_COMPLETED',
             disagreement ? 'Результати сторін відрізняються' : counterpartMarked ? 'Угоду підтверджено обома сторонами' : 'Підтвердьте результат угоди',
-            disagreement ? 'Обговоріть фактичну кількість та суму в чаті.' : `${quantity} ${order.unit}, ${total} ${order.currency}. ${counterpartMarked ? 'Тепер можна залишити відгук.' : 'Інша сторона повідомила про отримання товару.'}`)
+            disagreement ? 'Обговоріть фактичну кількість та суму в чаті.' : `${quantity} ${order.unit}, ${total} ${currencyLabel(order.currency)}. ${counterpartMarked ? 'Тепер можна залишити відгук.' : 'Інша сторона повідомила про отримання товару.'}`)
         if (status === 'completed') await createNotification(client, user.id, 'review', 'Можна залишити відгук', 'Оцініть спілкування та виконання домовленості', byBuyer ? 'buying' : 'selling', { orderId, buyRequestId: order.buy_request_id })
         await client.query('COMMIT')
         return getOrder(user, orderId)

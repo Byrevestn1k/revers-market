@@ -15,6 +15,7 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
     const [query, setQuery] = useState('')
     const [open, setOpen] = useState(false)
     const [hoveredIds, setHoveredIds] = useState<string[]>([])
+    const [mobilePath, setMobilePath] = useState<string[]>([])
     const root = useRef<HTMLDivElement>(null)
     const input = useRef<HTMLInputElement>(null)
     const id = useId()
@@ -33,9 +34,9 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         return () => document.removeEventListener('mousedown', closeOnOutsideClick)
     }, [])
 
-    const close = () => { setOpen(false); setQuery(''); setHoveredIds([]) }
+    const close = () => { setOpen(false); setQuery(''); setHoveredIds([]); setMobilePath([]) }
     const choose = (next: string) => { setLocalValue(next); close(); onChange?.(next) }
-    const showMenu = () => { if (categories.length) { setOpen(true); setHoveredIds([]) } }
+    const showMenu = () => { if (categories.length) { setOpen(true); setHoveredIds([]); setMobilePath([]) } }
     const setHover = (categoryId: string, level: number) => setHoveredIds((current) => [...current.slice(0, level), categoryId])
     const submenus = hoveredIds.reduce<Category[][]>((items, parentId) => {
         const children = categoryChildren(categories, parentId)
@@ -46,11 +47,11 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         {!flyout && allowAll && !normalized && <button type="button" role="option" aria-selected={!selectedId} className="category-picker-all" onMouseDown={(event) => event.preventDefault()} onClick={() => choose('')}>Усі категорії</button>}
         {items.map((item) => {
             const hasChildren = categoryChildren(categories, item.id).length > 0
-            return <button type="button" role="option" aria-selected={item.id === selectedId} key={item.id} className={hoveredIds[level] === item.id ? 'is-hovered' : ''} onMouseEnter={() => setHover(item.id, level)} onFocus={() => setHover(item.id, level)} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item.id)}><span>{itemLabel(item)}</span>{hasChildren && <b aria-label="Має підкатегорії">›</b>}</button>
+            return <div className="category-picker-row" key={item.id}><button type="button" role="option" aria-selected={item.id === selectedId} className={hoveredIds[level] === item.id ? 'is-hovered' : ''} onMouseEnter={() => setHover(item.id, level)} onFocus={() => setHover(item.id, level)} onMouseDown={(event) => event.preventDefault()} onClick={() => hasChildren ? (setQuery(''), window.matchMedia('(max-width: 760px)').matches || inlineTree ? setMobilePath(path => [...path, item.id]) : setHover(item.id, level)) : choose(item.id)}><span>{itemLabel(item)}</span>{hasChildren && <b aria-hidden="true">›</b>}</button>{hasChildren && <button type="button" className="category-picker-select-parent" onClick={() => choose(item.id)} aria-label={`Вибрати категорію ${item.name}`}>Вибрати</button>}</div>
         })}
     </div>
 
-    return <div className={`category-picker ${className}`} ref={root}>
+    return <div className={`category-picker ${inlineTree ? 'category-picker-inline' : ''} ${className}`} ref={root}>
         <input type="hidden" name={name} value={selectedId} />
         {label && <label htmlFor={`${id}-search`}>{label}</label>}
         <div className="category-picker-control">
@@ -58,8 +59,9 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
             <button type="button" className={`category-picker-toggle ${open ? 'is-open' : ''}`} onClick={() => open ? close() : (showMenu(), input.current?.focus())} aria-label={open ? 'Закрити список категорій' : 'Відкрити список категорій'} aria-expanded={open} disabled={disabled || !categories.length}><span aria-hidden="true" /></button>
         </div>
         {open && <div id={`${id}-menu`} className="category-picker-menu">
-            {matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}
-            {!inlineTree && submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}
+            {mobilePath.length > 0 && !normalized && <button type="button" className="category-picker-back" onClick={() => setMobilePath(path => path.slice(0, -1))}>← Назад</button>}
+            <div className="category-picker-desktop-tree">{matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}{!inlineTree && submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}</div>
+            <div className="category-picker-mobile-tree">{(normalized ? matchingCategories : mobilePath.length ? categoryChildren(categories, mobilePath[mobilePath.length - 1]) : rootCategories).length ? list(normalized ? matchingCategories : mobilePath.length ? categoryChildren(categories, mobilePath[mobilePath.length - 1]) : rootCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}</div>
         </div>}
         {!categories.length && <small role="status">Список категорій завантажується або недоступний.</small>}
     </div>

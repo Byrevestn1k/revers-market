@@ -8,6 +8,7 @@ const validProduct = {
 }
 
 describe('product validation', () => {
+    it('accepts a product priced in USD', () => expect(validateProductInput({ ...validProduct, price: 100, currency: 'USD' })).toEqual([]))
     it('accepts a complete product payload', () => expect(validateProductInput(validProduct)).toEqual([]))
     it('rejects uncontrolled values and unsafe photo URLs', () => {
         expect(validateProductInput({ ...validProduct, unit: 'random', deliveryMode: 'unknown', photos: [{ url: 'javascript:alert(1)' }] })).toEqual(['unit', 'deliveryMode', 'photos'])

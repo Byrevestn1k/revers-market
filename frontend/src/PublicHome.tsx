@@ -32,7 +32,11 @@ type Props = {
     mobileNavigation?: ReactNode
 }
 export default function PublicHome({ categories, request, user, onAccount, onCreate, openProduct, onChat, renderMap, locationReady = true, favoriteKeys = new Set<string>(), onFavorite, mobileNavigation }: Props) {
-    const [categoryId, setCategoryId] = useState('')
+    const [categoryId, setCategoryId] = useState(() => {
+        const historyCategory = (window.history.state as { mapReturn?: { localCategoryId?: string } } | null)?.mapReturn?.localCategoryId
+        if (historyCategory !== undefined) return historyCategory
+        try { return JSON.parse(sessionStorage.getItem('discoverMapState') ?? 'null')?.localCategoryId ?? '' } catch { return '' }
+    })
     const [results, setResults] = useState<MapResults>({ markers: [], loading: true, error: '', query: '', scope: '' })
     const [nationalCategoryCounts, setNationalCategoryCounts] = useState<Map<string, number>>(new Map())
     const [page, setPage] = useState(1)

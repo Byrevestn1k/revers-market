@@ -54,6 +54,11 @@
 .map-view .map-canvas-wrapper .map-canvas { width: 100%; height: 100%; min-height: 0; }
 .map-view .map-canvas::after { display: none; }
 .map-view .map-summary { display: block; min-width: 0; height: 100%; max-height: 100%; overflow-y: auto; padding: 16px; }
+.map-summary-wrap { position: relative; min-width: 0; min-height: 0; height: 100%; }
+.map-summary-arrow { position: absolute; right: 8px; z-index: 2; width: 40px; height: 40px; border: 1px solid #bdd7c5; border-radius: 50%; background: #fff; color: #12634e; cursor: pointer; box-shadow: 0 3px 12px #17372f30; }
+.map-summary-arrow-up { top: 8px; }
+.map-summary-arrow-down { bottom: 8px; }
+.map-summary-arrow:focus-visible { outline: 3px solid #17825a; }
 .map-view .map-summary h2 { font-size: 20px; overflow-wrap: anywhere; }
 .map-summary-heading { display: grid; gap: 10px; }
 .map-summary-heading .text-button { padding: 0; text-align: left; font-size: 12px; }
@@ -150,7 +155,8 @@
 }
 @media (max-width: 760px) {
     .map-back-to-map { display: inline-block; padding: 0; font-size: 12px; }
-    .map-view .map-discovery-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 480px auto; }
+    .map-view .map-discovery-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto clamp(240px, 38dvh, 360px) auto; }
+    .map-view .map-summary-wrap { height: auto; max-height: 520px; }
     .map-view .map-summary { height: auto; max-height: 520px; }
     .map-search-controls { padding: 10px; }
     .map-search-main { flex-basis: 100%; }

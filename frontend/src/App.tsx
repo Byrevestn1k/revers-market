@@ -29,7 +29,7 @@ import ListingLocationFields from './ListingLocationFields'
 import DeliveryOptionsFields, { deliveryOptionsLabel, type DeliveryMethod, type DeliveryOption } from './DeliveryOptionsFields'
 import { addressFields, emptyAddress, validCoordinates } from './address-model'
 import type { AddressValue } from './address-model'
-import { unitLabel, DELIVERY_LABELS, requestBudget } from './listing-options'
+import { unitLabel, DELIVERY_LABELS, requestBudget, listingPrice } from './listing-options'
 import CategoryPicker, { CategoryImage } from './CategoryPicker'
 import { categoryTrail } from './categories'
 import type { Category } from './categories'
@@ -90,7 +90,7 @@ async function loadActivityPages<T>(path: string, key: 'products' | 'buyRequests
     } while (page <= pages)
     return items
 }
-const formatPrice = (amount: number, currency: string) => `${new Intl.NumberFormat('uk-UA').format(amount)} ${currency}`
+const formatPrice = listingPrice
 const conversationPath = (id: string) => `/messages/${encodeURIComponent(id)}`
 const openConversationRoute = (id: string) => {
     window.history.pushState({}, '', conversationPath(id))
@@ -161,7 +161,12 @@ const viewBreadcrumb: Partial<Record<View, string>> = { find: 'Знайти', me
 function ViewBreadcrumbs({ view }: { view: View }) { const label = viewBreadcrumb[view]; const conversationId = conversationIdForPath(window.location.pathname); return label ? <nav className="breadcrumbs view-breadcrumbs" aria-label="Навігаційний шлях"><a href="/dashboard">Головна</a>{conversationId && <span><i>›</i><a href="/messages">Мої повідомлення</a></span>}<span><i>›</i><b aria-current="page">{conversationId ? 'Розмова' : label}</b></span></nav> : null }
 
 function MapView({ categories, openProduct, openRequest, openProfile, notify, city, userId, locationReady = true, sharedCategoryId, onCategoryChange, onResultsChange, favoriteKeys = new Set<string>(), onFavorite }: { categories: Category[]; openProduct: (product: Product) => void; openRequest: (id: string, mapState?: MapReturnState) => void; openProfile: (username: string) => void; notify: (message: string) => void; city?: HomeCity; favoriteKeys?: Set<string>; onFavorite?: (targetType: FavoriteTargetType, targetId: string) => Promise<void> | void } & Partial<HomeMapProps>) {
-    const restored = useRef<MapReturnState | null>((window.history.state as { mapReturn?: MapReturnState } | null)?.mapReturn ?? null).current
+    const restored = useRef<MapReturnState | null>((() => {
+        const historyState = (window.history.state as { mapReturn?: MapReturnState } | null)?.mapReturn
+        if (historyState) return historyState
+        if (window.location.pathname !== '/discover') return null
+        try { return JSON.parse(sessionStorage.getItem('discoverMapState') ?? 'null') as MapReturnState | null } catch { return null }
+    })()).current
     const subscriptionId = new URLSearchParams(window.location.search).get('demandSubscription')
     const [subscriptionResult, setSubscriptionResult] = useState<{ count: number; subscription: Partial<SubscriptionCriteria> & { category: { id: string; name: string } }; unmappedRequests: { id: string; title: string; geoArea: string; settlement: Settlement | null }[] } | null>(null)
     const restoringLocation = useRef(Boolean(restored))
@@ -175,6 +180,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const markerLayer = useRef<L.LayerGroup | null>(null)
     const markerElements = useRef(new Map<string, HTMLElement>())
     const summaryElement = useRef<HTMLElement>(null)
+    const [summaryArrows, setSummaryArrows] = useState({ up: false, down: false })
     const [center, setCenter] = useState<MapPoint>(() => restored?.center ?? city ?? { latitude: 50.45, longitude: 30.52 })
     const [radius, setRadius] = useState(() => restored?.radius ?? 2)
     const [nearbyRadius, setNearbyRadius] = useState(() => restored?.nearbyRadius ?? 5)
@@ -202,9 +208,39 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [expanded, setExpanded] = useState(false)
     const [selection, updateSelection] = useState<MapSelection | null>(null)
     const [activeMarkerKey, setActiveMarkerKey] = useState<string | null>(null)
+    const [resultPage, setResultPage] = useState(() => restored?.resultPage ?? 1)
+    useEffect(() => {
+        if (window.location.pathname !== '/discover') return
+        const state: MapReturnState = { center, zoom, radius, nearbyRadius, geoZone, region, geoSettlement, localCategoryId: categoryId, deliveryMethod, showProducts, showBuyRequests, mapQuery, mapSearch, searchIn, searchScope, resultPage }
+        try { sessionStorage.setItem('discoverMapState', JSON.stringify(state)) } catch { /* Search remains usable when browser storage is unavailable. */ }
+    }, [center, zoom, radius, nearbyRadius, geoZone, region, geoSettlement, categoryId, deliveryMethod, showProducts, showBuyRequests, mapQuery, mapSearch, searchIn, searchScope, resultPage])
     const [previewDetail, setPreviewDetail] = useState<{ key: string; description?: string; loading: boolean; error?: string } | null>(null)
     const setSelection = (next: MapSelection | null) => { updateSelection(next); if (!next) setActiveMarkerKey(null) }
-    const [resultPage, setResultPage] = useState(() => restored?.resultPage ?? 1)
+    const updateSummaryArrows = () => {
+        const panel = summaryElement.current
+        if (panel) setSummaryArrows({ up: panel.scrollTop > 2, down: panel.scrollTop + panel.clientHeight < panel.scrollHeight - 2 })
+    }
+    useEffect(() => {
+        const panel = summaryElement.current
+        if (!panel) return
+        const observer = new ResizeObserver(updateSummaryArrows)
+        observer.observe(panel)
+        for (const child of panel.children) observer.observe(child)
+        panel.addEventListener('scroll', updateSummaryArrows, { passive: true })
+        updateSummaryArrows()
+        return () => { observer.disconnect(); panel.removeEventListener('scroll', updateSummaryArrows) }
+    }, [selection, activeMarkerKey, resultPage, markers.length])
+    useEffect(() => {
+        const revealMap = () => {
+            const element = mapElement.current
+            if (!element) return
+            const header = document.querySelector('.mobile-topbar')?.getBoundingClientRect().height ?? 0
+            const top = window.scrollY + element.getBoundingClientRect().top - header - 8
+            window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+        }
+        window.addEventListener('step17:find-map', revealMap)
+        return () => window.removeEventListener('step17:find-map', revealMap)
+    }, [])
     const [sellerProfile, setSellerProfile] = useState<PublicProfile | null>(null)
     const [sellerProfileLoading, setSellerProfileLoading] = useState(false)
     useEffect(() => { if (restoringLocation.current) { restoringLocation.current = false; return }; setSelection(null); setGeoZone(''); if (searchCity) setRegion(''); setGeoSettlement(null); setFocusRevision(0); setSearchScope(searchCity ? 'city' : 'country') }, [searchCity?.name, searchCity?.settlement?.code, searchCity?.latitude, searchCity?.longitude])
@@ -373,6 +409,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             setZoom(map.getZoom())
         }
         map.on('moveend resize', updateViewport)
+        map.on('click', () => { if (!mapElement.current?.classList.contains('map-picking-point')) setSelection(null) })
         mapInstance.current = map
         updateViewport()
         const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }))
@@ -420,7 +457,26 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     }
     const showMarkerPreview = (item: MapMarker, fromList = false) => {
         setSelection(selectionForMarker(item, selection)); setActiveMarkerKey(markerKey(item))
-        focusMap(item, fromList ? 'list' : 'marker')
+        const mobileMarker = !fromList && window.matchMedia('(max-width: 760px)').matches
+        if (mobileMarker && mapInstance.current && mapElement.current) {
+            const map = mapInstance.current, canvas = mapElement.current
+            const plan = mapFocusPlan(item, map.getZoom(), 'marker')
+            const center = map.unproject(map.project([item.latitude, item.longitude], plan.zoom).add(L.point(0, Math.max(0, canvas.clientHeight / 2 - 60))), plan.zoom)
+            map.setView(center, plan.zoom, { animate: false })
+        } else focusMap(item, fromList ? 'list' : 'marker')
+        if (mobileMarker) {
+            window.requestAnimationFrame(() => {
+                const canvas = mapElement.current, panel = summaryElement.current
+                if (!canvas || !panel) return
+                panel.scrollTop = 0
+                const header = document.querySelector('.mobile-topbar')?.getBoundingClientRect().height ?? 0
+                const bottom = document.querySelector('.mobile-nav')?.getBoundingClientRect().height ?? 0
+                const canvasTop = window.scrollY + canvas.getBoundingClientRect().top
+                const panelTop = window.scrollY + panel.getBoundingClientRect().top
+                const target = Math.min(canvasTop + 60 - header - 12, panelTop + 96 - (window.innerHeight - bottom - 12))
+                window.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
+            })
+        }
     }
     const showGroupPreview = (items: MapMarker[]) => {
         setSelection({ ids: items.map(item => item.id), items }); setActiveMarkerKey(null); setResultPage(1)
@@ -531,7 +587,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                 {!loading && !areaMarkers.length && <span className="map-status">{!showProducts && !showBuyRequests ? 'Увімкніть продавців або запити покупців' : 'Нічого не знайдено. Змініть пошук або перемістіть мапу.'}</span>}
                 <span className="map-displacement-note">Лінія з’єднує оголошення з його місцем</span>
             </div>
-            <aside ref={summaryElement} tabIndex={-1} className="map-summary" aria-label="Результати пошуку на мапі" aria-busy={loading}>
+            <div className="map-summary-wrap"><aside ref={summaryElement} tabIndex={-1} className="map-summary" aria-label="Результати пошуку на мапі" aria-busy={loading}>
                 <div className="map-summary-heading"><span className="eyebrow">{selection ? 'Обрана точка' : subscriptionId ? 'За підпискою' : 'У видимій області'}</span>{selection && <button type="button" className="text-button" onClick={() => setSelection(null)}>← Усі результати</button>}</div>
                 {activeMarker && <MapListingPreview hideDistance={Boolean(subscriptionId)} item={activeMarker} description={previewDetail?.key === activeMarkerKey ? previewDetail.description : undefined} loading={!previewDetail || previewDetail.key !== activeMarkerKey || previewDetail.loading} error={previewDetail?.key === activeMarkerKey ? previewDetail.error : undefined} imageUrl={imageUrl} onOpen={() => openMarker(activeMarker)} onOwner={() => activeMarker.owner && openProfile(activeMarker.owner.username)} onMap={() => { focusMap(activeMarker, 'list'); highlight([activeMarker.id], true) }} />}
                 {!activeMarker && (sellerProfileLoading || sellerProfile) && <section className="map-seller-profile" aria-live="polite">
@@ -564,7 +620,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                 {resultPages > 1 && <div className="map-result-pagination"><button disabled={activePage <= 1} onClick={() => setResultPage(activePage - 1)}>← Назад</button><span>{activePage} / {resultPages}</span><button disabled={activePage >= resultPages} onClick={() => setResultPage(activePage + 1)}>Далі →</button></div>}
                 {subscriptionId && !!subscriptionResult?.unmappedRequests.length && <div className="map-result-list"><h3>Без публічної точки на мапі</h3>{subscriptionResult.unmappedRequests.map(item => <a className="map-result" href={`/buy-requests/${encodeURIComponent(item.id)}`} key={item.id}><span><strong>{item.title}</strong><small>{item.geoArea}</small></span></a>)}</div>}
                 <div className="map-legend"><span><i className="legend-product" /> Товари продавців</span><span><i className="legend-request" /> Запити покупців</span><small>Число — кількість оголошень, що відповідають пошуку.</small></div>
-            </aside>
+            </aside>{summaryArrows.up && <button type="button" className="map-summary-arrow map-summary-arrow-up" aria-label="Прокрутити картки вгору" onClick={() => summaryElement.current?.scrollBy({ top: -Math.max(120, summaryElement.current.clientHeight * .65), behavior: 'smooth' })}>↑</button>}{summaryArrows.down && <button type="button" className="map-summary-arrow map-summary-arrow-down" aria-label="Прокрутити картки вниз" onClick={() => summaryElement.current?.scrollBy({ top: Math.max(120, summaryElement.current.clientHeight * .65), behavior: 'smooth' })}>↓</button>}</div>
         </div>
     </section>
 }
@@ -675,13 +731,12 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
     const [locationBusy, setLocationBusy] = useState(false)
     const [error, setError] = useState('')
     const [errors, setErrors] = useState<Record<string, string>>({})
-    const [fulfillmentMode, setFulfillmentMode] = useState<'single_seller' | 'multiple_sellers' | ''>('')
+    const [fulfillmentMode, setFulfillmentMode] = useState<'single_seller' | 'multiple_sellers'>('single_seller')
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (busy || locationBusy) return
         setError(''); setErrors({})
         if (!categoryId) { setErrors({ categoryId: listingErrorMessages.categoryId }); return }
-        if (!fulfillmentMode) { setErrors({ fulfillmentMode: 'Оберіть спосіб виконання запиту.' }); return }
         if (!location.city.trim()) { setErrors({ location: 'Оберіть населений пункт.' }); return }
         if (!deliveryOptions.length) { setErrors({ deliveryOptions: 'Оберіть хоча б один спосіб отримання.' }); return }
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
@@ -709,9 +764,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
                 <FieldError message={errors.priceRange} /><CurrencyField error={errors.currency} />
             </fieldset>
             <fieldset className="listing-section"><legend>Як можна виконати запит?</legend>
-                <label><input type="radio" name="fulfillmentMode" value="single_seller" checked={fulfillmentMode === 'single_seller'} onChange={() => setFulfillmentMode('single_seller')} /> <b>Один продавець</b><small>Один продавець має запропонувати весь потрібний обсяг.</small></label>
-                <label><input type="radio" name="fulfillmentMode" value="multiple_sellers" checked={fulfillmentMode === 'multiple_sellers'} onChange={() => setFulfillmentMode('multiple_sellers')} /> <b>Можна кількома продавцями</b><small>Можна придбати потрібний обсяг частинами у різних продавців.</small></label>
-                <FieldError message={errors.fulfillmentMode} />
+                <label className="fulfillment-checkbox"><input type="checkbox" checked={fulfillmentMode === 'multiple_sellers'} onChange={event => setFulfillmentMode(event.target.checked ? 'multiple_sellers' : 'single_seller')} />Можна придбати частинами у різних продавців</label>
             </fieldset>
             <label>Країна запиту<select name="countryCode" defaultValue="UA">{COUNTRIES.map(country => <option key={country.code} value={country.code}>{country.name}</option>)}</select><FieldError message={errors.countryCode} /></label><ListingLocationFields value={location} onChange={setLocation} request={request} onBusyChange={setLocationBusy} error={errors.location || errors.settlementCode || errors.geoArea || errors.address || errors.latitude || errors.longitude} />
             <DeliveryOptionsFields role="buyer" value={deliveryOptions} onChange={setDeliveryOptions} /><FieldError message={errors.deliveryOptions} />
@@ -752,7 +805,7 @@ function MobileHeader({ go, profileAvatar, unread }: { go: (view: View) => void;
 function MobileNavigation({ view, go, messageUnreadCount }: { view: View; go: (view: View) => void; messageUnreadCount: number }) {
     const [addOpen, setAddOpen] = useState(false)
     const active = mobileTabForPath(window.location.pathname)
-    return <><nav className="mobile-nav" aria-label="Основна навігація">{[['find', '⌕', 'Знайти'], ['favorites', '♡', 'Обране'], ['add', '＋', 'Додати'], ['messages', '♧', 'Чати'], ['cabinet', '♙', 'Кабінет']].map(([key, icon, text]) => <button key={key} className={(key === 'add' ? addOpen || active === 'add' : active === key) ? 'active' : ''} onClick={() => key === 'add' ? setAddOpen(value => !value) : (setAddOpen(false), go(key as View))}><span>{icon}</span>{text}{key === 'messages' && <MessageUnreadBadge count={messageUnreadCount} />}</button>)}</nav>{addOpen && <div className="mobile-add-menu" role="dialog" aria-label="Додати"><button onClick={() => { setAddOpen(false); go('create') }}>＋ Додати товар</button><button onClick={() => { setAddOpen(false); go('request') }}>↗ Створити запит</button></div>}</>
+    return <><nav className="mobile-nav" aria-label="Основна навігація">{[['find', '⌕', 'Знайти'], ['favorites', '♡', 'Обране'], ['add', '＋', 'Додати'], ['messages', '♧', 'Чати'], ['cabinet', '♙', 'Кабінет']].map(([key, icon, text]) => <button key={key} className={(key === 'add' ? addOpen || active === 'add' : active === key) ? 'active' : ''} onClick={() => { if (key === 'add') { setAddOpen(value => !value); return } setAddOpen(false); go(key as View); if (key === 'find') window.requestAnimationFrame(() => window.dispatchEvent(new Event('step17:find-map'))) }}><span>{icon}</span>{text}{key === 'messages' && <MessageUnreadBadge count={messageUnreadCount} />}</button>)}</nav>{addOpen && <div className="mobile-add-menu" role="dialog" aria-label="Додати"><button onClick={() => { setAddOpen(false); go('create') }}>＋ Додати товар</button><button onClick={() => { setAddOpen(false); go('request') }}>↗ Створити запит</button></div>}</>
 }
 
 function FavoriteToggle({ user, targetType, targetId, favorite, onFavorite }: { user: User | null; targetType: 'product' | 'buy_request' | 'profile'; targetId: string; favorite: boolean; onFavorite?: (targetType: 'product' | 'buy_request' | 'profile', targetId: string) => Promise<void> | void }) {
@@ -804,8 +857,10 @@ function CompactPersonCard({ profile, role, favorite = false, onFavorite }: { pr
 
 function CategoryReportButton({ targetType, targetId, user, onAccount }: { targetType: 'product' | 'buy_request'; targetId: string; user: User | null; onAccount: (returnPath?: string) => void }) {
     const [open, setOpen] = useState(false)
+    const [help, setHelp] = useState(false)
     const [message, setMessage] = useState('')
-    return <div><button type="button" className="text-button" onClick={() => user ? setOpen(true) : onAccount(window.location.pathname)}>Поскаржитися на категорію</button>
+    return <div className="category-report"><button type="button" className="text-button" onClick={() => user ? setOpen(true) : onAccount(window.location.pathname)}>Повідомити про проблему з оголошенням</button><button type="button" className="category-report-help" aria-label="Пояснення скарги" aria-expanded={help} onClick={() => setHelp(value => !value)}>?</button>
+        {help && <p className="category-report-explanation">Якщо оголошення розміщене в неправильній категорії, повідомте нам. Наприклад, мед у розділі автомобілів. Це допомагає підтримувати порядок у каталозі. Скарга не видаляє оголошення автоматично.</p>}
         {message && <small role="status">{message}</small>}
         {open && <TextEntryDialog title="Неправильна категорія" label="Коментар (необов’язково)" maxLength={2000} submitLabel="Надіслати скаргу" onClose={() => setOpen(false)} onSubmit={async details => {
             try { await request('/api/reports', { method: 'POST', body: JSON.stringify({ targetType, targetId, reason: 'Неправильна категорія', details }) }); setMessage('Скаргу збережено для розгляду.'); setOpen(false) }
@@ -842,7 +897,7 @@ function BuyRequestPage({ id, user, mine, notify, onAccount, onCreate, onChat, f
     return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate} favoriteKeys={favoriteKeys} onFavorite={onFavorite}>{error ? <p className="form-error">{error}</p> : !item ? <p>Завантажуємо запит…</p> : <div className="listing-page-layout"><article className="listing-detail-page request-detail-page"><div className="detail-body">
         <span className="eyebrow">Запит покупця · {item.category.name}</span><h1>{item.title}</h1><span className={`status status-${item.status}`}>{REQUEST_STATUS[item.status] ?? item.status}</span>
         <RequestGallery photos={item.photos ?? []} category={{ ...item.category, parentId: null }} title={item.title} />
-        <div className="detail-facts"><span>⌖ <b>{item.geoArea}</b><small>Приблизне місце</small></span><span>▧ <b>{item.quantity} {unitLabel(item.unit)}</b><small>Потрібно</small></span><span>₴ <b>{requestBudget(item.price)}</b><small>Бажана ціна за одиницю</small></span></div>
+        <div className="detail-facts"><span>⌖ <b>{item.geoArea}</b><small>Приблизне місце</small></span><span>▧ <b>{item.quantity} {unitLabel(item.unit)}</b><small>Потрібно</small></span><span><b>{requestBudget(item.price)}</b><small>Бажана ціна за одиницю</small></span></div>
         <section className="listing-description"><h2>Що потрібно покупцеві</h2><p>{item.description || 'Покупець ще не додав опис.'}</p><p><b>Спосіб виконання:</b> {item.fulfillmentMode === 'single_seller' ? 'Один продавець' : 'Можна кількома продавцями'}</p><p><b>Отримання:</b> {item.deliveryOptions?.length ? deliveryOptionsLabel(item.deliveryOptions) : receiptLabel(item.receiptMethod)}</p>{item.deadline && <p><b>Потрібно до:</b> {date(item.deadline)}</p>}</section>
         {user && item.buyer?.id === user.id && <RequestOffers item={item} http={request} notify={notify} onRefresh={load} />}
         {item.buyer?.id !== user?.id && isActiveRequest(item.status) && (user ? (offerOpen ? <OfferForm buyRequest={item} viewerId={user.id} products={mine} notify={notify} onDone={() => { setOfferOpen(false); load() }} /> : <div className="deal-actions"><button className="primary-button" onClick={() => setOfferOpen(true)}>Запропонувати товар</button><button className="outline-button" onClick={() => onChat(item)}>♧ Написати покупцю</button></div>) : <div className="deal-actions"><button className="primary-button" onClick={() => onAccount(pathWithIntent('offer'))}>Запропонувати товар</button><button className="outline-button" onClick={() => onAccount(pathWithIntent('message'))}>♧ Написати покупцю</button></div>)}
@@ -1269,11 +1324,12 @@ function RequestEditDialog({ item, notify, onClose, onDone }: { item: BuyRequest
         if (data.minPrice !== '' && data.maxPrice !== '' && Number(data.minPrice) > Number(data.maxPrice)) { setErrors({ priceRange: listingErrorMessages.priceRange }); return }
         const payload: Record<string, unknown> = { title: title.trim(), description: data.description ?? '', minPrice: data.minPrice === '' ? null : Number(data.minPrice), maxPrice: data.maxPrice === '' ? null : Number(data.maxPrice), ...(!termsLocked ? { ...(deliveryOptions.length ? { receiptMethod: deliveryOptions.find(option => option.method === 'SELF_PICKUP' || option.method === 'SELLER_DELIVERY')?.method ?? null, deliveryOptions } : {}), countryCode: data.countryCode, geoArea: location.city.trim(), ...addressFields(location) } : {}), deadline: data.deadline ? new Date(data.deadline + 'T23:59:59').toISOString() : null }
         if (photosChanged) payload.photos = photos.map(photo => ({ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: title.trim() }))
-        if (!termsLocked) Object.assign(payload, { categoryId, quantity: Number(data.quantity), unit: data.unit, currency: data.currency, fulfillmentMode })
+        if (!termsLocked) Object.assign(payload, { categoryId, quantity: Number(data.quantity), unit: data.unit, currency: data.currency })
+        if (fulfillmentMode !== item.fulfillmentMode) payload.fulfillmentMode = fulfillmentMode
         setBusy(true); setError(''); setErrors({})
         try { await request(`/api/buy-requests/${item.id}`, { method: 'PATCH', body: JSON.stringify(payload) }); notify('Запит оновлено'); onDone() } catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)) } finally { setBusy(false) }
     }
-    return <DealDialog title="Редагувати запит" onClose={onClose} busy={busy}><form className="offer-form listing-form" onSubmit={submit}><ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} description={item.description} errors={errors} categoryDisabled={termsLocked} /><fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={next => { setPhotos(next); setPhotosChanged(true) }} max={8} error={errors.photos} /></fieldset><fieldset disabled={termsLocked}><QuantityFields quantity={item.quantity} unit={item.unit} errors={errors} /><CurrencyField currency={item.price.currency} error={errors.currency} /><label><input type="radio" name="fulfillmentMode" checked={fulfillmentMode === 'single_seller'} onChange={() => setFulfillmentMode('single_seller')} /> Один продавець</label><label><input type="radio" name="fulfillmentMode" checked={fulfillmentMode === 'multiple_sellers'} onChange={() => setFulfillmentMode('multiple_sellers')} /> Кілька продавців</label></fieldset>{termsLocked && <p className="form-hint">Категорію, кількість, одиниці, валюту, місце та способи отримання вже не можна змінити, бо є пропозиції або угоди. Зміни бюджету діятимуть лише для нових пропозицій; погоджені умови угод збережуться.</p>}<div className="field-row"><label>Ціна від<input name="minPrice" type="number" min="0" step=".01" defaultValue={item.price.min ?? ''} /></label><label>Ціна до<input name="maxPrice" type="number" min="0" step=".01" defaultValue={item.price.max ?? ''} /></label></div><fieldset disabled={termsLocked}><label>Країна<select name="countryCode" defaultValue={item.countryCode ?? 'UA'}>{COUNTRIES.map(country => <option key={country.code} value={country.code}>{country.name}</option>)}</select></label><ListingLocationFields value={location} onChange={setLocation} request={request} onBusyChange={setLocationBusy} error={errors.location || errors.settlementCode || errors.geoArea || errors.address} /></fieldset><DeliveryOptionsFields role="buyer" value={deliveryOptions} onChange={setDeliveryOptions} disabled={termsLocked} /><FieldError message={errors.deliveryOptions} /><label>Потрібно до<input name="deadline" type="date" defaultValue={item.deadline?.slice(0, 10) ?? ''} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="deal-actions"><button type="button" className="outline-button" disabled={busy} onClick={onClose}>Скасувати</button><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : 'Зберегти'}</button></div></form></DealDialog>
+    return <DealDialog title="Редагувати запит" onClose={onClose} busy={busy}><form className="offer-form listing-form" onSubmit={submit}><ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} description={item.description} errors={errors} categoryDisabled={termsLocked} /><fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={next => { setPhotos(next); setPhotosChanged(true) }} max={8} error={errors.photos} /></fieldset><fieldset disabled={termsLocked}><QuantityFields quantity={item.quantity} unit={item.unit} errors={errors} /><CurrencyField currency={item.price.currency} error={errors.currency} /></fieldset><label className="fulfillment-checkbox"><input type="checkbox" checked={fulfillmentMode === 'multiple_sellers'} onChange={event => setFulfillmentMode(event.target.checked ? 'multiple_sellers' : 'single_seller')} />Можна придбати частинами у різних продавців</label>{termsLocked && <p className="form-hint">Категорію, кількість, одиниці, валюту, місце та способи отримання вже не можна змінити, бо є пропозиції або угоди. Зміни бюджету діятимуть лише для нових пропозицій; погоджені умови угод збережуться.</p>}<div className="field-row"><label>Ціна від<input name="minPrice" type="number" min="0" step=".01" defaultValue={item.price.min ?? ''} /></label><label>Ціна до<input name="maxPrice" type="number" min="0" step=".01" defaultValue={item.price.max ?? ''} /></label></div><fieldset disabled={termsLocked}><label>Країна<select name="countryCode" defaultValue={item.countryCode ?? 'UA'}>{COUNTRIES.map(country => <option key={country.code} value={country.code}>{country.name}</option>)}</select></label><ListingLocationFields value={location} onChange={setLocation} request={request} onBusyChange={setLocationBusy} error={errors.location || errors.settlementCode || errors.geoArea || errors.address} /></fieldset><DeliveryOptionsFields role="buyer" value={deliveryOptions} onChange={setDeliveryOptions} disabled={termsLocked} /><FieldError message={errors.deliveryOptions} /><label>Потрібно до<input name="deadline" type="date" defaultValue={item.deadline?.slice(0, 10) ?? ''} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="deal-actions"><button type="button" className="outline-button" disabled={busy} onClick={onClose}>Скасувати</button><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : 'Зберегти'}</button></div></form></DealDialog>
 }
 
 function ChatPanel({ chat, onClose, notify }: { chat: { conversationId: string; title: string }; onClose: () => void; notify: (message: string) => void }) {

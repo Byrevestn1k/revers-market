@@ -5,7 +5,7 @@ import { ConfirmationDialog } from './DealInteraction';
 import './demand-subscriptions.css';
 import SubscriptionCriteriaFields from './SubscriptionCriteriaFields';
 import { countryName, criteriaDraft, criteriaPayload, emptyCriteria, type CriteriaDraft, type SubscriptionCriteria } from './subscription-criteria';
-import { unitLabel } from './listing-options';
+import { unitLabel, currencyLabel } from './listing-options';
 import { deliveryOptionsLabel } from './DeliveryOptionsFields';
 
 type Subscription = Partial<SubscriptionCriteria> & { id: string; matchCount?: number; category: { id: string; name: string }; region: string | null; active: boolean };
@@ -96,9 +96,9 @@ export default function DemandSubscriptions({ categories, http, notify }: Props)
           {item.radiusKm != null && <p>Радіус: {item.radiusKm} км · точка {item.center?.latitude}, {item.center?.longitude}</p>}
           {item.cityOutsideKm != null && <p>Передмістя: до {item.cityOutsideKm} км від адміністративних меж вибраних міст</p>}
           {(item.minQuantity != null || item.maxQuantity != null) && <p>Кількість: {item.minQuantity ?? 'без мінімуму'} — {item.maxQuantity ?? 'без максимуму'} {unitLabel(item.unit ?? undefined)}</p>}
-          {(item.minPrice != null || item.maxPrice != null) && <p>Ціна: {item.minPrice ?? 'без мінімуму'} — {item.maxPrice ?? 'без максимуму'} {item.currency} / {unitLabel(item.unit ?? undefined)}</p>}
+          {(item.minPrice != null || item.maxPrice != null) && <p>Ціна: {item.minPrice ?? 'без мінімуму'} — {item.maxPrice ?? 'без максимуму'} {currencyLabel(item.currency ?? '')} / {unitLabel(item.unit ?? undefined)}</p>}
           {item.unit && item.minQuantity == null && item.maxQuantity == null && item.minPrice == null && item.maxPrice == null && <p>Одиниця: {unitLabel(item.unit)}</p>}
-          {item.currency && item.minPrice == null && item.maxPrice == null && <p>Валюта: {item.currency}</p>}
+          {item.currency && item.minPrice == null && item.maxPrice == null && <p>Валюта: {currencyLabel(item.currency)}</p>}
           <p>{item.deliveryOptions?.length ? deliveryOptionsLabel(item.deliveryOptions) : 'Уточніть способи передачі для точних сповіщень'}</p>
           <span className={`subscription-status ${item.active ? 'is-active' : ''}`}>Статус: {item.active ? 'Активна' : 'Вимкнена'}</span></div>
         <div className="subscription-actions"><a className="outline-button" href={`/discover?demandSubscription=${encodeURIComponent(item.id)}`}>Збігів: {item.matchCount ?? 0}</a><button className="outline-button" disabled={busy || Boolean(draft)} onClick={() => { setError(''); setDraft({ ...criteriaDraft(item), id: item.id, categoryId: item.category.id, active: item.active }); }}>Редагувати</button><button className="outline-button" disabled={busy || Boolean(draft)} onClick={() => toggle(item)}>{item.active ? 'Вимкнути' : 'Увімкнути'}</button><button className="text-button" disabled={busy || Boolean(draft)} onClick={() => { setError(''); setDeleting(item); }}>Видалити</button></div>

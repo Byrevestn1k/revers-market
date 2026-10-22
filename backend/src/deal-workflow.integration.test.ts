@@ -227,7 +227,7 @@ if (hasDatabase) {
         it('releases reservations once on cancellation and seller rejection, including SINGLE_SELLER',async()=>{
             const {oid,rid,productId}=await setup(100,'single_seller',true)
             const small=await outsider.post(`/api/buy-requests/${rid}/offers`).send({quantity:60,unit:'kg',price:140,currency:'UAH',delivery:'Самовивіз'})
-            expect((await buyer.post(`/api/offers/${small.body.offer.id}/accept`).send({})).status).toBe(409)
+            expect((await buyer.post(`/api/offers/${small.body.offer.id}/accept`).send({})).status).toBe(400)
             const id=await select(oid,100)
             expect((await buyer.post(`/api/offers/${oid}/accept`).send({})).status).toBeGreaterThanOrEqual(400)
             expect((await seller.post(`/api/orders/${id}/fail`).send({reason:'PRODUCT_UNAVAILABLE'})).body.order.status).toBe('rejected')

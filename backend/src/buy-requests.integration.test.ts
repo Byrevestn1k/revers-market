@@ -132,10 +132,9 @@ if (hasDatabase) {
                 expect((await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller' })).status).toBe(200)
                 expect((await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'multiple_sellers' })).status).toBe(200)
                 const offerId = await createOffer(buyRequestId)
-                const beforeRejection = (await pool.query('SELECT title, description, fulfillment_mode, updated_at FROM buy_requests WHERE id = $1', [buyRequestId])).rows[0]
-                const rejected = await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller', title: 'Заборонена зміна' })
-                expect(rejected).toMatchObject({ status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED', message: expect.any(String) } })
-                expect((await pool.query('SELECT title, description, fulfillment_mode, updated_at FROM buy_requests WHERE id = $1', [buyRequestId])).rows[0]).toEqual(beforeRejection)
+                const changedAfterOffer = await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller', title: 'Дозволена зміна' })
+                expect(changedAfterOffer.status).toBe(200)
+                expect(changedAfterOffer.body.buyRequest.fulfillmentMode).toBe('single_seller')
                 const offerTerms = (await pool.query('SELECT offered_quantity, unit, unit_price, currency, delivery FROM offers WHERE id = $1', [offerId])).rows[0]
                 const allowed = await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'multiple_sellers', title: 'Дозволена зміна', minPrice: 90 })
                 expect(allowed.status).toBe(200)
@@ -144,20 +143,18 @@ if (hasDatabase) {
                 const deal = await buyer.post(`/api/offers/${offerId}/accept`).send({ quantity: 5 })
                 expect(deal.status).toBe(201)
                 const dealTerms = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id = $1', [deal.body.order.id])).rows[0].conditions_snapshot
-                const beforeDealRejection = (await pool.query('SELECT title, description, fulfillment_mode, updated_at FROM buy_requests WHERE id = $1', [buyRequestId])).rows[0]
-                const dealRejection = await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller', description: 'Заборонена зміна' })
-                expect(dealRejection).toMatchObject({ status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED' } })
-                expect((await pool.query('SELECT title, description, fulfillment_mode, updated_at FROM buy_requests WHERE id = $1', [buyRequestId])).rows[0]).toEqual(beforeDealRejection)
+                const changedAfterOneDeal = await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller', description: 'Дозволена зміна' })
+                expect(changedAfterOneDeal.status).toBe(200)
                 expect((await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'multiple_sellers', description: 'Дозволена зміна після угоди' })).status).toBe(200)
                 expect((await pool.query('SELECT conditions_snapshot FROM orders WHERE id = $1', [deal.body.order.id])).rows[0].conditions_snapshot).toEqual(dealTerms)
                 await pool.query('DELETE FROM offers WHERE id = $1', [offerId])
                 expect((await pool.query('SELECT offer_id FROM orders WHERE id = $1', [deal.body.order.id])).rows[0].offer_id).toBeNull()
-                expect((await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller' })).status).toBe(409)
+                expect((await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller' })).status).toBe(200)
 
                 const withdrawnRequestId = await createRequest(`Відкликана пропозиція ${suffix}`)
                 const withdrawnOfferId = await createOffer(withdrawnRequestId)
                 expect((await seller.delete(`/api/offers/${withdrawnOfferId}`)).status).toBe(204)
-                expect((await buyer.patch(`/api/buy-requests/${withdrawnRequestId}`).send({ fulfillmentMode: 'single_seller' })).status).toBe(409)
+                expect((await buyer.patch(`/api/buy-requests/${withdrawnRequestId}`).send({ fulfillmentMode: 'single_seller' })).status).toBe(200)
 
                 const concurrentRequestId = await createRequest(`Одночасні запити ${suffix}`)
                 const [edit, concurrentOffer] = await Promise.all([
@@ -165,10 +162,9 @@ if (hasDatabase) {
                     seller.post(`/api/buy-requests/${concurrentRequestId}/offers`).send({ quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' }),
                 ])
                 expect(concurrentOffer.status).toBe(201)
-                expect([200, 409]).toContain(edit.status)
-                if (edit.status === 409) expect(edit.body.error).toBe('FULFILLMENT_MODE_LOCKED')
+                expect(edit.status).toBe(200)
                 const concurrentState = (await pool.query('SELECT fulfillment_mode FROM buy_requests WHERE id = $1', [concurrentRequestId])).rows[0]
-                expect(concurrentState.fulfillment_mode).toBe(edit.status === 200 ? 'single_seller' : 'multiple_sellers')
+                expect(concurrentState.fulfillment_mode).toBe('single_seller')
                 expect((await pool.query('SELECT count(*)::int AS count FROM offers WHERE buy_request_id = $1', [concurrentRequestId])).rows[0].count).toBe(1)
             } finally {
                 const names = users.map(user => user.username.toLowerCase())
@@ -195,7 +191,7 @@ if (hasDatabase) {
                 const product = await sellerOne.post('/api/products').send({ categoryId: category.id, title: 'Базова пшениця', description: 'Базові умови', quantity: 1000, unit: 'kg', price: 250, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active' })
                 expect(product.status).toBe(201)
                 const baseProduct = product.body.product
-                const created = await buyer.post('/api/buy-requests').send({ categoryId: category.id, productId: baseProduct.id, title: 'Потрібна пшениця', description: 'Для двох складів', quantity: 500, unit: 'kg', currency: 'UAH', minPrice: 200, maxPrice: 260, delivery: 'preferred', preferredDelivery: 'До складу', geoArea: 'Київська область', address: 'Приватна адреса', deadline: '2030-01-01T00:00:00.000Z', photos: [{ dataUrl: uploadedPhoto, alt: 'Зразок' }] })
+                const created = await buyer.post('/api/buy-requests').send({ categoryId: category.id, productId: baseProduct.id, title: 'Потрібна пшениця', description: 'Для двох складів', quantity: 500, unit: 'kg', currency: 'UAH', minPrice: 200, maxPrice: 260, delivery: 'preferred', preferredDelivery: 'До складу', geoArea: 'Київська область', address: 'Приватна адреса', deadline: '2030-01-01T00:00:00.000Z', fulfillmentMode: 'multiple_sellers', photos: [{ dataUrl: uploadedPhoto, alt: 'Зразок' }] })
                 expect(created.status).toBe(201)
                 requestId = created.body.buyRequest.id
                 expect(created.body.buyRequest.category.imageIndex).toBe(category.imageIndex)
@@ -267,8 +263,11 @@ if (hasDatabase) {
                 expect(singleRequest.status).toBe(201)
                 const smallOffer = await sellerOne.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ quantity: 60, unit: 'kg', price: 240, currency: 'UAH', delivery: 'Самовивіз' })
                 const fullOffer = await sellerTwo.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ quantity: 100, unit: 'kg', price: 245, currency: 'UAH', delivery: 'Самовивіз' })
-                expect((await buyer.post(`/api/offers/${smallOffer.body.offer.id}/accept`).send({})).status).toBe(409)
-                const selectedSingle = await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({})
+                const partialSingle = await buyer.post(`/api/offers/${smallOffer.body.offer.id}/accept`).send({ quantity: 60 })
+                expect(partialSingle.status).toBe(201)
+                expect((await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({ quantity: 40 })).status).toBe(409)
+                expect((await buyer.patch(`/api/orders/${partialSingle.body.order.id}/status`).send({ status: 'cancelled', reason: 'Тест скасування' })).status).toBe(200)
+                const selectedSingle = await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({ quantity: 100 })
                 expect(selectedSingle.status).toBe(201)
                 expect(selectedSingle.body.order).toMatchObject({ quantity: 100, status: 'selected' })
             } finally {
@@ -283,7 +282,7 @@ if (hasDatabase) {
                 )
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2, $3)', [buyerPayload.username.toLowerCase(), sellerOnePayload.username.toLowerCase(), sellerTwoPayload.username.toLowerCase()])
             }
-        }, 30000)
+        }, 60000)
 
         it('keeps seller offer history scoped after requests complete, cancel or expire', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
