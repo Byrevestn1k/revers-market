@@ -68,6 +68,7 @@ if (process.env.DATABASE_URL) {
       }
       expect(used.size).toBe(100);
       expect(falseBlocks).toBe(0);
+      expect(wrongBlocked).toBe(0);
       expect(ambiguousBlocked).toBe(0);
       console.info('Step 16 independent 100:', { topThree, topThreeTotal, topThreeMisses, falseBlocks, falseWarnings, wrongDetected, wrongBlocked, falseNegatives: 40 - wrongDetected, missedWrong, ambiguousBlocked, unresolved });
     }, 60_000);

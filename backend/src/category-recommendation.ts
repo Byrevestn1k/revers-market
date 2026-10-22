@@ -1,6 +1,5 @@
 import type { PoolClient } from 'pg';
 import type { RequestHandler } from 'express';
-import type { AuthUser } from './auth.js';
 import { pool } from './db/client.js';
 import { searchTokens } from './smart-search.js';
 
@@ -8,7 +7,6 @@ type Queryable = Pick<PoolClient, 'query'>;
 type Category = { id: string; parent_id: string | null; code: string; name: string };
 export type CategorySuggestion = { id: string; name: string; path: string };
 export type CategoryAssessment = { level: 'allow' | 'warn' | 'block'; certainty: 'identified' | 'uncertain'; reason: string | null; suggestions: CategorySuggestion[] };
-export const CATEGORY_RULE_VERSION = 'step16-subject-relations-v3';
 
 // Resolve the offered item before words naming its purpose, compatibility or a gift.
 const subjects = [
@@ -34,7 +32,6 @@ const subjects = [
   { pattern: /(?:^|\s)(?:вулик\S*|вуликів|уль\S*|бджолин\S*\s+рамк\S*|пчелин\S*\s+рамк\S*)(?=\s|$)/u, codes: ['apiculture'], family: 'beekeeping' },
 ] as const;
 
-const ambiguous = /(?:^|\s)(?:насос\S*|кабел\S*|зарядк\S*|батаре\S*|адаптер\S*|мотор\S*)(?=\s|$)/u;
 const confirmingContext: Record<string, RegExp> = {
   food: /(?:натурал\S*|акаці\S*|липов\S*|гречан\S*|пасік\S*|відр\S*|ведр\S*|білий|белый|мішок|мешок|фасован\S*|свіж\S*|свеж\S*|коров\S*|фермер\S*|домашн\S*|оптом|куплю|продам|\d+\s*(?:л|кг))/u,
   bike: /(?:trek|giant|scott|гірськ\S*|горн\S*|дитяч\S*|детск\S*|міськ\S*|городск\S*|електро\S*)/u,
@@ -137,7 +134,8 @@ export async function assessCategory(input: { title: string; description?: strin
   const detected = subject ?? descriptiveSubject;
   const conflict = Boolean(resolution.conflict || subject && descriptiveSubject && subject.family !== descriptiveSubject.family);
   const confirmedDirect = Boolean(subject && resolution.hardEvidence && core.split(' ').length >= 2 && confirmingContext[subject.family]?.test(core + ' ' + description));
-  const certainty = subject && !conflict && (!resolution.hardEvidence || confirmedDirect) ? 'identified' : 'uncertain';
+  const knownSubjectCategory = Boolean(detected?.codes.some(code => byCode.has(code)));
+  const certainty = subject && !conflict && knownSubjectCategory && (!resolution.hardEvidence || confirmedDirect) ? 'identified' : 'uncertain';
   const chosen = input.categoryId ? byId.get(input.categoryId) : undefined;
   const path = (category: Category) => {
     const trail = [category.name];
@@ -168,48 +166,8 @@ export async function assessCategory(input: { title: string; description?: strin
     return false;
   });
   if (acceptable) return { level: 'allow', certainty, reason: null, suggestions };
-  // No hard decision if title and description indicate different subjects,
-  // or if the subject appears only in the description.
-  const strong = Boolean(confirmedDirect && !conflict && (!ambiguous.test(core) || subject?.family === 'equipment'));
-  const chosenRoot = (() => { let item: Category | undefined = chosen; while (item?.parent_id) item = byId.get(item.parent_id); return item?.code; })();
-  const detectedRoot = (() => { let item: Category | undefined = byCode.get(detected.codes[0]); while (item?.parent_id) item = byId.get(item.parent_id); return item?.code; })();
-  const level = strong && chosenRoot && detectedRoot && chosenRoot !== detectedRoot ? 'block' : 'warn';
-  return { level, certainty, reason: level === 'block'
-    ? 'Обрана категорія не відповідає товару. Виберіть відповідну категорію або уточніть опис.'
-    : 'Можливо, для цього оголошення більше підходить інша категорія.', suggestions };
-}
-
-export async function categoryBlock(user: AuthUser, targetType: 'product' | 'buy_request', targetId: string | null,
-  categoryId: string, title: string, description: string, assessment: CategoryAssessment) {
-  const client = await pool.connect();
-  let decisionId: string;
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['category-block:' + user.id]);
-    const values = [user.id, targetType, targetId, categoryId, title.trim(), description];
-    const previous = await client.query<{ id: string }>(
-      "SELECT id FROM category_block_decisions WHERE user_id = $1 AND target_type = $2 AND target_id IS NOT DISTINCT FROM $3::uuid AND category_id = $4 AND title = $5 AND description = $6 AND created_at > now() - interval '1 hour' ORDER BY created_at DESC LIMIT 1", values);
-    if (previous.rowCount) decisionId = previous.rows[0].id;
-    else {
-      const recent = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM category_block_decisions WHERE user_id = $1 AND created_at > now() - interval '1 hour'", [user.id]);
-      if (Number(recent.rows[0].count) >= 60) {
-        await client.query('ROLLBACK');
-        return { status: 429, body: { error: 'CATEGORY_DECISION_RATE_LIMIT', message: 'Забагато відхилених спроб. Спробуйте пізніше.' } };
-      }
-      const inserted = await client.query<{ id: string }>(
-        'INSERT INTO category_block_decisions (user_id, target_type, target_id, category_id, title, description, reason, rules_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
-        [...values, assessment.reason, CATEGORY_RULE_VERSION]);
-      decisionId = inserted.rows[0].id;
-    }
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally { client.release(); }
-  return { status: 422, body: {
-    error: 'CATEGORY_MISMATCH', message: assessment.reason, suggestions: assessment.suggestions, decisionId,
-    appeal: 'Уточніть назву або опис. Якщо категорія правильна, подайте оскарження на перевірку.',
-  } };
+  // Semantic evidence recommends and warns. It never makes a hard publishing decision.
+  return { level: 'warn', certainty, reason: 'Можливо, для цього оголошення більше підходить інша категорія.', suggestions };
 }
 
 export function createCategoryRecommendationRateLimit(): RequestHandler {

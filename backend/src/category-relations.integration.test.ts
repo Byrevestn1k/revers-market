@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 if (process.env.DATABASE_URL) {
   const { pool } = await import('./db/client.js');
   const { assessCategory } = await import('./category-recommendation.js');
-  type Case = { title: string; chosen: string; truth: string | null; expected: 'allow' | 'warn' | 'block'; description?: string };
+  type Case = { title: string; chosen: string; truth: string | null; expected: 'allow' | 'warn'; description?: string };
 
   const reviewer: Case[] = [
     { title: 'Чохол для автомобіля Toyota', chosen: 'market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky', truth: 'market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky', expected: 'allow' },
@@ -21,11 +21,11 @@ if (process.env.DATABASE_URL) {
     { title: 'Насос 12В', chosen: 'market-electronics', truth: null, expected: 'allow' },
     { title: 'Мед', chosen: 'honey_raw', truth: 'honey_raw', expected: 'allow' },
     { title: 'Автомобіль Toyota', chosen: 'market-auto--lehkovi-avtomobili', truth: 'market-auto--lehkovi-avtomobili', expected: 'allow' },
-    { title: 'Мед натуральний', chosen: 'market-auto--lehkovi-avtomobili', truth: 'honey_raw', expected: 'block' },
-    { title: 'Яблоки Гала свежие', chosen: 'market-auto--lehkovi-avtomobili', truth: 'apples', expected: 'block' },
-    { title: 'Смартфон Samsung S24', chosen: 'honey_raw', truth: 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony', expected: 'block' },
-    { title: 'Диван угловой новый', chosen: 'honey_raw', truth: 'market-home-garden--mebli--mebli-dlya-vitalni', expected: 'block' },
-    { title: 'Велосипед Trek дитячий', chosen: 'processed_food', truth: 'market-hobbies--velo--velosypedy', expected: 'block' },
+    { title: 'Мед натуральний', chosen: 'market-auto--lehkovi-avtomobili', truth: 'honey_raw', expected: 'warn' },
+    { title: 'Яблоки Гала свежие', chosen: 'market-auto--lehkovi-avtomobili', truth: 'apples', expected: 'warn' },
+    { title: 'Смартфон Samsung S24', chosen: 'honey_raw', truth: 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony', expected: 'warn' },
+    { title: 'Диван угловой новый', chosen: 'honey_raw', truth: 'market-home-garden--mebli--mebli-dlya-vitalni', expected: 'warn' },
+    { title: 'Велосипед Trek дитячий', chosen: 'processed_food', truth: 'market-hobbies--velo--velosypedy', expected: 'warn' },
     { title: 'Мед натуральний', chosen: 'market-auto--lehkovi-avtomobili', truth: 'honey_raw', expected: 'warn', description: 'На фото автомобіль Toyota, назва описує мед' },
     { title: 'Автомобіль Toyota', chosen: 'honey_raw', truth: 'market-auto--lehkovi-avtomobili', expected: 'warn', description: 'Продаю мед із пасіки, фото авто для прикладу' },
   ];
@@ -63,16 +63,16 @@ if (process.env.DATABASE_URL) {
     { title: 'Игрушечный автомобиль BMW', chosen: 'market-children--ihrashky--ihrashkovyy-transport', truth: 'market-children--ihrashky--ihrashkovyy-transport', expected: 'allow' },
     { title: 'Молоко домашнє у пляшках', chosen: 'milk', truth: 'milk', expected: 'allow' },
     // 20 obvious wrong roots: 10 direct goods and 10 relational goods.
-    { title: 'Мед гречаний фермерський 5 кг', chosen: 'market-auto--lehkovi-avtomobili', truth: 'honey_raw', expected: 'block' },
-    { title: 'Яблука свіжого врожаю 15 кг', chosen: 'market-auto--lehkovi-avtomobili', truth: 'apples', expected: 'block' },
-    { title: 'Смартфон Samsung Galaxy S25', chosen: 'honey_raw', truth: 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony', expected: 'block' },
-    { title: 'Диван кутовий синій новий', chosen: 'honey_raw', truth: 'market-home-garden--mebli--mebli-dlya-vitalni', expected: 'block' },
-    { title: 'Дитячий велосипед Trek 18', chosen: 'processed_food', truth: 'market-hobbies--velo--velosypedy', expected: 'block' },
-    { title: 'Автомобіль Toyota Corolla 2014', chosen: 'honey_raw', truth: 'market-auto--lehkovi-avtomobili', expected: 'block' },
-    { title: 'Медичний халат жіночий білий', chosen: 'honey_raw', truth: 'market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah', expected: 'block' },
-    { title: 'Причіп бортовий двовісний', chosen: 'processed_food', truth: 'market-auto--prychepy-budynky-na-kolesakh', expected: 'block' },
-    { title: 'Медогонка електрична промислова', chosen: 'honey_raw', truth: 'market-business-services--prodazh-obladnannya-dlya-biznesu', expected: 'block' },
-    { title: 'Цукор білий мішок 20 кг', chosen: 'market-auto--lehkovi-avtomobili', truth: 'processed_food', expected: 'block' },
+    { title: 'Мед гречаний фермерський 5 кг', chosen: 'market-auto--lehkovi-avtomobili', truth: 'honey_raw', expected: 'warn' },
+    { title: 'Яблука свіжого врожаю 15 кг', chosen: 'market-auto--lehkovi-avtomobili', truth: 'apples', expected: 'warn' },
+    { title: 'Смартфон Samsung Galaxy S25', chosen: 'honey_raw', truth: 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony', expected: 'warn' },
+    { title: 'Диван кутовий синій новий', chosen: 'honey_raw', truth: 'market-home-garden--mebli--mebli-dlya-vitalni', expected: 'warn' },
+    { title: 'Дитячий велосипед Trek 18', chosen: 'processed_food', truth: 'market-hobbies--velo--velosypedy', expected: 'warn' },
+    { title: 'Автомобіль Toyota Corolla 2014', chosen: 'honey_raw', truth: 'market-auto--lehkovi-avtomobili', expected: 'warn' },
+    { title: 'Медичний халат жіночий білий', chosen: 'honey_raw', truth: 'market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah', expected: 'warn' },
+    { title: 'Причіп бортовий двовісний', chosen: 'processed_food', truth: 'market-auto--prychepy-budynky-na-kolesakh', expected: 'warn' },
+    { title: 'Медогонка електрична промислова', chosen: 'honey_raw', truth: 'market-business-services--prodazh-obladnannya-dlya-biznesu', expected: 'warn' },
+    { title: 'Цукор білий мішок 20 кг', chosen: 'market-auto--lehkovi-avtomobili', truth: 'processed_food', expected: 'warn' },
     { title: 'Чехол для смартфона Huawei', chosen: 'honey_raw', truth: 'market-electronics--telefony-ta-aksesuary--aksesuary-dlya-telefoniv', expected: 'warn' },
     { title: 'Килимки до автомобіля Skoda', chosen: 'honey_raw', truth: 'market-auto-parts--aksesuary-dlya-avto--avtomobilni-kylymky', expected: 'warn' },
     { title: 'Фара для Ford Focus', chosen: 'honey_raw', truth: 'market-auto-parts--avtozapchastyny--fary-ta-osvitlennya', expected: 'warn' },
@@ -111,7 +111,6 @@ if (process.env.DATABASE_URL) {
       if (item.expected !== 'allow' && result.level === 'block') wrongBlocked++;
       if (item.expected === 'allow' && !item.truth && result.level === 'block') ambiguousBlocked++;
       if (!result.suggestions.length) unresolved++;
-      if (item.expected === 'block') expect(result.level, item.title).toBe('block');
       if (item.expected === 'warn') expect(result.level, item.title).toBe('warn');
     }
     return { top3, eligible, falseBlocks, falseWarnings, wrongDetected, wrongBlocked, ambiguousBlocked, unresolved, misses };
@@ -131,7 +130,7 @@ if (process.env.DATABASE_URL) {
         const correct = await assessCategory({ title, categoryId: cover });
         expect(correct.level).toBe('allow');
         expect(correct.suggestions[0]?.id).toBe(cover);
-        expect((await assessCategory({ title, categoryId: car })).level).toBe('block');
+        expect((await assessCategory({ title, categoryId: car })).level).toBe('warn');
       }
     });
     it('replays the 22 independent Sol examples', async () => {
@@ -141,12 +140,14 @@ if (process.env.DATABASE_URL) {
       expect(result.falseWarnings).toBe(0);
       expect(result.top3).toBe(21);
       expect(result.wrongDetected).toBe(7);
+      expect(result.wrongBlocked).toBe(0);
       console.info('Step 16 Sol 22 replay:', result);
     }, 60_000);
     it('checks a new 70-case mix of products, compatibility, gifts and uncertainty', async () => {
       expect(control).toHaveLength(70);
       expect(new Set(control.map(item => item.title)).size).toBe(70);
       const result = await measure(control);
+      expect(result.wrongBlocked).toBe(0);
       expect(result.falseBlocks).toBe(0);
       expect(result.falseWarnings).toBe(0);
       expect(result.ambiguousBlocked).toBe(0);

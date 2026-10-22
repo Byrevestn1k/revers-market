@@ -5,14 +5,12 @@ import { CURRENCIES, LISTING_UNITS } from './listing-options'
 import './listing-ui.css'
 
 export function FieldError({ message }: { message?: string }) { return message ? <span className="field-error" role="alert">{message}</span> : null }
-export function ListingBasics({ categories, categoryId, onCategoryChange, title, onTitleChange, description, errors = {}, categoryDisabled = false, targetType, decisionId }: {
+export function ListingBasics({ categories, categoryId, onCategoryChange, title, onTitleChange, description, errors = {}, categoryDisabled = false }: {
     categories: Category[]; categoryId: string; onCategoryChange: (id: string) => void
     title: string; onTitleChange: (value: string) => void; description?: string; errors?: Record<string, string>; categoryDisabled?: boolean
-    targetType?: 'product' | 'buy_request'; decisionId?: string | null
 }) {
     const [draftDescription, setDraftDescription] = useState(description ?? '')
     const [assessment, setAssessment] = useState<{ level: string; certainty: 'identified' | 'uncertain'; reason: string | null; suggestions: { id: string; path: string }[] } | null>(null)
-    const [appealMessage, setAppealMessage] = useState('')
     useEffect(() => {
         if (title.trim().length < 2) { setAssessment(null); return }
         const controller = new AbortController()
@@ -24,23 +22,12 @@ export function ListingBasics({ categories, categoryId, onCategoryChange, title,
         }, 650)
         return () => { window.clearTimeout(timer); controller.abort() }
     }, [title, draftDescription, categoryId])
-    const appeal = async () => {
-        if (!targetType || !decisionId) return
-        const response = await fetch(`${import.meta.env.VITE_API_URL ?? ''}/api/category-appeals`, {
-            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ decisionId }),
-        })
-        const body = await response.json()
-        setAppealMessage(response.ok ? 'Оскарження збережено для розгляду.' : body.message ?? 'Не вдалося подати оскарження.')
-    }
     return <fieldset className="listing-section"><legend>Про оголошення</legend>
         <label>Назва товару<input name="title" value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Наприклад, велосипед Trek Marlin 5" required minLength={2} maxLength={160} /><FieldError message={errors.title} /></label>
         <div className="listing-field"><span>Категорія та підкатегорія</span><CategoryPicker categories={categories} value={categoryId} onChange={onCategoryChange} required disabled={categoryDisabled} /><FieldError message={errors.categoryId} /></div>
         {assessment && (assessment.suggestions.length > 0 || assessment.certainty === 'uncertain' && Boolean(categoryId)) && <div className="category-recommendation" aria-live="polite">
             <strong>{assessment.reason ?? (assessment.certainty === 'uncertain' ? 'Категорію не вдалося визначити точно. Перевірте свій вибір.' : 'Рекомендована категорія:')}</strong>
             {assessment.suggestions.length > 0 && <div>{assessment.suggestions.map(item => <button type="button" key={item.id} disabled={categoryDisabled} onClick={() => onCategoryChange(item.id)}>{item.path}</button>)}</div>}
-            {decisionId && targetType && <button type="button" className="text-button" onClick={() => void appeal()}>Оскаржити відхилення</button>}
-            {appealMessage && <small role="status">{appealMessage}</small>}
         </div>}
         <label>Опис<textarea name="description" value={draftDescription} onChange={event => setDraftDescription(event.target.value)} rows={4} maxLength={5000} placeholder="Стан, характеристики та важливі умови" /><FieldError message={errors.description} /></label>
     </fieldset>

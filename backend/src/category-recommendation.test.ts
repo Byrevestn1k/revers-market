@@ -65,24 +65,24 @@ describe('category control set', () => {
     }
     for (const item of unclear) if ((await assessCategory(item, queryable)).level === 'allow') unresolved++;
     expect({ topThree, falseWarnings, falseBlocks, detectedWrong, unresolved, misses }).toEqual({ topThree: 40, falseWarnings: 0, falseBlocks: 0, detectedWrong: 40, unresolved: 19, misses: [] });
-    expect(blockedWrong).toBeGreaterThan(20);
+    expect(blockedWrong).toBe(0);
     console.info(`Step 16 control set: top3=${topThree}/40, falseWarnings=${falseWarnings}/40, falseBlocks=${falseBlocks}/40, wrongDetected=${detectedWrong}/40, wrongBlocked=${blockedWrong}/40, ambiguousUnresolved=${unresolved}/20`);
   });
   it('distinguishes the subject from context and does not block conflicting descriptions', async () => {
     const cases = [
-      ['Медогонка електрична', 'market-auto', 'block'],
+      ['Медогонка електрична', 'market-auto', 'warn'],
       ['Автомобіль для перевезення вуликів', 'market-auto--lehkovi-avtomobili', 'allow'],
-      ['Медичний халат', 'honey_raw', 'block'],
-      ['Мед натуральний', 'market-auto', 'block'],
-      ['Автомобіль Renault', 'honey_raw', 'block'],
+      ['Медичний халат', 'honey_raw', 'warn'],
+      ['Мед натуральний', 'market-auto', 'warn'],
+      ['Автомобіль Renault', 'honey_raw', 'warn'],
     ] as const;
     for (const [title, categoryId, level] of cases) expect((await assessCategory({ title, categoryId }, queryable)).level, title).toBe(level);
     expect((await assessCategory({ title: 'Автомобіль Renault', description: 'Насправді продається мед', categoryId: 'honey_raw' }, queryable)).level).toBe('warn');
   });
   it('replays the 18 independent Sol review examples', async () => {
     const cases = [
-      ['Натуральний мед 3 л', 'market-auto--lehkovi-avtomobili', 'block', 'honey_raw'],
-      ['Дитячий велосипед Trek', 'processed_food', 'block', 'market-hobbies--velo--velosypedy'],
+      ['Натуральний мед 3 л', 'market-auto--lehkovi-avtomobili', 'warn', 'honey_raw'],
+      ['Дитячий велосипед Trek', 'processed_food', 'warn', 'market-hobbies--velo--velosypedy'],
       ['Автомобіль медового кольору', 'market-auto--lehkovi-avtomobili', 'allow', 'market-auto--lehkovi-avtomobili'],
       ['Електрична медогонка', 'market-business-services--prodazh-obladnannya-dlya-biznesu', 'allow', 'market-business-services--prodazh-obladnannya-dlya-biznesu'],
       ['Медичний халат', 'market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah', 'allow', 'market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah'],
@@ -93,11 +93,11 @@ describe('category control set', () => {
       ['Медичний халат для ляльки', 'market-children--ihrashky--lyalky-ta-pupsy', 'allow', 'market-children--ihrashky--lyalky-ta-pupsy'],
       ['Велосипедні рукавички Trek', 'market-fashion--aksesuary--sharfy-i-rukavychky', 'allow', 'market-fashion--aksesuary--sharfy-i-rukavychky'],
       ['Продаю яблука, дитячий велосипед Trek у подарунок', 'apples', 'allow', 'apples'],
-      ['Яблука Гала 5 кг', 'market-auto--lehkovi-avtomobili', 'block', 'apples'],
-      ['Смартфон Samsung Galaxy', 'honey_raw', 'block', 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony'],
-      ['Диван кутовий новий', 'honey_raw', 'block', 'market-home-garden--mebli--mebli-dlya-vitalni'],
+      ['Яблука Гала 5 кг', 'market-auto--lehkovi-avtomobili', 'warn', 'apples'],
+      ['Смартфон Samsung Galaxy', 'honey_raw', 'warn', 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony'],
+      ['Диван кутовий новий', 'honey_raw', 'warn', 'market-home-garden--mebli--mebli-dlya-vitalni'],
       ['Мёд липовый свежий', 'honey_raw', 'allow', 'honey_raw'],
-      ['Детский велосипед Giant', 'processed_food', 'block', 'market-hobbies--velo--velosypedy'],
+      ['Детский велосипед Giant', 'processed_food', 'warn', 'market-hobbies--velo--velosypedy'],
       ['Игрушечный автомобиль Toyota', 'market-children--ihrashky--ihrashkovyy-transport', 'allow', 'market-children--ihrashky--ihrashkovyy-transport'],
     ] as const;
     let topThree = 0, eligible = 0, falseBlocks = 0, missedBlocks = 0, falseWarnings = 0, unresolved = 0;
@@ -106,7 +106,7 @@ describe('category control set', () => {
       if (truth) { eligible++; if (result.suggestions.some(suggestion => suggestion.id === truth)) topThree++; }
       if (expected === 'allow' && result.level === 'block') falseBlocks++;
       if (expected === 'allow' && result.level === 'warn') falseWarnings++;
-      if (expected === 'block' && result.level !== 'block') missedBlocks++;
+      if (expected === 'warn' && result.level !== 'warn') missedBlocks++;
       if (!result.suggestions.length) unresolved++;
     }
     expect({ falseBlocks, missedBlocks, falseWarnings }).toEqual({ falseBlocks: 0, missedBlocks: 0, falseWarnings: 0 });

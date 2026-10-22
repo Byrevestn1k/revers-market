@@ -10,7 +10,7 @@ import { refreshRequestQuantities } from './request-quantities.js'
 import { audit, createNotification, usersAreBlocked } from './community-service.js'
 import { buildUpdate, withOwnerConditions } from './dynamic-update.js'
 import { categoryFilterSql } from './category-filter.js'
-import { assessCategory, categoryBlock } from './category-recommendation.js'
+import { assessCategory } from './category-recommendation.js'
 import { categoryDuplicates } from './category-duplicates.js'
 import { textSearchConditions } from './text-search.js'
 import { listingSearchColumns, smartSearchSql } from './smart-search.js'
@@ -260,8 +260,6 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     if (Array.isArray(input.photos) && input.photos.some((photo: PhotoUpload) => photo.url)) return invalid(['photos'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
     const assessment = await assessCategory({ title: String(input.title), description: String(input.description ?? ''), categoryId: String(input.categoryId), unit: String(input.unit) })
-    if (assessment.level === 'block') return categoryBlock(user, 'buy_request', null,
-        String(input.categoryId), String(input.title), String(input.description ?? ''), assessment)
     const exactPrice = asNumberOrNull(input.exactPrice)
     const minPrice = asNumberOrNull(input.minPrice)
     const maxPrice = asNumberOrNull(input.maxPrice)
@@ -384,9 +382,6 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     if (['categoryId', 'title', 'description', 'unit'].some(key => key in input)) {
         const previous = current.rows[0]
         const assessment = await assessCategory({ title: String(input.title ?? previous.title), description: String(input.description ?? previous.description), categoryId: String(input.categoryId ?? previous.category_id), unit: String(input.unit ?? previous.unit) }, client)
-        if (assessment.level === 'block') return categoryBlock(user, 'buy_request', id,
-            String(input.categoryId ?? previous.category_id), String(input.title ?? previous.title),
-            String(input.description ?? previous.description), assessment)
         if (assessment.level === 'warn') categoryWarning = assessment
     }
     let duplicateNotice: Awaited<ReturnType<typeof categoryDuplicates>>['notice'] = null
