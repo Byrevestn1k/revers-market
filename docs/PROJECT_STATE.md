@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 17 — implementation, awaiting independent review`.
+**Current step:** `STEP 17 — independent REVIEW PASS; integrated into main`.
 
 **Last updated:** 2026-10-22
 
@@ -97,13 +97,14 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 | `DONE` | STEP 14 — Delivery matching | Independent final REVIEW PASS after geographic and radius-validation corrections. Product, Buy Request, Seller Offer, Demand Subscription, matching and Notifications were checked against real PostgreSQL. See [STEP_14_REVIEW.md](STEP_14_REVIEW.md). |
 | `DONE` | STEP 15 — Smart Search | Independent final re-review PASS after indexed candidate selection, exact COUNT, stable pagination and public search rate limit. Broad 10 000-row searches remain in the performance backlog; see [STEP_15_SEARCH.md](STEP_15_SEARCH.md). |
 | `DONE` | STEP 16 — Category recommendation and validation | Independent final re-review №4 PASS after correction `badd55b`. Product and Buy Request keep recommendations and warnings without semantic HTTP 422; technical validation, duplicates, reports and historical appeals remain. See [STEP_16_CATEGORY_CONTROL.md](STEP_16_CATEGORY_CONTROL.md). |
+| `DONE` | STEP 17 — Mobile UX, forms, USD and Buy Request seller modes | Independent REVIEW PASS. Real PostgreSQL concurrency, focused Deal regressions and Chromium E2E passed. Physical Android and on-screen keyboard remain UNVERIFIED. See [STEP_17_REVIEW.md](STEP_17_REVIEW.md). |
 | `DONE` | STEP 6 — Google, Facebook, Telegram authentication | Independent review passed and implementation merged to `main`. Full suite: 128/129; only environment-dependent map integration fails. Real provider app QA remains UNVERIFIED. |
 | `DONE` | STEP 7 — Reviews / Відгуки | Independent final review PASS; merged to `main`. Deal-based completed-request reviews audited; real-DB integration and live-browser E2E passed. |
 | `FUTURE` | Advanced subscription filters, route/corridor matching | No implementation approval. |
 
 ## CURRENT STEP
 
-**STEP 17 — implementation.** Mobile search navigation scrolls to the existing map only after the explicit «Знайти» action. Marker selection, result card visibility, scroll arrows, empty-map clearing, report explanation, category navigation, delivery rows and avatar field sizing were updated. USD is available in the shared currency selector and shown as `$`; prices keep their entered amount. Migration 052 changes the default for new Buy Requests to `single_seller`; existing rows keep their mode. One checkbox enables `multiple_sellers`. A single seller may supply the request in parts, while the server serializes selection and blocks deals with another seller until the earlier deal is cancelled/rejected/failed/expired. See [STEP_17_IMPLEMENTATION.md](STEP_17_IMPLEMENTATION.md) for checks and limits. Independent REVIEW PASS is pending; do not merge or push to main.
+**STEP 17 DONE — independent REVIEW PASS.** Mobile «Знайти», marker/card selection, map clearing, scrolling arrows and swipe, report explanation, category navigation, delivery rows and avatar field sizing passed focused Chromium checks. USD is preserved through Product, Buy Request, Seller Offer and Deal without conversion. Migration 052 defaults only new Requests to `single_seller`; the historical 20 kg QA Request remains `multiple_sellers` with two completed Deals and snapshots. Real concurrent API requests confirmed one-seller exclusion and quantity limits; focused Deal regressions and typecheck passed. Physical Android Chrome, a real on-screen keyboard and file chooser remain UNVERIFIED. See [STEP_17_REVIEW.md](STEP_17_REVIEW.md). No subsequent step has started.
 
 **STEP 16 DONE — independent final re-review №4 PASS.** Correction `badd55b` keeps semantic assessment as recommendation or warning and removes semantic HTTP 422 from Product and Buy Request creation, editing and publication. The author keeps the selected valid category; unknown items remain `uncertain`. Technical field/category checks, ownership, business rules and duplicate limits remain. Reports and historical migration-051 decisions/appeals remain available. The reviewer independently published eight phrases as both listing types, verified technical rejections and unchanged records, and passed 16/16 focused PostgreSQL tests plus root typecheck. An independent Chromium E2E passed at 390 and 1440 px for accessory Product, Buy Request, warning, continued publication, manual category choice and report. Correct listings can still receive false warnings, but publication succeeds. The prior independent Seller Offer E2E was not rerun because its code was unchanged. Full evidence and remaining limits: [STEP_16_CATEGORY_CONTROL.md](STEP_16_CATEGORY_CONTROL.md).
 
@@ -121,7 +122,7 @@ Earlier exact decimal conversion, country/region/city union, repeated territory 
 
 ## REQUIRED CONTEXT
 
-For Step 17 handoff or follow-up: this file; [STEP_17_IMPLEMENTATION.md](STEP_17_IMPLEMENTATION.md); [PRODUCT.md](PRODUCT.md); [UX_RULES.md](UX_RULES.md); migration 052; map, category picker, currency, Buy Request/Offer/Deal entry points and focused tests. Do not load unrelated historical documents by default. Independent review is required before main merge.
+For Step 17 follow-up: this file; [STEP_17_IMPLEMENTATION.md](STEP_17_IMPLEMENTATION.md); [STEP_17_REVIEW.md](STEP_17_REVIEW.md); [PRODUCT.md](PRODUCT.md); [UX_RULES.md](UX_RULES.md); migration 052; map, category picker, currency, Buy Request/Offer/Deal entry points and focused tests. Do not load unrelated historical documents by default.
 
 ## AI WORKFLOW
 

@@ -1,6 +1,6 @@
 # Step 17 — Mobile UX, forms and Buy Request
 
-Status: implementation on `codex/step-17-mobile-forms-buy-request`; independent review pending. Do not merge or push to main before REVIEW PASS.
+Status: independent REVIEW PASS on 2026-10-22. See [STEP_17_REVIEW.md](STEP_17_REVIEW.md) for independent evidence and remaining UNVERIFIED device checks.
 
 ## 17A — Mobile UX and map
 
@@ -30,4 +30,4 @@ Status: implementation on `codex/step-17-mobile-forms-buy-request`; independent 
 - `npm run typecheck` and `npm run build` passed. Chromium automated QA verified `/discover` without horizontal overflow at 320, 360, 390, 430, 768, 1024, 1280 and 1440 px, including explicit «Знайти» at mobile widths. At 320 px, `/my/requests/new` verified empty-title category navigation, delivery selection and the default checkbox; `/settings/profile` verified the editor with a long URL and visible actions.
 - The map marker/card/report scenario passed in `e2e/step-17-mobile.spec.ts`; it submits a test report and removes its test records. `e2e/step-17-usd-ui.spec.ts` passed Product, Buy Request and Seller Offer publication via the UI with USD, then removed those test records.
 - The earlier Step 16 category Browser E2E passed after its parent-category action was updated for the new picker.
-- A separate manual in-app browser pass at approximately 409 px confirmed that «Знайти» scrolls to the map, a chosen marker and card beginning remain visible together, and an empty-map click clears selection. The other manual Browser E2E scenarios and physical Android Chrome are **UNVERIFIED**. A real on-screen keyboard and file chooser are **UNVERIFIED**. Independent reviewer pass is pending.
+- A separate manual in-app browser pass at approximately 409 px confirmed that «Знайти» scrolls to the map, a chosen marker and card beginning remain visible together, and an empty-map click clears selection. The independent reviewer completed the real Chromium and PostgreSQL scenarios documented in [STEP_17_REVIEW.md](STEP_17_REVIEW.md). Physical Android Chrome, a real on-screen keyboard and file chooser remain **UNVERIFIED**.
