@@ -22,7 +22,10 @@ async function login(page: Page, section: string, destination: string) {
 async function choose(page: Page, search: string, option: RegExp) {
   const picker = page.getByRole('combobox', { name: 'Пошук або вибір категорії' });
   await picker.fill(search);
-  await page.getByRole('option', { name: option }).last().click();
+  const category = page.getByRole('option', { name: option }).last();
+  const selectParent = category.locator('..').getByRole('button', { name: /Вибрати категорію/ });
+  if (await selectParent.count()) await selectParent.click();
+  else await category.click();
 }
 async function fits(page: Page, width: number) {
   await page.setViewportSize({ width, height: 900 });
@@ -60,7 +63,7 @@ test('safe category flow publishes, warns, allows manual change and accepts a re
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/my/products/new');
     await page.locator('input[name="title"]').fill(`Мед натуральний Step16 ${stamp}`);
-    await choose(page, 'Легкові автомобілі', /Авто › Легкові автомобілі Має підкатегорії/);
+    await choose(page, 'Легкові автомобілі', /Авто › Легкові автомобілі/);
     await expect(page.locator('.category-recommendation')).toContainText('Можливо, для цього оголошення більше підходить інша категорія.');
     await expect(page.getByRole('button', { name: 'Оскаржити відхилення' })).toHaveCount(0);
     await fits(page, 1440);
@@ -112,7 +115,7 @@ test('safe category flow publishes, warns, allows manual change and accepts a re
     await page.goto('/buy-requests/' + requestId);
     await expect(page.getByRole('heading', { name: /Автомобільний чохол Toyota Step16/ })).toBeVisible();
   } finally {
-    await owner.close();
+    await Promise.allSettled([owner.close()]);
     if (matsId || wrongId || requestId) {
       const db = new Client({ connectionString: process.env.DATABASE_URL });
       await db.connect();
