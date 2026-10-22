@@ -1,6 +1,6 @@
 # Project state
 
-**Current step:** `STEP 16 — DONE (independent final re-review PASS)`.
+**Current step:** `STEP 17 — implementation, awaiting independent review`.
 
 **Last updated:** 2026-10-22
 
@@ -103,7 +103,9 @@ These are UX groups, not a new backend state model. STEP 5 added counters, filte
 
 ## CURRENT STEP
 
-**STEP 16 DONE — independent final re-review №4 PASS.** Correction `badd55b` keeps semantic assessment as recommendation or warning and removes semantic HTTP 422 from Product and Buy Request creation, editing and publication. The author keeps the selected valid category; unknown items remain `uncertain`. Technical field/category checks, ownership, business rules and duplicate limits remain. Reports and historical migration-051 decisions/appeals remain available. The reviewer independently published eight phrases as both listing types, verified technical rejections and unchanged records, and passed 16/16 focused PostgreSQL tests plus root typecheck. An independent Chromium E2E passed at 390 and 1440 px for accessory Product, Buy Request, warning, continued publication, manual category choice and report. Correct listings can still receive false warnings, but publication succeeds. The prior independent Seller Offer E2E was not rerun because its code was unchanged. Full evidence and remaining limits: [STEP_16_CATEGORY_CONTROL.md](STEP_16_CATEGORY_CONTROL.md). No next Step has been started.
+**STEP 17 — implementation.** Mobile search navigation scrolls to the existing map only after the explicit «Знайти» action. Marker selection, result card visibility, scroll arrows, empty-map clearing, report explanation, category navigation, delivery rows and avatar field sizing were updated. USD is available in the shared currency selector and shown as `$`; prices keep their entered amount. Migration 052 changes the default for new Buy Requests to `single_seller`; existing rows keep their mode. One checkbox enables `multiple_sellers`. A single seller may supply the request in parts, while the server serializes selection and blocks deals with another seller until the earlier deal is cancelled/rejected/failed/expired. See [STEP_17_IMPLEMENTATION.md](STEP_17_IMPLEMENTATION.md) for checks and limits. Independent REVIEW PASS is pending; do not merge or push to main.
+
+**STEP 16 DONE — independent final re-review №4 PASS.** Correction `badd55b` keeps semantic assessment as recommendation or warning and removes semantic HTTP 422 from Product and Buy Request creation, editing and publication. The author keeps the selected valid category; unknown items remain `uncertain`. Technical field/category checks, ownership, business rules and duplicate limits remain. Reports and historical migration-051 decisions/appeals remain available. The reviewer independently published eight phrases as both listing types, verified technical rejections and unchanged records, and passed 16/16 focused PostgreSQL tests plus root typecheck. An independent Chromium E2E passed at 390 and 1440 px for accessory Product, Buy Request, warning, continued publication, manual category choice and report. Correct listings can still receive false warnings, but publication succeeds. The prior independent Seller Offer E2E was not rerun because its code was unchanged. Full evidence and remaining limits: [STEP_16_CATEGORY_CONTROL.md](STEP_16_CATEGORY_CONTROL.md).
 
 **STEP 15 DONE — independent final REVIEW PASS after `cb78a80`.** Migrations 047–049 and shared search code handle multiword, prefix, controlled morphology and typo matches across existing Product and Buy Request fields. The correction adds indexed candidates, stored word forms, separate match/rank functions, exact COUNT without reranking, stable pages and a local search rate limit. No new characteristics, brand or model input fields were added. Independent focused PostgreSQL tests passed 4/4, typecheck passed, and narrow Chromium QA passed at 1440/390 px. On the existing 1 130 active Products, `велосипед` took 230 ms median HTTP; on 10 000 same-category QA Products, selective `Trek` took 314/433 ms and broad queries about 1.2–1.8 s on typical measured runs. Broad searches and a process-local rate limit remain documented production risks. The next step awaits user direction. See [STEP_15_SEARCH.md](STEP_15_SEARCH.md).
 
@@ -119,7 +121,7 @@ Earlier exact decimal conversion, country/region/city union, repeated territory 
 
 ## REQUIRED CONTEXT
 
-For Step 16 handoff or follow-up: this file; [STEP_16_CATEGORY_CONTROL.md](STEP_16_CATEGORY_CONTROL.md); [PRODUCT.md](PRODUCT.md); migrations 050–051, category recommendation, Product/Buy Request/report/appeal entry points and focused tests. Do not load historical documents by default. The next Step awaits user direction.
+For Step 17 handoff or follow-up: this file; [STEP_17_IMPLEMENTATION.md](STEP_17_IMPLEMENTATION.md); [PRODUCT.md](PRODUCT.md); [UX_RULES.md](UX_RULES.md); migration 052; map, category picker, currency, Buy Request/Offer/Deal entry points and focused tests. Do not load unrelated historical documents by default. Independent review is required before main merge.
 
 ## AI WORKFLOW
 
