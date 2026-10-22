@@ -1,6 +1,6 @@
 # Step 16 — category recommendations and safe validation
 
-Status: reviewer correction №3, ready for independent re-review after local checks. No merge to `main`.
+Status: independent final re-review №4 **PASS** after correction `badd55b`. The safe recommendation mode is approved for integration into `main`.
 
 ## Current behavior
 
@@ -31,4 +31,12 @@ Browser E2E at 390 and 1440 px checks the live forms for car mats and a car-cove
 - Chromium Browser E2E `e2e/category-step16.spec.ts`: 1 passed at 390 and 1440 px, using the real local API and PostgreSQL. It published car mats in the chosen category, published a car-cover Buy Request, showed a wrong-category warning, allowed publication after that warning, changed the category manually, and submitted a category report from another account. No horizontal overflow or clipped checked controls appeared in those forms. The correct car-mats title did still show a false warning, as noted above.
 - The Seller Offer browser case was not rerun because the correction did not change its UI or API. Offer and Deal backend integration passed in the full suite.
 
-Independent REVIEW PASS is still required before merge.
+## Independent final re-review №4 — PASS (2026-10-22)
+
+The reviewer inspected the publishing paths and called the real API with the active PostgreSQL categories. Eight independent phrases were published as both Product and Buy Request (16 successful creates), including the previously blocked car mats, car cover and headlight, a toy car, a doll gown, apples with a bicycle gift, and deliberate honey/apples mismatches in the car category. Wrong categories returned a warning while retaining the author's chosen category. Relevant edits and draft publication succeeded; none of these semantic cases created a new block-decision row. Recommendation responses stayed at three categories or fewer.
+
+Independent API checks rejected malformed and nonexistent category IDs, missing required fields, zero quantity and invalid business statuses with HTTP 400. A rejected create or edit left the listing counts and saved fields unchanged; another user's Product and Buy Request edits returned HTTP 404. Across four categories, title variants using `!`, extra spaces and different case produced statuses 201/201/201/409, while a genuinely different cable configuration published. A category report was stored; anonymous reporting returned 401, a duplicate report 409, non-moderator access to moderation reports 403, and the private report text was absent from the public Product response. A test decision in the historical migration-051 format remained appealable by its owner (201), not another user (404), and a repeated appeal returned 409. The test data was removed with its temporary users; existing historical records were not deleted.
+
+The reviewer's focused PostgreSQL suite passed **16/16 tests in 7 files**, covering category behavior, Product, Buy Request/Offer and Smart Search. Root `npm run typecheck` passed. An independently written Chromium E2E passed **1/1** at **390 and 1440 px** using the documented local QA accounts: an automotive accessory Product, a correctly categorized Buy Request, a wrong-category warning followed by publication, manual application of an apple recommendation, preserved form values and a stored category report. The checked forms had no horizontal overflow or clipped key controls. The earlier independent Seller Offer E2E had passed at 390 px; it was not rerun because this correction did not change the Offer form or API.
+
+The known false warnings and incomplete category coverage remain non-blocking in safe mode: they cannot cause semantic HTTP 422, recategorize a listing or prevent publication. The reviewer did not repeat the full backend suite or production build after this correction; those results above are implementer checks, not independent re-review evidence.
