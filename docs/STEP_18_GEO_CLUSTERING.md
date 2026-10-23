@@ -1,6 +1,6 @@
 # Step 18 — geographic grouping on the map
 
-Status: **READY FOR REVIEW**. The Step 17 map, Leaflet, public-location projection, Smart Search and nearby pixel clustering remain in place.
+Status: **DONE — independent re-review PASS**. The Step 17 map, Leaflet, public-location projection, Smart Search and nearby pixel clustering remain in place.
 
 ## Behavior and API
 
@@ -30,9 +30,8 @@ The two aggregate SQL queries reuse the existing Product and Buy Request conditi
 
 ## Remaining verification
 
-- Initial independent review found two defects: a new country search from city zoom could request every national marker, and aggregate viewport inclusion rounded explicit public points before filtering. Both were corrected; focused Chromium and PostgreSQL regressions passed. Final independent re-review is pending.
+- Initial independent review found two defects: a new country search from city zoom could request every national marker, and aggregate viewport inclusion rounded explicit public points before filtering. Both were corrected in `a1b9eaf`; focused Chromium and PostgreSQL regressions passed. Independent final re-review of the correction reported PASS with no remaining findings.
 - A 50,000-row run, physical Android Chrome and native on-screen keyboard were unavailable.
 - The directory does not include verified administrative boundaries or centers, so display bounds enclose matching public points rather than the full oblast/district. Records with no verified code use coarse geographic fallback.
 - Repeated common-word text in the 10,000-row synthetic fixture produced a slow 12.4 s Smart Search aggregate (`Step18 QA товар 7999`). This uses the unchanged Step 15 search condition. Do not claim all 10,000-row searches are fast.
 - The existing detailed-marker API remains unpaginated. A highly dense city viewport can still return thousands of public markers; reducing or paging that result would require a separate interaction contract for selecting those records. No listings were silently omitted in this step.
-- Independent review must pass before Step 18 is marked DONE.
