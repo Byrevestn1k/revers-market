@@ -7,3 +7,6 @@
 .delivery-option > .subscription-active { display: flex; align-items: center; gap: .65rem; min-height: 44px; width: 100%; min-width: 0; cursor: pointer; }
 .delivery-option > .subscription-active input[type=checkbox] { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; }
 .delivery-place { min-width: 0; }
+.delivery-explanation, .delivery-destination { margin: 0 0 .45rem 2rem; color: #485e53; font-size: .82rem; line-height: 1.45; overflow-wrap: anywhere; }
+.delivery-destination { font-weight: 700; }
+.delivery-option input[type=checkbox]:disabled { opacity: .75; cursor: not-allowed; }

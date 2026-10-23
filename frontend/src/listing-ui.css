@@ -1,5 +1,11 @@
 .listing-card .listing-card-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; text-align: left; }
 .listing-card .listing-card-open:focus-visible { outline: 3px solid #17825a; outline-offset: -3px; }
+.product-card > .listing-favorite { top: 126px; right: 8px; bottom: auto; }
+@media (max-width: 760px) { .product-card > .listing-favorite { top: 88px; } }
+.buy-request-card > .listing-favorite { top: 98px; left: 98px; right: auto; bottom: auto; }
+.buy-request-card .buy-request-card-open { padding-right: 18px; padding-bottom: 18px; }
+.buy-request-card > .request-actions { padding-right: 18px; }
+@media (max-width: 600px) { .buy-request-card > .listing-favorite { top: 78px; left: auto; right: 26px; } }
 .listing-card .listing-card-open:hover h3 { color: #17825a; }
 .listing-picture { display: block; width: 100%; height: 100%; overflow: hidden; background: #eef5ed; }
 .listing-picture > img { display: block; width: 100%; height: 100%; object-fit: cover; }

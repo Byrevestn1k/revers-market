@@ -1,8 +1,10 @@
 # Project state
 
-**Current step:** `STEP 18 — independent REVIEW PASS`.
+**Current step:** `STEP 19 — UX polish implementation in progress`.
 
 **Last updated:** 2026-10-23
+
+Step 19 work is on `codex/step-19-ux-polish`. Scope: location labels, delivery explanations and destination, FLEXIBLE selector display, and Product/Buy Request favorite placement. See [STEP_19_UX_POLISH.md](STEP_19_UX_POLISH.md). Independent review and merge are pending.
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 
