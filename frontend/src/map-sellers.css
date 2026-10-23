@@ -130,6 +130,13 @@
 .map-result-pagination button:disabled { opacity: .4; cursor: default; }
 .map-view .map-legend small { color: #74817c; font-size: 11px; line-height: 1.5; }
 .map-adaptive-wrap { background: none; border: none; }
+.map-geo-wrap { background: none; border: none; }
+.map-geo-group { box-sizing: border-box; width: 112px; min-height: 78px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 5px; border: 2px solid #17825a; border-radius: 16px; background: #fff; color: #24423a; box-shadow: 0 2px 8px #17372f55; text-align: center; }
+.map-geo-group strong { font-size: 20px; line-height: 1; }
+.map-geo-group span { max-width: 100px; overflow-wrap: anywhere; font-size: 10px; line-height: 1.15; font-weight: 700; }
+.map-geo-group small { font-size: 9px; line-height: 1; white-space: nowrap; }
+.map-geo-group[data-level='district'] { border-color: #d47e4b; }
+.map-geo-wrap:focus .map-geo-group { outline: 3px solid #e3c06b; }
 .map-pin { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); place-items: center; box-sizing: border-box; width: 100%; height: 100%; border: 2px solid #17825a; border-radius: 11px; background: white; box-shadow: 0 2px 7px #17372f40; transition: box-shadow .15s; }
 .map-pin-media { position: absolute; inset: 0; display: block; overflow: hidden; border-radius: inherit; }
 /* Leaflet sets marker-pane images to width:auto and removes their size limits.

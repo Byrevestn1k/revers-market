@@ -2,6 +2,13 @@ import type { SellerProductPoint } from './map-sellers'
 
 export type MapViewport = { south: number; north: number; west: number; east: number; width: number; height: number }
 export type MapStage = 'count' | 'categories' | 'photos'
+export function geoLevelForViewport(zoom: number, viewport: Pick<MapViewport, 'south' | 'north'> | null, nationwide: boolean): 'region' | 'district' | null {
+    if (!nationwide || !viewport) return null
+    const span = viewport.north - viewport.south
+    if (zoom <= 7 && span >= 2) return 'region'
+    if (zoom <= 11 && span >= .15) return 'district'
+    return null
+}
 export function mapStage(zoom: number, width: number, height: number): MapStage {
     if (zoom >= 17 && width >= 280 && height >= 240) return 'photos'
     if (zoom >= 14) return 'categories'

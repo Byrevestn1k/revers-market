@@ -91,6 +91,13 @@ if (process.env.DATABASE_URL) {
         const map = await agent.get('/api/map/markers').query({ latitude: 50.62, longitude: 26.25, radiusKm: 10, q: 'червоний дитячий велосипед', searchIn: 'all' });
         expect(map.status).toBe(200);
         expect(map.body.markers.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([ids[0], ids[2], requestId]));
+        const nationwideQuery = { latitude: 49, longitude: 31, nationwide: 'true', q: 'червоний дитячий велосипед', searchIn: 'all', categoryId: bicycleCategoryId };
+        const nationwideMarkers = await agent.get('/api/map/markers').query(nationwideQuery);
+        const grouped = await agent.get('/api/map/markers').query({ ...nationwideQuery, geoLevel: 'region' });
+        expect(grouped.status, JSON.stringify(grouped.body)).toBe(200);
+        expect(grouped.body.total).toBe(nationwideMarkers.body.markers.length);
+        expect(grouped.body.groups.reduce((sum: number, item: { count: number }) => sum + item.count, 0)).toBe(grouped.body.total);
+        expect(grouped.body.groups.some((item: { name: string; productCount: number; buyRequestCount: number }) => item.name === 'Рівненська область' && item.productCount >= 1 && item.buyRequestCount >= 1)).toBe(true);
 
         expect((await agent.patch(`/api/products/${ids[0]}`).send({ description: 'Тепер інший опис' })).status).toBe(200);
         expect((await list('червоний дитячий велосипед')).products.map((item: { id: string }) => item.id)).not.toContain(ids[0]);

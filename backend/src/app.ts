@@ -14,7 +14,7 @@ import { getConversationContext, changeNegotiation } from './negotiation-service
 import { getOrderContact } from './order-service.js'
 import { recordOfferView } from './buy-requests.js'
 import { blockUser, createReport, createReview, deleteConversationForParticipant, getBlockStatus, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateConversationArchived, updateConversationPinned, updateReportModeration } from './community-service.js'
-import { adaptiveRadius, clampRadius, MapService } from './map-service.js'
+import { adaptiveRadius, clampRadius, MapService, type MapFilterState } from './map-service.js'
 import { cityBoundary } from './city-boundaries.js'
 import { getSettlement, listSettlementRegions, listSettlementsInRegion, searchSettlements, settlementCodesInRegion } from './settlements.js'
 import { confirmPhoneVerification, requestPhoneChange } from './phone-verification.js'
@@ -148,7 +148,9 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         if (viewport && (!Object.values(viewport).every(Number.isFinite) || viewport.south < -90 || viewport.north > 90 || viewport.south >= viewport.north || viewport.west < -180 || viewport.west > 180 || viewport.east < -180 || viewport.east > 180)) return { status: 400, body: { error: 'INVALID_MAP_VIEWPORT' } }
         const showProducts = request.query.showProducts !== 'false'
         const showBuyRequests = request.query.showBuyRequests !== 'false'
-        const markers = await mapService.findMarkers({ latitude, longitude }, {
+        const geoLevel = request.query.geoLevel
+        if (geoLevel !== undefined && geoLevel !== 'region' && geoLevel !== 'district') return { status: 400, body: { error: 'INVALID_GEO_LEVEL' } }
+        const filters: Partial<MapFilterState> = {
             nationwide,
             exactDistance: nearby,
             includeOwnerListings: !nearby && request.query.includeOwnerListings === 'true' && request.query.searchIn === 'owner',
@@ -167,7 +169,16 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
             radiusKm,
             showProducts,
             showBuyRequests,
-        })
+        }
+        if (geoLevel && !nearby && nationwide && !cityName) {
+            const groups = await mapService.findGeoGroups({ latitude, longitude }, filters, geoLevel)
+            if (groups.length === 1 && groups[0].count === 1) {
+                const markers = await mapService.findMarkers({ latitude, longitude }, filters)
+                return { status: 200, body: { markers, groups: [], total: markers.length, filters: { radiusKm, showProducts, showBuyRequests } } }
+            }
+            return { status: 200, body: { markers: [], groups, total: groups.reduce((sum, group) => sum + group.count, 0), filters: { radiusKm, showProducts, showBuyRequests } } }
+        }
+        const markers = await mapService.findMarkers({ latitude, longitude }, filters)
         return { status: 200, body: { markers, filters: { radiusKm, showProducts, showBuyRequests } } }
     }))
 

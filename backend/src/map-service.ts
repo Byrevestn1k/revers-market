@@ -30,6 +30,20 @@ export type MapMarker = MapPoint & {
     relevance?: number
 }
 
+export type MapGeoGroup = {
+    id: string
+    level: 'region' | 'district' | 'unknown'
+    name: string
+    latitude: number
+    longitude: number
+    bounds: MapViewport
+    count: number
+    productCount: number
+    buyRequestCount: number
+}
+
+type GeoBucket = { settlement_code: string | null; latitude: string; longitude: string; south: string; north: string; west: string; east: string; count: string }
+
 export interface MapProviderAdapter {
     toProviderPoint(point: MapPoint): unknown
     fromProviderPoint(point: unknown): MapPoint | null
@@ -82,7 +96,7 @@ export const syncMapFilters = (filters: Partial<MapFilterState>, mapCenter?: Map
 })
 
 const distanceSql = (table: string) =>
-    `6371 * acos(LEAST(1, GREATEST(-1, cos(radians($1)) * cos(radians(${table}.latitude)) * cos(radians(${table}.longitude) - radians($2)) + sin(radians($1)) * sin(radians(${table}.latitude)))))`
+    `6371 * acos(LEAST(1, GREATEST(-1, cos(radians($1::numeric)) * cos(radians(${table}.latitude)) * cos(radians(${table}.longitude) - radians($2::numeric)) + sin(radians($1::numeric)) * sin(radians(${table}.latitude)))))`
 
 type Queryable = Pick<PoolClient, 'query'>
 
@@ -130,15 +144,45 @@ export class MapService {
             .sort((left, right) => filters.q && filters.searchIn !== 'owner' ? (right.relevance ?? 0) - (left.relevance ?? 0) || left.title.localeCompare(right.title, 'uk') || left.id.localeCompare(right.id) : left.title.localeCompare(right.title, 'uk'))
     }
 
-    private async products(center: MapPoint, filters: MapFilterState): Promise<MapMarker[]> {
+    async findGeoGroups(center: MapPoint, options: Partial<MapFilterState>, level: 'region' | 'district'): Promise<MapGeoGroup[]> {
+        const filters = syncMapFilters(options)
+        const buckets: { kind: MapMarker['kind']; row: GeoBucket }[] = []
+        if (filters.showProducts) for (const row of await this.products(center, filters, true)) buckets.push({ kind: 'product', row })
+        if (filters.showBuyRequests) for (const row of await this.buyRequests(center, filters, true)) buckets.push({ kind: 'buyRequest', row })
+        const groups = new Map<string, MapGeoGroup & { weightedLatitude: number; weightedLongitude: number }>()
+        for (const { kind, row } of buckets) {
+            const settlement = getSettlement(row.settlement_code)
+            const name = settlement ? level === 'region' ? settlement.region : settlement.district || settlement.region : 'Місце без перевіреного району'
+            const key = settlement ? level === 'region' ? `region:${settlement.region}` : `district:${settlement.region}:${settlement.district || settlement.region}` : `unknown:${Math.floor(Number(row.latitude) * 2)}:${Math.floor(Number(row.longitude) * 2)}`
+            const count = Number(row.count)
+            const current = groups.get(key) ?? { id: key, level: settlement ? level : 'unknown', name, latitude: 0, longitude: 0, weightedLatitude: 0, weightedLongitude: 0,
+                bounds: { south: Number(row.south), north: Number(row.north), west: Number(row.west), east: Number(row.east) }, count: 0, productCount: 0, buyRequestCount: 0 }
+            current.count += count
+            current[kind === 'product' ? 'productCount' : 'buyRequestCount'] += count
+            current.weightedLatitude += Number(row.latitude) * count
+            current.weightedLongitude += Number(row.longitude) * count
+            current.bounds.south = Math.min(current.bounds.south, Number(row.south))
+            current.bounds.north = Math.max(current.bounds.north, Number(row.north))
+            current.bounds.west = Math.min(current.bounds.west, Number(row.west))
+            current.bounds.east = Math.max(current.bounds.east, Number(row.east))
+            groups.set(key, current)
+        }
+        return [...groups.values()].map(({ weightedLatitude, weightedLongitude, ...group }) => ({ ...group,
+            latitude: weightedLatitude / group.count, longitude: weightedLongitude / group.count })).sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+    }
+
+    private async products(center: MapPoint, filters: MapFilterState, aggregate: true): Promise<GeoBucket[]>
+    private async products(center: MapPoint, filters: MapFilterState, aggregate?: false): Promise<MapMarker[]>
+    private async products(center: MapPoint, filters: MapFilterState, aggregate = false): Promise<MapMarker[] | GeoBucket[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
         const distancePoint = filters.exactDistance ? 'p' : 'public_point'
         const conditions = [`p.status = 'active'`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        if (aggregate && (filters.nationwide || filters.includeOwnerListings)) conditions.push('$1::numeric IS NOT NULL', '$2::numeric IS NOT NULL')
         if (filters.cityName && !filters.cityBoundary) {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_zone', filters, parameters)
             conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('public_point')} <= $3)` : match)
         }
-        conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
+        conditions.push(...viewportConditions('public_point', filters.viewport, parameters, aggregate ? '2' : undefined))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_zone ILIKE $${parameters.length}`) }
         if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_zone', filters.region, parameters))
@@ -150,12 +194,16 @@ export class MapService {
         const search = filters.searchIn === 'owner' ? null : smartSearchSql(listingSearchColumns('product'), filters.q, parameters, filters.searchIn === 'title')
         if (filters.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], filters.q, parameters))
         if (search) conditions.push(search.condition)
-        const result = await this.queryable.query(`SELECT p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode, p.delivery_options,
+        const publicLat = 'floor(public_point.latitude * 100 + 0.5) / 100'
+        const publicLon = 'floor(public_point.longitude * 100 + 0.5) / 100'
+        const select = aggregate ? `public_point.settlement_code, avg(${publicLat}) AS latitude, avg(${publicLon}) AS longitude,
+            min(${publicLat}) AS south, max(${publicLat}) AS north, min(${publicLon}) AS west, max(${publicLon}) AS east, count(*) AS count` : `p.id, p.title, public_point.geo_zone, public_point.latitude, public_point.longitude, p.category_id, c.name AS category_name, c.image_index, p.price, p.currency, p.quantity, p.reserved_quantity, p.unit, p.delivery_mode, p.delivery_options,
             (p.map_location_mode IN ('pin', 'address') OR p.address_visibility = 'public' OR (p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND p.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(p.geo_zone, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(p.geo_zone) = lower(u.location_display))))) AS is_public_point,
             CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
             (u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%') AS is_demo,
-            photo.url AS photo_url, ${distanceSql(distancePoint)} AS distance_km, ${search?.rank ?? '0'} AS relevance
+            photo.url AS photo_url, ${distanceSql(distancePoint)} AS distance_km, ${search?.rank ?? '0'} AS relevance`
+        const result = await this.queryable.query(`SELECT ${select}
             FROM products p JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id JOIN users u ON u.id = p.owner_id
             CROSS JOIN LATERAL (SELECT CASE WHEN u.email LIKE '%@rivne-demo.example.invalid' AND u.bio LIKE '%rivne-demo-v1%' THEN 100000::numeric ELSE 100::numeric END AS factor) privacy
             CROSS JOIN LATERAL (SELECT
@@ -164,21 +212,24 @@ export class MapService {
                 CASE WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND p.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(p.geo_zone, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(p.geo_zone) = lower(u.location_display))) THEN COALESCE(NULLIF(u.location_display, ''), p.geo_zone) ELSE p.geo_zone END AS geo_zone,
                 CASE WHEN p.map_location_mode = 'profile' AND u.map_location_mode <> 'approximate' AND p.settlement_code IS NOT DISTINCT FROM u.settlement_code AND (NULLIF(p.geo_zone, '') IS NULL OR (NULLIF(u.location_display, '') IS NOT NULL AND lower(p.geo_zone) = lower(u.location_display))) THEN u.settlement_code ELSE p.settlement_code END AS settlement_code
             ) public_point
-            LEFT JOIN LATERAL (SELECT url FROM product_photos WHERE product_id = p.id ORDER BY sort_order, id LIMIT 1) photo ON true
-            WHERE ${conditions.join(' AND ')} ORDER BY p.id`, parameters)
-        return result.rows.map((row) => this.marker(row, 'product'))
+            ${aggregate ? '' : 'LEFT JOIN LATERAL (SELECT url FROM product_photos WHERE product_id = p.id ORDER BY sort_order, id LIMIT 1) photo ON true'}
+            WHERE ${conditions.join(' AND ')} ${aggregate ? `GROUP BY public_point.settlement_code, CASE WHEN public_point.settlement_code IS NULL THEN floor(${publicLat} * 2) END, CASE WHEN public_point.settlement_code IS NULL THEN floor(${publicLon} * 2) END` : 'ORDER BY p.id'}`, parameters)
+        return aggregate ? result.rows as GeoBucket[] : result.rows.map((row) => this.marker(row, 'product'))
     }
 
-    private async buyRequests(center: MapPoint, filters: MapFilterState): Promise<MapMarker[]> {
+    private async buyRequests(center: MapPoint, filters: MapFilterState, aggregate: true): Promise<GeoBucket[]>
+    private async buyRequests(center: MapPoint, filters: MapFilterState, aggregate?: false): Promise<MapMarker[]>
+    private async buyRequests(center: MapPoint, filters: MapFilterState, aggregate = false): Promise<MapMarker[] | GeoBucket[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
         const distancePoint = filters.exactDistance ? 'r' : 'public_point'
         const conditions = [`r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        if (aggregate && (filters.nationwide || filters.includeOwnerListings)) conditions.push('$1::numeric IS NOT NULL', '$2::numeric IS NOT NULL')
         if (filters.buyRequestIds) { parameters.push(filters.buyRequestIds); conditions.push(`r.id = ANY($${parameters.length}::uuid[])`) }
         if (filters.cityName && !filters.cityBoundary) {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_area', filters, parameters)
             conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('public_point')} <= $3)` : match)
         }
-        conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
+        conditions.push(...viewportConditions('public_point', filters.viewport, parameters, aggregate ? '2' : undefined))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('r.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_area ILIKE $${parameters.length}`) }
         if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_area', filters.region, parameters))
@@ -190,13 +241,17 @@ export class MapService {
         const search = filters.searchIn === 'owner' ? null : smartSearchSql(listingSearchColumns('buyRequest'), filters.q, parameters, filters.searchIn === 'title')
         if (filters.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], filters.q, parameters))
         if (search) conditions.push(search.condition)
-        const result = await this.queryable.query(`SELECT r.id, r.title, r.requested_quantity AS quantity, r.unit, r.delivery_options, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index, photo.url AS photo_url,
+        const publicLat = 'floor(public_point.latitude * 100 + 0.5) / 100'
+        const publicLon = 'floor(public_point.longitude * 100 + 0.5) / 100'
+        const select = aggregate ? `public_point.settlement_code, avg(${publicLat}) AS latitude, avg(${publicLon}) AS longitude,
+            min(${publicLat}) AS south, max(${publicLat}) AS north, min(${publicLon}) AS west, max(${publicLon}) AS east, count(*) AS count` : `r.id, r.title, r.requested_quantity AS quantity, r.unit, r.delivery_options, public_point.geo_area, public_point.latitude, public_point.longitude, r.category_id, c.name AS category_name, c.image_index, photo.url AS photo_url,
             u.id AS owner_id, u.username AS owner_username, u.nickname AS owner_nickname, u.avatar_url AS owner_avatar_url,
             (r.address_visibility = 'public') AS is_public_point,
             CASE WHEN r.address_visibility = 'public' THEN r.delivery_address ELSE NULL END AS public_address,
-            ${distanceSql(distancePoint)} AS distance_km, ${search?.rank ?? '0'} AS relevance FROM buy_requests r JOIN categories c ON c.id = r.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id JOIN users u ON u.id = r.buyer_id
-            ${requestPublicLocationSql} LEFT JOIN LATERAL (SELECT url FROM buy_request_photos WHERE buy_request_id = r.id ORDER BY sort_order, id LIMIT 1) photo ON true WHERE ${conditions.join(' AND ')} ORDER BY r.id`, parameters)
-        return result.rows.map((row) => this.marker(row, 'buyRequest'))
+            ${distanceSql(distancePoint)} AS distance_km, ${search?.rank ?? '0'} AS relevance`
+        const result = await this.queryable.query(`SELECT ${select} FROM buy_requests r JOIN categories c ON c.id = r.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id JOIN users u ON u.id = r.buyer_id
+            ${requestPublicLocationSql} ${aggregate ? '' : 'LEFT JOIN LATERAL (SELECT url FROM buy_request_photos WHERE buy_request_id = r.id ORDER BY sort_order, id LIMIT 1) photo ON true'} WHERE ${conditions.join(' AND ')} ${aggregate ? `GROUP BY public_point.settlement_code, CASE WHEN public_point.settlement_code IS NULL THEN floor(${publicLat} * 2) END, CASE WHEN public_point.settlement_code IS NULL THEN floor(${publicLon} * 2) END` : 'ORDER BY r.id'}`, parameters)
+        return aggregate ? result.rows as GeoBucket[] : result.rows.map((row) => this.marker(row, 'buyRequest'))
     }
 
     private marker(row: any, kind: MapMarker['kind']): MapMarker {

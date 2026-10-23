@@ -8,7 +8,7 @@ export type SellerProductPoint = {
     publicAddress?: string; approximate?: boolean
     owner?: { id: string; username: string; nickname?: string | null; avatarUrl?: string | null }
 }
-export type MapResults = { markers: SellerProductPoint[]; loading: boolean; error: string; query: string; scope: string }
+export type MapResults = { markers: SellerProductPoint[]; loading: boolean; error: string; query: string; scope: string; groupedCount?: number }
 export type MapSeller = { id: string; username: string; latitude: number; longitude: number; geoZone: string; products: SellerProductPoint[] }
 export function groupMapSellers(markers: SellerProductPoint[]): MapSeller[] {
     const sellers = new Map<string, MapSeller>()

@@ -36,7 +36,7 @@ import type { Category } from './categories'
 import { groupMapSellers } from './map-sellers'
 import type { SellerProductPoint } from './map-sellers'
 import './map-sellers.css'
-import { avatarInitials, buildMapNodes, inViewport, mapStage } from './map-clusters'
+import { avatarInitials, buildMapNodes, geoLevelForViewport, inViewport, mapStage } from './map-clusters'
 import { mapMarkerElement, mapMarkerLabel } from './map-marker-icons'
 import type { MapViewport } from './map-clusters'
 import type { HomeCity, HomeMapProps } from './PublicHome'
@@ -59,6 +59,7 @@ export type Product = { publicAddress?: string; addressVisibility?: 'private' | 
 type View = AppView
 type MapPoint = { latitude: number; longitude: number }
 type MapMarker = SellerProductPoint & { approximate: boolean }
+type MapGeoGroup = { id: string; level: 'region' | 'district' | 'unknown'; name: string; latitude: number; longitude: number; bounds: { south: number; north: number; west: number; east: number }; count: number; productCount: number; buyRequestCount: number }
 type MapReturnState = { center: MapPoint; zoom: number; radius: number; nearbyRadius: number; geoZone: string; region: string; geoSettlement: Settlement | null; localCategoryId: string; deliveryMethod?: DeliveryMethod | ''; showProducts: boolean; showBuyRequests: boolean; mapQuery: string; mapSearch: string; searchIn: 'title' | 'all' | 'owner'; searchScope: 'city' | 'nearby' | 'area' | 'country'; resultPage: number }
 type BuyRequest = { id: string; title: string; description: string; photos: { url: string; alt: string }[]; countryCode?: string | null; receiptMethod?: ReceiptMethod | null; deliveryOptions?: DeliveryOption[] | null; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; geoArea: string; settlement?: Settlement | null; category: { id: string; name: string; imageIndex?: number | null }; quantity: number; fulfilledQuantity: number; selectedQuantity: number; completedQuantity: number; remainingQuantity: number; fulfillmentMode: 'single_seller' | 'multiple_sellers'; unit: string; status: string; offerCount?: number; createdAt?: string; updatedAt?: string; coordinates: MapPoint | null; buyer?: { id: string; username: string }; price: { min: number | null; max: number | null; currency: string }; delivery: { required: boolean; preferred: string | null; address?: string | null }; deadline: string | null }
 type ApiError = Error & { fields?: string[]; status?: number; decisionId?: string }
@@ -184,7 +185,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [center, setCenter] = useState<MapPoint>(() => restored?.center ?? city ?? { latitude: 50.45, longitude: 30.52 })
     const [radius, setRadius] = useState(() => restored?.radius ?? 2)
     const [nearbyRadius, setNearbyRadius] = useState(() => restored?.nearbyRadius ?? 5)
-    const [zoom, setZoom] = useState(() => restored?.zoom ?? (city ? 12 : 10))
+    const [zoom, setZoom] = useState(() => restored?.zoom ?? (city ? 12 : 6))
     const [geoZone, setGeoZone] = useState(() => restored?.geoZone ?? '')
     const [region, setRegion] = useState(() => restored?.region ?? '')
     const [geoSettlement, setGeoSettlement] = useState<Settlement | null>(() => restored?.geoSettlement ?? null)
@@ -195,6 +196,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [showProducts, setShowProducts] = useState(() => subscriptionId ? false : restored?.showProducts ?? true)
     const [showBuyRequests, setShowBuyRequests] = useState(() => subscriptionId ? true : restored?.showBuyRequests ?? true)
     const [markers, setMarkers] = useState<MapMarker[]>([])
+    const [geoGroups, setGeoGroups] = useState<MapGeoGroup[]>([])
     const [fetching, setLoading] = useState(true)
     const [loadedKey, setLoadedKey] = useState('')
     const [error, setError] = useState('')
@@ -250,6 +252,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const pending = mapQuery.trim() !== mapSearch || loadedKey !== requestKey
     const loading = fetching || pending
     const categoryById = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories])
+    const visibleGeoGroups = useMemo(() => pending ? [] : geoGroups, [pending, geoGroups])
     const areaMarkers = useMemo(() => pending ? [] : subscriptionId || searchScope === 'nearby' ? markers : viewport ? markers.filter((item) => inViewport(item, viewport)) : [], [markers, viewport, pending, searchScope, subscriptionId])
     const areaProducts = useMemo(() => areaMarkers.filter((item) => item.kind === 'product'), [areaMarkers])
     const sellers = useMemo(() => groupMapSellers(areaProducts), [areaProducts])
@@ -268,9 +271,11 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const visibleResults = useMemo(() => resultItems.slice((activePage - 1) * pageSize, activePage * pageSize), [resultItems, activePage, pageSize])
     const selectedIds = useMemo(() => new Set<string>(selection ? visibleResults.map((item) => item.id) : []), [selection, visibleResults])
     const stage = mapStage(zoom, viewport?.width ?? 0, viewport?.height ?? 0)
+    const geoLevel = geoLevelForViewport(zoom, viewport, !subscriptionId && searchScope === 'country')
+    const groupedCount = visibleGeoGroups.reduce((sum, group) => sum + group.count, 0)
     const selectionOwner = selection && scopedMarkers.length && scopedMarkers.every(item => item.owner?.id === scopedMarkers[0].owner?.id) ? scopedMarkers[0].owner : null
     const scope = selection ? selectionOwner?.nickname || selectionOwner?.username || 'Обрана точка' : ''
-    useEffect(() => { onResultsChange?.({ markers: scopedMarkers, loading, error, query: mapSearch, scope }) }, [onResultsChange, scopedMarkers, loading, error, mapSearch, scope])
+    useEffect(() => { onResultsChange?.({ markers: scopedMarkers, loading, error, query: mapSearch, scope, groupedCount }) }, [onResultsChange, scopedMarkers, loading, error, mapSearch, scope, groupedCount])
     const categorySuggestions = useMemo(() => {
         const counts = new Map<string, { category: Category; count: number }>()
         for (const marker of scopedMarkers) {
@@ -333,9 +338,10 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             const activeRadius = searchScope === 'nearby' ? nearbyRadius : radius
             const params = new URLSearchParams({ latitude: String(origin.latitude), longitude: String(origin.longitude), radiusKm: String(activeRadius), zoom: String(zoom), showProducts: String(showProducts), showBuyRequests: String(showBuyRequests) })
             if (searchScope === 'nearby') params.set('nearby', 'true')
-            const initialSearch = focusRevision === 0
+            const initialSearch = focusRevision === 0 && (!restored || searchRevision > 0)
             if (!initialSearch && searchScope !== 'nearby') for (const key of ['south', 'north', 'west', 'east'] as const) params.set(key, String(viewport[key]))
             if (searchScope === 'country') params.set('nationwide', 'true')
+            if (geoLevel) params.set('geoLevel', geoLevel)
             if (searchScope === 'city' && searchCity) { params.set('cityName', searchCity.name); if (searchCity.settlement?.code) params.set('settlementCode', searchCity.settlement.code); params.set('cityOutsideKm', String(radius)) }
             if (geoZone.trim()) params.set('geoZone', geoZone.trim())
             if (region) params.set('region', region)
@@ -347,7 +353,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             if (deliveryMethod) params.set('deliveryMethod', deliveryMethod)
             try {
                 const result = await request(subscriptionId ? '/api/demand-subscriptions/' + encodeURIComponent(subscriptionId) + '/matches' : '/api/map/markers?' + params, { signal: controller.signal })
-                let points = result.markers
+                let points = result.markers as MapMarker[]
                 if (subscriptionId) {
                     // A city-only Request can have a verified approximate city marker.
                     // This display estimate never replaces the server's suburb-matching point.
@@ -368,13 +374,14 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     if (!controller.signal.aborted) setSubscriptionResult({ ...result, unmappedRequests: result.unmappedRequests.filter(item => !located.has(item.id)) })
                 }
                 if (!controller.signal.aborted) {
-                    setMarkers(points); setLoadedKey(requestKey)
+                    setMarkers(points); setGeoGroups(result.groups ?? []); setLoadedKey(requestKey)
                     const map = mapInstance.current
                     if (map && (subscriptionId || searchScope !== 'nearby') && initialSearch) {
                         const origin = !subscriptionId && searchScope === 'city' && searchCity ? [searchCity.latitude, searchCity.longitude] as [number, number] : [49.0, 31.0] as [number, number]
                         if (!subscriptionId && !points.length && searchScope === 'city' && searchCity) map.setView(origin, 12, { animate: false })
                         else {
-                            const bounds = points.length ? L.latLngBounds(points.map((item) => [item.latitude, item.longitude])) : L.latLngBounds([[44, 22], [52.5, 40.5]])
+                            const visiblePoints = [...points, ...(result.groups ?? [])]
+                            const bounds = visiblePoints.length ? L.latLngBounds(visiblePoints.map((item) => [item.latitude, item.longitude])) : L.latLngBounds([[44, 22], [52.5, 40.5]])
                             if (!subscriptionId && searchScope === 'city') bounds.extend(origin)
                             map.fitBounds(bounds, { padding: [55, 55], maxZoom: subscriptionId ? 12 : searchScope === 'city' ? 12 : 7, animate: false })
                         }
@@ -387,11 +394,11 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     }
                 }
             } catch (caught) {
-                if (!controller.signal.aborted) { setError((caught as Error).message); setMarkers([]); if (subscriptionId) setSubscriptionResult(null); setLoadedKey(requestKey) }
+                if (!controller.signal.aborted) { setError((caught as Error).message); setMarkers([]); setGeoGroups([]); if (subscriptionId) setSubscriptionResult(null); setLoadedKey(requestKey) }
             } finally { if (!controller.signal.aborted) setLoading(false) }
         }, 120)
         return () => { window.clearTimeout(timer); controller.abort() }
-    }, [requestKey, subscriptionId ? 0 : focusRevision, subscriptionId ? true : Boolean(viewport)])
+    }, [requestKey, subscriptionId ? 0 : focusRevision, subscriptionId ? true : Boolean(viewport), geoLevel])
 
 
     useEffect(() => {
@@ -494,6 +501,29 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             zoom, width: viewport.width, height: viewport.height, filtered, mode: displayMode, selectedIds,
             reservedPoints: homeLocation ? [map.latLngToContainerPoint([homeLocation.latitude, homeLocation.longitude])] : [],
         })
+        for (const group of visibleGeoGroups) {
+            const element = document.createElement('div')
+            element.className = 'map-geo-group'
+            element.dataset.level = group.level
+            const count = document.createElement('strong')
+            count.textContent = String(group.count)
+            const name = document.createElement('span')
+            name.textContent = group.name
+            const kinds = document.createElement('small')
+            kinds.textContent = `Т ${group.productCount} · З ${group.buyRequestCount}`
+            element.append(count, name, kinds)
+            const label = `${group.name}: ${group.count} результатів, ${group.productCount} товарів, ${group.buyRequestCount} запитів. Наблизити мапу.`
+            const marker = L.marker([group.latitude, group.longitude], { icon: L.divIcon({ className: 'map-geo-wrap', html: element, iconSize: [112, 78], iconAnchor: [56, 39] }), title: label, alt: label, keyboard: true })
+            marker.on('click', () => {
+                setSelection(null)
+                const bounds = group.bounds
+                const nextZoom = group.level === 'region' ? 9 : Math.min(14, Math.max(zoom + 2, 12))
+                const area = L.latLngBounds([[bounds.south, bounds.west], [bounds.north, bounds.east]])
+                if (area.isValid() && bounds.south !== bounds.north && bounds.west !== bounds.east && map.getBoundsZoom(area.pad(.2)) > zoom) map.flyToBounds(area.pad(.2), { duration: .6, maxZoom: nextZoom })
+                else map.flyTo([group.latitude, group.longitude], nextZoom, { duration: .6 })
+            })
+            marker.addTo(layer)
+        }
         for (const node of nodes) {
             const location = map.containerPointToLatLng([node.x, node.y])
             const focused = node.items.some((item) => activeMarkerKey ? markerKey(item) === activeMarkerKey : selectedIds.has(item.id))
@@ -525,7 +555,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             for (const item of node.items) markerElements.current.set(item.id, element)
         }
         if (homeLocation) L.marker([homeLocation.latitude, homeLocation.longitude], { zIndexOffset: 2000, title: 'Ваша адреса пошуку', icon: L.divIcon({ className: 'home-map-marker', html: '⌂', iconSize: [34, 34], iconAnchor: [17, 17] }) }).bindTooltip('Ваша адреса пошуку · видима лише вам').addTo(layer)
-    }, [displayMarkers, homeLocation, displayMode, zoom, stage, viewport, filtered, selectedIds, activeMarkerKey, selection, resultPages])
+    }, [displayMarkers, visibleGeoGroups, homeLocation, displayMode, zoom, stage, viewport, filtered, selectedIds, activeMarkerKey, selection, resultPages])
 
     const highlight = (ids: string[], active: boolean) => {
         for (const id of ids) markerElements.current.get(id)?.classList.toggle('map-pin-highlight', active)
@@ -564,7 +594,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     <button type="submit" className="primary-button" disabled={location.busy}>Знайти</button>
                 </form>
                 <SearchLocationControls location={location} pickingPoint={pickingPoint} onPickPoint={() => setPickingPoint(value => !value)} hideCity nearbyRadius={nearbyRadius} setNearbyRadius={value => { setNearbyRadius(value); if (searchScope === 'nearby') { setFocusRevision(0); setSelection(null) } }} onNearby={() => runSearch('nearby')} nearbyDisabled={location.busy || !homeLocation} nearbyTitle={homeLocation ? 'Найближчі товари з центром біля будиночка' : 'Оберіть адресу, поставте точку на мапі або натисніть «Моє місце»'} />
-                <p className="map-search-hint" role="status">{searchScope === 'nearby' ? `Поруч з будиночком у радіусі ${nearbyRadius} км.` : searchScope === 'city' ? `Пошук у ${searchCity?.name} і до ${radius} км за межами міста.` : searchScope === 'country' ? 'Місто не обрано — пошук по всій Україні.' : 'Пошук у видимій області та вибраному радіусі.'}{!loading && searchScope !== 'area' && ` Знайдено: ${markers.length}.`}{searchCity && !homeLocation && ' Для пошуку поруч оберіть адресу або поставте точку на мапі.'}</p>
+                <p className="map-search-hint" role="status">{searchScope === 'nearby' ? `Поруч з будиночком у радіусі ${nearbyRadius} км.` : searchScope === 'city' ? `Пошук у ${searchCity?.name} і до ${radius} км за межами міста.` : searchScope === 'country' ? 'Місто не обрано — пошук по всій Україні.' : 'Пошук у видимій області та вибраному радіусі.'}{!loading && searchScope !== 'area' && ` Знайдено: ${visibleGeoGroups.length ? groupedCount : markers.length}.`}{searchCity && !homeLocation && ' Для пошуку поруч оберіть адресу або поставте точку на мапі.'}</p>
                 <div className="map-filter-row">
                     <div className="map-toggles"><label><input type="checkbox" checked={showProducts} onChange={(event) => { setShowProducts(event.target.checked); setSelection(null) }} /> Продавці</label><label><input type="checkbox" checked={showBuyRequests} onChange={(event) => { setShowBuyRequests(event.target.checked); setSelection(null) }} /> Запити покупців</label></div>
                     <label className="map-delivery-filter">Спосіб отримання<select value={deliveryMethod} onChange={event => setDeliveryMethod(event.target.value as DeliveryMethod | '')}><option value="">Усі способи</option><option value="SELF_PICKUP">Самовивіз</option><option value="SELLER_DELIVERY">Доставка продавцем</option><option value="POSTAL_DELIVERY">Поштова доставка</option><option value="FLEXIBLE">Можна домовитися</option></select></label>
@@ -581,10 +611,10 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             </div>
             <div className="map-canvas-wrapper">
                 <div ref={mapElement} className={'map-canvas' + (pickingPoint ? ' map-picking-point' : '')} aria-label="Мапа товарів, продавців та запитів" />
-                <span className="map-stage-label">{stage === 'count' ? 'Огляд району' : filtered || selection || displayMode === 'products' ? 'Окремі оголошення' : 'Продавці поруч'}</span>
+                <span className="map-stage-label">{visibleGeoGroups.length ? geoLevel === 'region' ? 'Огляд областей' : 'Огляд районів' : stage === 'count' ? 'Огляд району' : filtered || selection || displayMode === 'products' ? 'Окремі оголошення' : 'Продавці поруч'}</span>
                 <button type="button" className="map-expand-button" onClick={() => setExpanded((value) => !value)} aria-pressed={expanded}>{expanded ? '↙ Згорнути' : '⛶ Розгорнути'}</button>
                 {loading && <span className="map-status" role="status">Оновлюємо результати…</span>}
-                {!loading && !areaMarkers.length && <span className="map-status">{!showProducts && !showBuyRequests ? 'Увімкніть продавців або запити покупців' : 'Нічого не знайдено. Змініть пошук або перемістіть мапу.'}</span>}
+                {!loading && !areaMarkers.length && !visibleGeoGroups.length && <span className="map-status">{!showProducts && !showBuyRequests ? 'Увімкніть продавців або запити покупців' : 'Нічого не знайдено. Змініть пошук або перемістіть мапу.'}</span>}
                 <span className="map-displacement-note">Лінія з’єднує оголошення з його місцем</span>
             </div>
             <div className="map-summary-wrap"><aside ref={summaryElement} tabIndex={-1} className="map-summary" aria-label="Результати пошуку на мапі" aria-busy={loading}>
@@ -594,7 +624,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     {sellerProfileLoading ? <p>Завантажуємо профіль продавця…</p> : sellerProfile && <><div>{renderAvatar(sellerProfile)}<span><strong>{sellerProfile.nickname || sellerProfile.username}</strong><small>@{sellerProfile.username}</small></span></div>{sellerProfile.bio && <p>{sellerProfile.bio}</p>}<small>{sellerProfile.exactAddress || sellerProfile.location || 'Місце не вказано'}</small><small>{sellerProfile.statistics.listingsCount} оголошень · {sellerProfile.ratingSummary.count ? `рейтинг ${sellerProfile.ratingSummary.average}` : 'ще без відгуків'}</small><button type="button" className="outline-button compact" onClick={() => openProfile(sellerProfile.username)}>Відкрити профіль →</button></>}
                 </section>}
                 <h2>{selection ? activeMarker && scopedMarkers.length === 1 ? 'Обране оголошення' : selectionOwner?.nickname || selectionOwner?.username || 'Оголошення в цій точці' : showProducts ? areaProducts.length + ' товарів' : areaMarkers.length + ' запитів'}</h2>
-                <p className="map-result-count">{selection ? scopedMarkers.length + ' оголошень за вашим пошуком' : sellers.length + ' продавців · ' + (areaMarkers.length - areaProducts.length) + ' запитів'}</p>
+                <p className="map-result-count">{visibleGeoGroups.length ? `${groupedCount} результатів у ${visibleGeoGroups.length} групах. Натисніть групу, щоб наблизити територію.` : selection ? scopedMarkers.length + ' оголошень за вашим пошуком' : sellers.length + ' продавців · ' + (areaMarkers.length - areaProducts.length) + ' запитів'}</p>
                 <button type="button" className="map-back-to-map text-button" onClick={() => mapElement.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>↑ До мапи</button>
                 <p>{guidance}</p>
                 {!subscriptionId && categorySuggestions.length > 0 && <div className="map-category-suggestions"><strong>{categoryId ? 'Уточнити підкатегорію' : 'Категорії в цій області'}</strong><div>{categorySuggestions.map(({ category, count }) => <button type="button" key={category.id} onClick={() => chooseCategory(category.id)}><CategoryImage category={category} /><span>{category.name}</span><b>{count}</b></button>)}</div></div>}

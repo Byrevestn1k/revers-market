@@ -38,8 +38,8 @@
 .market-category-rail small { position: absolute; top: 4px; right: 6px; color: #26805d; font-size: .62rem; }
 .market-results-note { color: #65796e; font-size: 13px; line-height: 1.5; }
 .market-map .map-discovery-layout { margin-top: 0; }
-.market-section-title { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.4rem; }
-.market-section-title h2 { margin: .4rem 0; font-size: clamp(1.3rem, 2vw, 1.7rem); }
+.market-section-title { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.4rem; }
+.market-section-title h2 { min-width: 0; margin: .4rem 0; font-size: clamp(1.3rem, 2vw, 1.7rem); overflow-wrap: anywhere; }
 .market-section-title > span { padding: .3rem .6rem; border-radius: 20px; background: var(--pale); color: var(--green); font-size: .7rem; }
 .market-map { padding: 1.5rem; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
 .market-map > .content { width: 100%; max-width: none; padding: 0; margin: 0; }

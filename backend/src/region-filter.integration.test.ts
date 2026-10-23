@@ -43,10 +43,32 @@ if (hasDatabase) {
                 const markerIds = markers.body.markers.map((item: { id: string }) => item.id)
                 expect(markerIds).toEqual(expect.arrayContaining([rivneProduct.body.product.id, rivneRequest.body.buyRequest.id]))
                 expect(markerIds).not.toEqual(expect.arrayContaining([kyivProduct.body.product.id, kyivRequest.body.buyRequest.id]))
+                const geoQuery = { latitude: 49, longitude: 31, nationwide: 'true', q: suffix }
+                const regions = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'region' })
+                expect(regions.status, JSON.stringify(regions.body)).toBe(200)
+                expect(regions.body.markers).toEqual([])
+                expect(regions.body.total).toBe(4)
+                expect(regions.body.groups.map((group: { name: string; count: number; productCount: number; buyRequestCount: number }) =>
+                    [group.name, group.count, group.productCount, group.buyRequestCount])).toEqual(expect.arrayContaining([
+                    ['Рівненська область', 2, 1, 1], ['Київ', 2, 1, 1],
+                ]))
+                const districts = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'district', region: 'Рівненська область' })
+                expect(districts.status, JSON.stringify(districts.body)).toBe(200)
+                expect(districts.body.groups).toEqual([expect.objectContaining({ name: rivne.district, count: 2, productCount: 1, buyRequestCount: 1 })])
+                const productsOnly = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'region', showBuyRequests: 'false' })
+                expect(productsOnly.body.total).toBe(2)
+                expect(productsOnly.body.groups.every((group: { buyRequestCount: number }) => group.buyRequestCount === 0)).toBe(true)
+                const pickup = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'region', deliveryMethod: 'SELF_PICKUP' })
+                expect(pickup.body.total).toBe(4)
+                const postal = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'region', deliveryMethod: 'POSTAL_DELIVERY' })
+                expect(postal.body).toMatchObject({ markers: [], groups: [], total: 0 })
+                const empty = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'region', q: `absent-${suffix}` })
+                expect(empty.body).toMatchObject({ markers: [], groups: [], total: 0 })
+                expect((await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'invalid' })).status).toBe(400)
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [sellerPayload.username.toLowerCase(), buyerPayload.username.toLowerCase()])
             }
-        }, 30000)
+        }, 120000)
     })
 } else {
     describe.skip('region filtering HTTP integration (requires DATABASE_URL)', () => { })
