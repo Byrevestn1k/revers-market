@@ -62,6 +62,12 @@ if (hasDatabase) {
                 expect(pickup.body.total).toBe(4)
                 const postal = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'region', deliveryMethod: 'POSTAL_DELIVERY' })
                 expect(postal.body).toMatchObject({ markers: [], groups: [], total: 0 })
+                const boundaryViewport = { south: 50.62, north: 50.63, west: 26, east: 27, region: 'Рівненська область' }
+                const boundaryGroups = await guest.get('/api/map/markers').query({ ...geoQuery, ...boundaryViewport, geoLevel: 'region' })
+                const boundaryMarkers = await guest.get('/api/map/markers').query({ ...geoQuery, ...boundaryViewport })
+                expect(boundaryGroups.body.total).toBe(boundaryMarkers.body.markers.length)
+                expect(boundaryGroups.body.total).toBe(1)
+                expect(boundaryMarkers.body.markers.map((item: { id: string }) => item.id)).toEqual([rivneRequest.body.buyRequest.id])
                 const empty = await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'region', q: `absent-${suffix}` })
                 expect(empty.body).toMatchObject({ markers: [], groups: [], total: 0 })
                 expect((await guest.get('/api/map/markers').query({ ...geoQuery, geoLevel: 'invalid' })).status).toBe(400)

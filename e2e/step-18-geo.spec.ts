@@ -66,6 +66,18 @@ test('Step 18 groups both listing types and drills from Ukraine to markers', asy
         await page.locator('.map-pin').first().click();
         await expect(page.locator('.map-summary')).toContainText(suffix);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        if (width === 390) {
+          const nextQuery = `${suffix} товар`;
+          await page.locator('.map-search-main input').fill(nextQuery);
+          const groupedResponse = page.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return url.pathname === '/api/map/markers' && url.searchParams.get('q') === nextQuery && url.searchParams.get('geoLevel') === 'region';
+          });
+          await page.locator('.map-search-controls').getByRole('button', { name: 'Знайти', exact: true }).click();
+          const response = await groupedResponse;
+          expect((await response.json()).markers).toEqual([]);
+          await expect(page.locator('.map-geo-group')).toHaveCount(2);
+        }
       } finally { await context.close(); }
     }
   } finally {

@@ -341,7 +341,8 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
             const initialSearch = focusRevision === 0 && (!restored || searchRevision > 0)
             if (!initialSearch && searchScope !== 'nearby') for (const key of ['south', 'north', 'west', 'east'] as const) params.set(key, String(viewport[key]))
             if (searchScope === 'country') params.set('nationwide', 'true')
-            if (geoLevel) params.set('geoLevel', geoLevel)
+            const requestedGeoLevel = searchScope === 'country' && initialSearch ? 'region' : geoLevel
+            if (requestedGeoLevel) params.set('geoLevel', requestedGeoLevel)
             if (searchScope === 'city' && searchCity) { params.set('cityName', searchCity.name); if (searchCity.settlement?.code) params.set('settlementCode', searchCity.settlement.code); params.set('cityOutsideKm', String(radius)) }
             if (geoZone.trim()) params.set('geoZone', geoZone.trim())
             if (region) params.set('region', region)

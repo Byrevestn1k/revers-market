@@ -120,11 +120,10 @@ export function regionCondition(codeColumn: string, nameColumn: string, region: 
     return `(${codeColumn} = ANY($${codesIndex}::text[]) OR (${codeColumn} IS NULL AND lower(trim(${nameColumn})) = lower(trim($${legacyIndex}))))`
 }
 
-export function viewportConditions(table: string, viewport: MapViewport | undefined, parameters: unknown[], precision?: string) {
+export function viewportConditions(table: string, viewport: MapViewport | undefined, parameters: unknown[]) {
     if (!viewport) return []
     // Match the public marker, not the private address that may be outside a zoomed viewport.
-    const coordinate = (axis: string) => precision === undefined ? `${table}.${axis}` : `(floor(${table}.${axis} * power(10::numeric, ${precision}) + 0.5) / power(10::numeric, ${precision}))`
-    const latitude = coordinate('latitude'), longitude = coordinate('longitude')
+    const latitude = `${table}.latitude`, longitude = `${table}.longitude`
     const south = parameters.push(viewport.south), north = parameters.push(viewport.north)
     const west = parameters.push(viewport.west), east = parameters.push(viewport.east)
     return [`${latitude} BETWEEN $${south} AND $${north}`, viewport.west > viewport.east
@@ -182,7 +181,7 @@ export class MapService {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_zone', filters, parameters)
             conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('public_point')} <= $3)` : match)
         }
-        conditions.push(...viewportConditions('public_point', filters.viewport, parameters, aggregate ? '2' : undefined))
+        conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_zone ILIKE $${parameters.length}`) }
         if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_zone', filters.region, parameters))
@@ -229,7 +228,7 @@ export class MapService {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_area', filters, parameters)
             conditions.push(filters.cityOutsideKm !== undefined ? `(${match} OR ${distanceSql('public_point')} <= $3)` : match)
         }
-        conditions.push(...viewportConditions('public_point', filters.viewport, parameters, aggregate ? '2' : undefined))
+        conditions.push(...viewportConditions('public_point', filters.viewport, parameters))
         if (filters.categoryId) { parameters.push(filters.categoryId); conditions.push(categoryFilterSql('r.category_id', parameters.length)) }
         if (filters.geoZone) { parameters.push(`%${filters.geoZone}%`); conditions.push(`public_point.geo_area ILIKE $${parameters.length}`) }
         if (filters.region) conditions.push(regionCondition('public_point.settlement_code', 'public_point.geo_area', filters.region, parameters))
