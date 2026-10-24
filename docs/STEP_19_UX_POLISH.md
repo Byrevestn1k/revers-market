@@ -9,6 +9,6 @@
 
 ## Validation
 
-`npm run typecheck` passed. Focused backend delivery compatibility, delivery integration and Favorites integration tests passed (10/10) with the local database. Plain `npm test` ran without loading `.env`, so database-gated files reported no test suite; 152 unit tests passed. A full run with `.env` was stopped after several existing Buy Request integration tests timed out under parallel load. Browser QA, including responsive widths and a physical Android device, remains **UNVERIFIED** because the Chromium computer-use transport is unavailable. No API, schema or dependency changes were made.
+On 24 October 2026, `npm run typecheck` passed for frontend and backend. The complete backend Vitest run with `.env` and one worker finished with **248 passed, 0 failed, 1 skipped** (44 passing files, one skipped live test file). Buy Request integration tests passed **5/5**. Real Chromium Playwright E2E passed **1/1**, covering D, E, G, H and J on 320, 390, 768 and 1440 px. See [Browser QA evidence](step-19-qa/README.md) for routes, actions and screenshots. No API, schema or dependency changes were made.
 
-Independent Sol code review: **PASS** after corrections to the pin locality, mobile Product favorite position, and shared Buy Request destination label. The separate Browser QA gate remains **UNVERIFIED**, so Step 19 is not ready for integration.
+Independent Sol code review of the implementation: **PASS** after corrections to the pin locality, mobile Product favorite position, and shared Buy Request destination label. Final independent review of the completed QA evidence is pending. A physical Android device was not tested.
