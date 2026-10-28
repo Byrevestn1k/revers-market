@@ -16,7 +16,7 @@ if (process.env.DATABASE_URL) {
         expect(category, code).toBeDefined();
         return category!.id;
       };
-      const auto = id('market-auto--lehkovi-avtomobili'), honey = id('honey_raw');
+      const auto = id('market-auto--lehkovi-avtomobili'), honey = id('apiculture');
       const baseProduct = { description: 'Оголошення для перевірки категорії', quantity: 1, unit: 'piece', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київ', status: 'active' };
       const baseRequest = { description: 'Запит для перевірки категорії', quantity: 1, unit: 'piece', currency: 'UAH', geoArea: 'Київ' };
       const valid = [

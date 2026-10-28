@@ -1,0 +1,1352 @@
+# STEP 20 — аудит категорій
+
+Джерело: фактична локальна PostgreSQL після міграцій 001–052. Дата: 2026-10-26. Це знімок дерева до Step 20; UUID наведені для точного зіставлення.
+
+## Результат аудиту
+
+На початку було 1308 активних категорій у 18 коренях. Повне фактичне дерево з UUID наведено нижче. Перевірка `code`, батьківських зв'язків, циклів і однакових назв серед дітей одного батька не знайшла технічних дублікатів. Ручний аналіз виявив семантичні дублікати й зайву деталізацію в гілці бджільництва та дві помилки в назвах. Решта 1297 категорій залишено без змін.
+
+Підтверджено 2 перетини: `honey` з `apiculture` та `bee_packages` з `bees`. Загалом 7 вузлів об'єднано з канонічними (з них 5 — зайві вузькі категорії продуктів), 2 вузли переміщено, 3 перейменовано (один із них також переміщено).
+
+Ці дії перетинаються: `bees` одночасно переміщено й перейменовано. Тому 7 + 2 + 3 + 1297 = 1309 рахує його двічі. Без подвійного підрахунку: **7 об'єднаних + 2 переміщених (один із них також перейменований) + 2 лише перейменованих + 1297 незмінених = 1308**.
+
+| Стара назва · шлях · UUID | Канонічна категорія | Рішення і причина |
+| --- | --- | --- |
+| Мед і продукти бджільництва · Продукти та господарство › `honey` · `9076a5af-99da-40f7-98b8-9dbd69d39236` | Продукти бджільництва (`apiculture`) | Об'єднати паралельний дубль. |
+| Мед · Продукти та господарство › Продукти бджільництва › `honey_raw` · `3710c600-94bd-42ea-9780-ede72b1244b2` | `apiculture` | Прибрати зайвий рівень. |
+| Бджолиний віск · той самий батько › `beeswax` · `cf1f4df0-1854-40b8-b4af-cc083c728a4d` | `apiculture` | Виріб, не окрема група. |
+| Пилок та перга · той самий батько › `pollen` · `7bbd09a9-08e9-43d6-a7ce-ea6d6c531707` | `apiculture` | Прибрати зайвий рівень. |
+| Прополіс · той самий батько › `propolis` · `e7d15022-a494-4701-8631-4f3b074a538a` | `apiculture` | Прибрати зайвий рівень. |
+| Маточне молочко · той самий батько › `royal_jelly` · `5e75f89c-8955-4dbb-a17a-082d628dd67f` | `apiculture` | Прибрати зайвий рівень. |
+| Бджолопакети · той самий батько › `bee_packages` · `a9107adf-133d-4a08-a26d-a21560f0d1ed` | Бджолині сім’ї та бджолопакети (`bees`) | Об'єднати перетин. |
+| Бджолині сім’ї та пакети · той самий батько › `bees` · `19e73144-9550-4534-b1d7-ce9d3f5bcee8` | Продукти та господарство › Тваринництво › Бджолині сім’ї та бджолопакети | Перемістити живих бджіл й уточнити назву; ID збережено. |
+| Бджоломатки · той самий батько › `queen_bees` · `ef7a3022-72be-4b62-9692-9ee14fb1726f` | Продукти та господарство › Тваринництво › Бджоломатки | Перемістити живих бджіл; ID збережено. |
+| Pozostałe osobowe · Авто › Автомобілі з Польщі · `c2cc0733-122f-4988-afe0-0b61ae445e72` | Інші легкові автомобілі | Перекласти польську назву українською; ID збережено. |
+| Інші автозапчастин · Запчастини › Автозапчастини · `beddf9a0-92a7-4a86-a584-6b0270dd9470` | Інші автозапчастини | Виправити граматичну помилку; ID збережено. |
+
+Канонічний ID `apiculture`: `2d2308d0-9ca3-48ec-9941-633c821bf7e6`. У старій `honey_raw` були 6 Product, 7 Buy Request і 1 активна підписка; у `honey` — 2 Product. В інших змінених вузлах бджільництва оголошень і підписок не було. У перейменованій категорії автозапчастин є 8 товарів, їхній ID категорії збережено; у перейменованій категорії авто оголошень і підписок не було. Історичні UUID залишено в неактивних рядках.
+
+### Залишено без змін та неоднозначні випадки
+
+Усі вузли повного дерева нижче, яких немає в таблиці рішень, залишено без змін. Однакові назви в різних гілках часто мають різний контекст: продаж або оренда, товар або послуга, чоловічий або жіночий одяг, професія в різних галузях. Порожні корені «Обмін», «Віддам безкоштовно» і «До речі, відомі речі» не видалено лише через відсутність дочірніх категорій.
+
+Станом на 27.10.2026 у локальній базі 1185 із 1301 активних вузлів не мають **прямих** Product або Buy Request, а також прямих підписок; вони позначені в повному дереві нижче. Батьківський вузол може при цьому мати оголошення у дочірніх категоріях. Відсутність записів сама по собі не стала причиною видалення.
+
+Без довільного об'єднання залишено перетини: марки в «Легкові автомобілі» й «Автомобілі з Польщі» (клас проти походження); «Товари для геймерів» й електроніка (цільове використання); «Дім і сад › Продукти харчування / напої» та «Продукти та господарство»; «Садівництво та ягоди» поряд із «Фрукти» й «Ягоди»; «Канола» і «Ріпак» (різновид і ширша культура); «Кросівки» і «Спортивне взуття»; «Паливо» поряд із «Дрова, вугілля, пелети»; вузли «Інше» в різних гілках. Їхні правила потребують окремого UX-рішення та аналізу відповідних оголошень і підписок.
+
+### Підсумкове дерево
+
+Після змін активні 1301 категорія у тих самих 18 коренях. Повне дерево нижче залишається чинним для всіх незгаданих у таблиці вузлів; сім рядків таблиці приховано, `apiculture` є єдиним активним вузлом продуктів бджільництва без дочірніх продуктів, `bees` і `queen_bees` тепер належать до `livestock`, дві помилкові назви виправлено.
+
+## Фактичне дерево до змін
+
+Усього 1308 категорій, активних 1308. Формат: назва — code — UUID. Позначка «0 прямих оголошень» показує стан локальної БД після міграції на 27.10.2026; вона не означає, що дочірні категорії порожні.
+
+- Дитячий світ — `market-children` — `ec857e7e-e0c5-4ec7-a6b8-69f30000a87d` · 0 прямих оголошень
+  - Дитячий одяг — `market-children--dytyachyy-odyah` — `70c79798-5936-46b8-bfca-76325883334d`
+    - Одяг для хлопчиків — `market-children--dytyachyy-odyah--odyah-dlya-khlopchykiv` — `dc5bd9aa-def3-401f-98a6-fd09596854ca`
+    - Одяг для дівчаток — `market-children--dytyachyy-odyah--odyah-dlya-divchatok` — `7800272d-701e-4a97-899e-b083aad1a7af`
+    - Одяг для новонароджених — `market-children--dytyachyy-odyah--odyah-dlya-novonarodzhenykh` — `7b14ae4b-43dd-454b-bf76-800cfbc11b76`
+  - Дитяче взуття — `market-children--dytyache-vzuttya` — `4f5db139-fe65-40e2-b1ae-c75c255e8492`
+  - Дитячі коляски — `market-children--dytyachi-kolyasky` — `7dbacee8-31fe-4ef6-9cb2-626d792c9d2b` · 0 прямих оголошень
+  - Дитячі автокрісла — `market-children--dytyachi-avtokrisla` — `86bdc799-2c2c-498d-b08a-baef4ad72e07` · 0 прямих оголошень
+    - Автокрісла — `market-children--dytyachi-avtokrisla--avtokrisla` — `03f9b85a-ba00-4510-b426-77f79dc0aa15` · 0 прямих оголошень
+    - Бази для автокрісел — `market-children--dytyachi-avtokrisla--bazy-dlya-avtokrisel` — `4e69a449-0267-4d1f-b36c-40e4e37bff87` · 0 прямих оголошень
+    - Аксесуари для автокрісел — `market-children--dytyachi-avtokrisla--aksesuary-dlya-avtokrisel` — `bf246c86-9ed0-4e59-9ad6-4da6af187c6d`
+  - Дитячі меблі — `market-children--dytyachi-mebli` — `216c9522-3c7b-488f-8e7d-1aeb049cb704` · 0 прямих оголошень
+  - Іграшки — `market-children--ihrashky` — `5a358d74-293b-4bb1-9da4-6f10c3571553`
+    - Конструктори — `market-children--ihrashky--konstruktory` — `36ae113a-6b0f-4ec6-b420-ec70e5ea128f`
+    - Ляльки та пупси — `market-children--ihrashky--lyalky-ta-pupsy` — `6a4f5d3f-f268-429b-ae02-9d31f99c1ebe`
+    - Аксесуари для ляльок та пупсів — `market-children--ihrashky--aksesuary-dlya-lyalok-ta-pupsiv` — `7c1964fb-cb9a-4a22-8a98-e891d4f8e313` · 0 прямих оголошень
+    - Розвиваючі іграшки — `market-children--ihrashky--rozvyvayuchi-ihrashky` — `7f5262a4-6bbe-4f3d-a214-a18f93904db7`
+    - М'які іграшки — `market-children--ihrashky--m-yaki-ihrashky` — `24364e70-968e-4733-8467-87241886a7c3`
+    - Настільні ігри та пазли — `market-children--ihrashky--nastilni-ihry-ta-pazly` — `bd7b774b-3cfd-4391-846a-75f4b860b9bf`
+    - Брязкальця та підвіски — `market-children--ihrashky--bryazkaltsya-ta-pidvisky` — `484e54c2-c4f7-44c2-92d7-b3667a6948c1` · 0 прямих оголошень
+    - Іграшки для купання — `market-children--ihrashky--ihrashky-dlya-kupannya` — `7952cf48-ce8e-4c2d-8224-40ff04a8fb4e`
+    - Іграшкова зброя — `market-children--ihrashky--ihrashkova-zbroya` — `f4fe5382-9533-499b-a715-090df763369b`
+    - Ігрові фігурки — `market-children--ihrashky--ihrovi-fihurky` — `e8180936-1b98-4be2-af6a-3df327597e74` · 0 прямих оголошень
+    - Іграшковий транспорт — `market-children--ihrashky--ihrashkovyy-transport` — `dd51ccd7-900d-4ab8-8fe6-04b3370d5cbe`
+    - Набори для творчості — `market-children--ihrashky--nabory-dlya-tvorchosti` — `2f972a4a-9e53-49a6-ba51-1b83b77fd286` · 0 прямих оголошень
+    - Ігрові набори — `market-children--ihrashky--ihrovi-nabory` — `1eee1012-bbd1-45b9-9539-167ba51ff7d0` · 0 прямих оголошень
+    - Іграшки для пісочниці — `market-children--ihrashky--ihrashky-dlya-pisochnytsi` — `924b25ff-e1d6-41ea-88bb-46728748947d`
+    - Дитячі м'ячі — `market-children--ihrashky--dytyachi-m-yachi` — `44b2041b-260e-445a-b064-9dbcc2477f57` · 0 прямих оголошень
+    - Дитячі маски — `market-children--ihrashky--dytyachi-masky` — `4b46d581-924d-4152-9e93-7aeb8fb5944a` · 0 прямих оголошень
+    - Інші іграшки для дітей — `market-children--ihrashky--inshi-ihrashky-dlya-ditey` — `abae0966-e3ef-448b-b557-d9ed80cfaddb`
+  - Дитячий транспорт — `market-children--dytyachyy-transport` — `ec3968d1-fef1-4039-907e-8cd3ca20e0a9` · 0 прямих оголошень
+  - Годування — `market-children--hoduvannya` — `4d1ce52e-2ac5-4ad6-bfb0-fbf0ddc26e1b` · 0 прямих оголошень
+  - Товари для школярів — `market-children--tovary-dlya-shkolyariv` — `413da9c5-0ff0-4602-a6fa-c519d0774f9a` · 0 прямих оголошень
+  - Інші дитячі товари — `market-children--inshi-dytyachi-tovary` — `2df369f1-58d4-4e2b-83e9-ffe87a30aee4` · 0 прямих оголошень
+- Нерухомість — `market-real-estate` — `9d4e8bf8-3469-4c2d-bc92-7d8052e816c3`
+  - Квартири — `market-real-estate--kvartyry` — `0e7fa186-3868-4850-b195-5472335ccdd8` · 0 прямих оголошень
+    - Продаж квартир — `market-real-estate--kvartyry--prodazh-kvartyr` — `4515b1d0-e2dc-4c27-9eee-a945fc4c3d05` · 0 прямих оголошень
+    - Довгострокова оренда квартир — `market-real-estate--kvartyry--dovhostrokova-orenda-kvartyr` — `310224a8-9ef1-44c4-8235-965a86829f62` · 0 прямих оголошень
+  - Кімнати — `market-real-estate--kimnaty` — `6e95e808-9dd1-4d55-bb1a-b76ee36381f8` · 0 прямих оголошень
+    - Продаж кімнат — `market-real-estate--kimnaty--prodazh-kimnat` — `b4652803-8a2b-4ff8-93a4-046542ae0664` · 0 прямих оголошень
+    - Довгострокова оренда кімнат — `market-real-estate--kimnaty--dovhostrokova-orenda-kimnat` — `195811b4-f158-454e-aec3-f75f942c11e2` · 0 прямих оголошень
+  - Будинки — `market-real-estate--budynky` — `f46bd3a6-14cf-46a3-ae89-ca794b5d4f89`
+    - Довгострокова оренда будинків — `market-real-estate--budynky--dovhostrokova-orenda-budynkiv` — `c9573a4f-7889-4987-a53a-26b90237b35b`
+    - Продаж будинків — `market-real-estate--budynky--prodazh-budynkiv` — `ca64231c-f891-4b5d-85f6-fae63fa6ed05`
+  - Земля — `market-real-estate--zemlya` — `52860cb1-498c-437c-b3d9-40171ee8f7c2` · 0 прямих оголошень
+    - Оренда землі — `market-real-estate--zemlya--orenda-zemli` — `0d1d1fe0-5d16-44e4-ace6-2e332fc7413e` · 0 прямих оголошень
+    - Продаж землі — `market-real-estate--zemlya--prodazh-zemli` — `a2311d24-cc22-4211-8a02-f9798d8410a1` · 0 прямих оголошень
+  - Комерційна нерухомість — `market-real-estate--komertsiyna-nerukhomist` — `f3d3d22e-e7d8-40b2-90ff-84e5130eda6f` · 0 прямих оголошень
+    - Продаж комерційної нерухомості — `market-real-estate--komertsiyna-nerukhomist--prodazh-komertsiynoyi-nerukhomosti` — `f6f25bd9-0775-400a-a63c-2747ff02ec25` · 0 прямих оголошень
+    - Оренда комерційної нерухомості — `market-real-estate--komertsiyna-nerukhomist--orenda-komertsiynoyi-nerukhomosti` — `eeec6a60-5c52-4e19-b19b-507ccaf8e5c3` · 0 прямих оголошень
+    - Коворкінги — `market-real-estate--komertsiyna-nerukhomist--kovorkinhy` — `e4641cd5-3eca-40c8-8f0f-a47489f9b58d` · 0 прямих оголошень
+  - Гаражі, парковки — `market-real-estate--harazhi-parkovky` — `455e297a-bd49-4544-b1f2-e51d95742a28` · 0 прямих оголошень
+    - Оренда гаражів, парковок — `market-real-estate--harazhi-parkovky--orenda-harazhiv-parkovok` — `ad678e9e-8a10-49f4-931c-0b1e7270a5be` · 0 прямих оголошень
+    - Продаж гаражів, парковок — `market-real-estate--harazhi-parkovky--prodazh-harazhiv-parkovok` — `953f1589-653e-41b9-bc0c-353437d37058` · 0 прямих оголошень
+  - Нерухомість за кордоном — `market-real-estate--nerukhomist-za-kordonom` — `4404137c-7fe3-4543-ab8d-6d720056dcec` · 0 прямих оголошень
+- Авто — `market-auto` — `59d4297c-dc4c-42a2-a2dd-de290adf7044` · 0 прямих оголошень
+  - Легкові автомобілі — `market-auto--lehkovi-avtomobili` — `a232013b-a20b-4f94-9314-f55002753040`
+    - Acura — `market-auto--lehkovi-avtomobili--acura` — `4ff6462e-5bc0-4a32-bb16-c5c1bc7f0a07`
+    - Alfa Romeo — `market-auto--lehkovi-avtomobili--alfa-romeo` — `d49ace0a-c742-452b-98eb-8ab558c94d60` · 0 прямих оголошень
+    - Aston Martin — `market-auto--lehkovi-avtomobili--aston-martin` — `f8e9af01-5ee5-47ec-984c-4d5acef2675f` · 0 прямих оголошень
+    - Audi — `market-auto--lehkovi-avtomobili--audi` — `af80fef4-e7d2-4e92-833d-205107596ebd` · 0 прямих оголошень
+    - Bentley — `market-auto--lehkovi-avtomobili--bentley` — `7795314a-b587-4e8f-aedc-399babe16597` · 0 прямих оголошень
+    - BMW — `market-auto--lehkovi-avtomobili--bmw` — `fe8b2f7b-7576-4108-9ef3-9da0e692b3d4` · 0 прямих оголошень
+    - BMW-Alpina — `market-auto--lehkovi-avtomobili--bmw-alpina` — `3a9e30e7-5f13-47f8-8acf-063ee1d06444` · 0 прямих оголошень
+    - Brilliance — `market-auto--lehkovi-avtomobili--brilliance` — `423b6c81-eec6-49e9-9477-a4de85434032` · 0 прямих оголошень
+    - Buick — `market-auto--lehkovi-avtomobili--buick` — `fc4d4460-bbf5-4e91-8f53-beef6bdcf359` · 0 прямих оголошень
+    - BYD — `market-auto--lehkovi-avtomobili--byd` — `eecb0692-60e2-49ba-ba6e-1ecf1f7af0cf` · 0 прямих оголошень
+    - Cadillac — `market-auto--lehkovi-avtomobili--cadillac` — `083646ea-91af-4b53-86d6-0c870059c6f6` · 0 прямих оголошень
+    - Chana — `market-auto--lehkovi-avtomobili--chana` — `d8a8367a-6901-447d-8340-cc4a8db0cb9d` · 0 прямих оголошень
+    - Chery — `market-auto--lehkovi-avtomobili--chery` — `ca5de6f8-71e3-43b1-92de-a03b54dce0fb` · 0 прямих оголошень
+    - Chevrolet — `market-auto--lehkovi-avtomobili--chevrolet` — `667604a6-9ecf-45c7-a718-26458ec4c1d6` · 0 прямих оголошень
+    - Chrysler — `market-auto--lehkovi-avtomobili--chrysler` — `4b02d80d-2d28-486f-bfa6-692053950d80` · 0 прямих оголошень
+    - Citroen — `market-auto--lehkovi-avtomobili--citroen` — `b9cc6e9d-687d-4065-944e-f9e4afb942ba` · 0 прямих оголошень
+    - Dacia — `market-auto--lehkovi-avtomobili--dacia` — `94375a2c-3541-4f49-a0c3-160e90c0c0db` · 0 прямих оголошень
+    - Dadi — `market-auto--lehkovi-avtomobili--dadi` — `9d45c7ee-71bf-4942-a302-f819e815a6c1` · 0 прямих оголошень
+    - Daewoo — `market-auto--lehkovi-avtomobili--daewoo` — `d98b7602-da47-464d-89b2-c4ee23c522cf` · 0 прямих оголошень
+    - Daihatsu — `market-auto--lehkovi-avtomobili--daihatsu` — `e76fa038-119e-45f3-86b9-54ccc968379d` · 0 прямих оголошень
+    - Dodge — `market-auto--lehkovi-avtomobili--dodge` — `37d800cf-e643-4870-ba7a-2450981b8a7c` · 0 прямих оголошень
+    - FAW — `market-auto--lehkovi-avtomobili--faw` — `d8209a88-e940-48a4-9cb9-23525de2f41c` · 0 прямих оголошень
+    - Ferrari — `market-auto--lehkovi-avtomobili--ferrari` — `f937e02a-f413-4b52-8bf7-1440db3cca45` · 0 прямих оголошень
+    - Fiat — `market-auto--lehkovi-avtomobili--fiat` — `0600a317-9eaf-42c4-9088-758034b83de7` · 0 прямих оголошень
+    - Ford — `market-auto--lehkovi-avtomobili--ford` — `ef9f3d2e-b1db-4db7-8d00-fe29d5e650d7` · 0 прямих оголошень
+    - Geely — `market-auto--lehkovi-avtomobili--geely` — `416f3bb8-5969-4eca-9aa5-0aabdf2e42e7` · 0 прямих оголошень
+    - GMC — `market-auto--lehkovi-avtomobili--gmc` — `9b95a2ad-f6cc-4599-a739-0f35c6be0c26` · 0 прямих оголошень
+    - Great Wall — `market-auto--lehkovi-avtomobili--great-wall` — `29db5c02-a4bc-49fb-81c9-8b9fb584dc67` · 0 прямих оголошень
+    - Groz — `market-auto--lehkovi-avtomobili--groz` — `2291beae-7ac7-44c2-9766-0c9b3f6700bb` · 0 прямих оголошень
+    - Honda — `market-auto--lehkovi-avtomobili--honda` — `57e0b6a0-9f6d-4d23-a054-a9db46b2e2b5` · 0 прямих оголошень
+    - Hummer — `market-auto--lehkovi-avtomobili--hummer` — `3b4f1d65-9bb6-4f06-8653-0c1aa047a112` · 0 прямих оголошень
+    - Hyundai — `market-auto--lehkovi-avtomobili--hyundai` — `c2306e9d-60af-4e53-96a1-a226efe1aac7` · 0 прямих оголошень
+    - Infiniti — `market-auto--lehkovi-avtomobili--infiniti` — `844026b7-fa36-4d80-abf0-295525c77c39` · 0 прямих оголошень
+    - Isuzu — `market-auto--lehkovi-avtomobili--isuzu` — `8280092e-10ef-4957-ba26-28fd45699852` · 0 прямих оголошень
+    - Iveco — `market-auto--lehkovi-avtomobili--iveco` — `d557c866-e3cb-4f49-a7c1-81059ad0df95` · 0 прямих оголошень
+    - JAC — `market-auto--lehkovi-avtomobili--jac` — `6fe023f9-0226-4664-9cb3-a35bc0d37d38` · 0 прямих оголошень
+    - Jaguar — `market-auto--lehkovi-avtomobili--jaguar` — `c23afc50-37de-43c4-9d50-6129a1608478` · 0 прямих оголошень
+    - Jeep — `market-auto--lehkovi-avtomobili--jeep` — `f43fad2d-b5e6-4dc3-9d28-ed4dc1e72081` · 0 прямих оголошень
+    - Kia — `market-auto--lehkovi-avtomobili--kia` — `5a6e62cf-9d2d-4ec2-bef9-4b3379313af0` · 0 прямих оголошень
+    - Lamborghini — `market-auto--lehkovi-avtomobili--lamborghini` — `263aab4f-b39e-40c5-abe3-dd4c9ef8db17` · 0 прямих оголошень
+    - Lancia — `market-auto--lehkovi-avtomobili--lancia` — `289e437b-eb55-4fa6-a994-ebd9d93fd1a1` · 0 прямих оголошень
+    - Land Rover — `market-auto--lehkovi-avtomobili--land-rover` — `66a4ab48-1fba-4e14-899f-9be908c7858a` · 0 прямих оголошень
+    - Lexus — `market-auto--lehkovi-avtomobili--lexus` — `2be6ec70-455f-40ce-b482-85557cb1aa33` · 0 прямих оголошень
+    - Lifan — `market-auto--lehkovi-avtomobili--lifan` — `b02a747e-c507-449a-8669-70b6687cdc62` · 0 прямих оголошень
+    - Lincoln — `market-auto--lehkovi-avtomobili--lincoln` — `2de06e0d-c5d1-482c-9bea-4891a8aeffec` · 0 прямих оголошень
+    - Lotus — `market-auto--lehkovi-avtomobili--lotus` — `e5c5e6cb-b18d-4916-b333-af090a5e527f` · 0 прямих оголошень
+    - Maserati — `market-auto--lehkovi-avtomobili--maserati` — `2b935652-c0db-4554-97dd-09ba08de2aae` · 0 прямих оголошень
+    - Maybach — `market-auto--lehkovi-avtomobili--maybach` — `c95f82e7-b334-4203-be0f-deadc2ab9f48` · 0 прямих оголошень
+    - Mazda — `market-auto--lehkovi-avtomobili--mazda` — `cef5f609-2915-4cd3-a80f-5ba69ca50a08` · 0 прямих оголошень
+    - McLaren — `market-auto--lehkovi-avtomobili--mclaren` — `b45e328f-29f9-400d-a155-fa5753169c32` · 0 прямих оголошень
+    - Mercedes-Benz — `market-auto--lehkovi-avtomobili--mercedes-benz` — `5ad441b2-82fb-41bb-8438-1c19d4a749b2` · 0 прямих оголошень
+    - Mercury — `market-auto--lehkovi-avtomobili--mercury` — `0ff02da3-a5e6-4ac6-849d-9785bee53c29` · 0 прямих оголошень
+    - MG — `market-auto--lehkovi-avtomobili--mg` — `1e05fb27-5be3-43db-a57c-d18d3dbc94d8` · 0 прямих оголошень
+    - MINI — `market-auto--lehkovi-avtomobili--mini` — `a2ec0c31-e38f-420d-bbd3-dd81520351e2` · 0 прямих оголошень
+    - Mitsubishi — `market-auto--lehkovi-avtomobili--mitsubishi` — `c52e7161-10d6-440c-a505-353d80442e43` · 0 прямих оголошень
+    - Nissan — `market-auto--lehkovi-avtomobili--nissan` — `418e6043-c78e-49e5-b8a9-7dd4a2c5edcc` · 0 прямих оголошень
+    - Oldsmobile — `market-auto--lehkovi-avtomobili--oldsmobile` — `96addece-25bd-433a-9e83-30009cda90d9` · 0 прямих оголошень
+    - Opel — `market-auto--lehkovi-avtomobili--opel` — `1b4baadc-e340-400f-a200-05bc6bbd7695` · 0 прямих оголошень
+    - Peugeot — `market-auto--lehkovi-avtomobili--peugeot` — `40b8c1e5-27aa-41c2-8b63-25352312734d` · 0 прямих оголошень
+    - Polestar — `market-auto--lehkovi-avtomobili--polestar` — `8e8893c5-c0aa-47e0-a5a0-880dd32beb0b` · 0 прямих оголошень
+    - Pontiac — `market-auto--lehkovi-avtomobili--pontiac` — `a15d0a2e-c43d-45ac-bb89-60f0116281cf` · 0 прямих оголошень
+    - Porsche — `market-auto--lehkovi-avtomobili--porsche` — `3bba442e-78c4-4802-ab61-d4a1582243ed` · 0 прямих оголошень
+    - Proton — `market-auto--lehkovi-avtomobili--proton` — `c0df3e39-cf85-49db-a19c-14255f49f923` · 0 прямих оголошень
+    - Ram — `market-auto--lehkovi-avtomobili--ram` — `99566abb-e9f2-4c8c-a0e5-29a0175c120b` · 0 прямих оголошень
+    - Ravon — `market-auto--lehkovi-avtomobili--ravon` — `5db967f7-3587-4cca-a0c0-b70b47ed4065` · 0 прямих оголошень
+    - Renault — `market-auto--lehkovi-avtomobili--renault` — `c1593860-d4cf-4734-8aa5-3a82b4559c4d` · 0 прямих оголошень
+    - Rolls-Royce — `market-auto--lehkovi-avtomobili--rolls-royce` — `4ab2b5ba-aa99-4676-849e-5d14f853655c` · 0 прямих оголошень
+    - Roewe — `market-auto--lehkovi-avtomobili--roewe` — `e1ac9bb7-9428-4818-ac53-954fc566b260` · 0 прямих оголошень
+    - Rover — `market-auto--lehkovi-avtomobili--rover` — `35c56f70-80f7-427f-bf36-8715b0d6d60b` · 0 прямих оголошень
+    - Saab — `market-auto--lehkovi-avtomobili--saab` — `554ef732-4a41-48bd-9ee3-da785f95db93` · 0 прямих оголошень
+    - Samand — `market-auto--lehkovi-avtomobili--samand` — `50eb2df3-4eb7-4402-9d00-5d2da170e877` · 0 прямих оголошень
+    - Samsung — `market-auto--lehkovi-avtomobili--samsung` — `23c1815a-d529-4cfc-b925-f0dd8a5d4293` · 0 прямих оголошень
+    - Seat — `market-auto--lehkovi-avtomobili--seat` — `0af9abe8-5c4f-4e3f-8765-77534a3282ea` · 0 прямих оголошень
+    - Shelby — `market-auto--lehkovi-avtomobili--shelby` — `cf9779dd-febd-4bf9-9cb9-67d5a1042c01` · 0 прямих оголошень
+    - Skoda — `market-auto--lehkovi-avtomobili--skoda` — `8a2edb63-148d-4e4b-b3e9-6d6f6f1e0778` · 0 прямих оголошень
+    - Smart — `market-auto--lehkovi-avtomobili--smart` — `83e51e31-3e3b-420f-a6c4-b0d3ced2f9fb` · 0 прямих оголошень
+    - SsangYong — `market-auto--lehkovi-avtomobili--ssangyong` — `f726de9b-3d33-4be3-aece-730a4d54c98b` · 0 прямих оголошень
+    - Subaru — `market-auto--lehkovi-avtomobili--subaru` — `555c1340-64a8-4c4f-8ca8-10d37590e0d0` · 0 прямих оголошень
+    - Suzuki — `market-auto--lehkovi-avtomobili--suzuki` — `f42d7c17-f965-4574-bf31-5a4c341b6655` · 0 прямих оголошень
+    - TATA — `market-auto--lehkovi-avtomobili--tata` — `ef83bad6-2e6f-417d-8eb7-b46637d86e96` · 0 прямих оголошень
+    - Tesla — `market-auto--lehkovi-avtomobili--tesla` — `c2e31b11-8cf1-49ef-a629-68b7042068e1`
+    - Toyota — `market-auto--lehkovi-avtomobili--toyota` — `eac79913-a91a-424f-8745-7aac1c593300` · 0 прямих оголошень
+    - Volkswagen — `market-auto--lehkovi-avtomobili--volkswagen` — `765b23da-807c-4ee4-a50a-9331061a4aa5` · 0 прямих оголошень
+    - Volvo — `market-auto--lehkovi-avtomobili--volvo` — `8ee504f2-bb92-40a6-b5b5-a3bc25c75921` · 0 прямих оголошень
+    - Wartburg — `market-auto--lehkovi-avtomobili--wartburg` — `09651711-02eb-4603-915a-fde06f42be4c` · 0 прямих оголошень
+    - ZX — `market-auto--lehkovi-avtomobili--zx` — `e3045a69-4962-422b-811c-6a6fd4c5568d` · 0 прямих оголошень
+    - Богдан — `market-auto--lehkovi-avtomobili--bohdan` — `727ee25b-e2d4-44f1-adaf-0e89ae4a57f1` · 0 прямих оголошень
+    - ВАЗ — `market-auto--lehkovi-avtomobili--vaz` — `097b746a-828f-4122-80c2-dc2c0c19e827` · 0 прямих оголошень
+    - ГАЗ — `market-auto--lehkovi-avtomobili--haz` — `cea1be5c-0260-4614-b739-1b6f20acd964` · 0 прямих оголошень
+    - ЗАЗ — `market-auto--lehkovi-avtomobili--zaz` — `98cdf8ae-59f9-4850-8413-77bb7aa04844` · 0 прямих оголошень
+    - ИЖ — `market-auto--lehkovi-avtomobili--yzh` — `773b72ad-81e9-448a-9b84-db321cd32d8b` · 0 прямих оголошень
+    - ЛуАЗ — `market-auto--lehkovi-avtomobili--luaz` — `f8767af1-b1b8-4d76-a5f9-16ba307f3fcf` · 0 прямих оголошень
+    - Москвич / АЗЛК — `market-auto--lehkovi-avtomobili--moskvych-azlk` — `781407dc-57a8-40d9-a439-94a43c46f4f6` · 0 прямих оголошень
+    - РАФ — `market-auto--lehkovi-avtomobili--raf` — `d8b60a89-43e6-47fa-9285-1931d9108211` · 0 прямих оголошень
+    - УАЗ — `market-auto--lehkovi-avtomobili--uaz` — `df338870-89ad-4b6f-8945-4fb534a8be61` · 0 прямих оголошень
+    - Інші — `market-auto--lehkovi-avtomobili--inshi` — `f07d8c92-9a33-4f75-91fa-ba1d5539b999` · 0 прямих оголошень
+  - Вантажні автомобілі — `market-auto--vantazhni-avtomobili` — `cb40f993-2bc7-43ed-9932-ad1604b5d423` · 0 прямих оголошень
+  - Автобуси — `market-auto--avtobusy` — `695af4ca-439e-48f9-bba0-98a6e8721618` · 0 прямих оголошень
+  - Мото — `market-auto--moto` — `46f96d7a-05a5-405c-803f-700bb57c20bb` · 0 прямих оголошень
+    - Мотоцикли — `market-auto--moto--mototsykly` — `df448365-17fa-40ed-8852-68fde6a6ed21` · 0 прямих оголошень
+    - Мопеди / скутери — `market-auto--moto--mopedy-skutery` — `f929a153-ba13-4133-9cd8-86423af020d0` · 0 прямих оголошень
+    - Квадроцикли — `market-auto--moto--kvadrotsykly` — `a0a2a1f9-a210-48fc-b3d4-64c75f555050` · 0 прямих оголошень
+    - Електросамокати / гіроскутери — `market-auto--moto--elektrosamokaty-hiroskutery` — `9132570f-85ec-4b4c-adba-75116455d3bd` · 0 прямих оголошень
+    - Електроскутери — `market-auto--moto--elektroskutery` — `fae3c7f0-442c-4b90-9ce3-ac8db057e8b7` · 0 прямих оголошень
+    - Максі-скутер — `market-auto--moto--maksi-skuter` — `d56a0ae6-8bd7-4185-b243-b07d9e890b0a` · 0 прямих оголошень
+    - Електромотоцикли — `market-auto--moto--elektromototsykly` — `41fc0880-7270-42fb-9a82-3cc692d76274` · 0 прямих оголошень
+    - Електроквадрацикли — `market-auto--moto--elektrokvadratsykly` — `07c621cf-0501-40e0-a075-052ef73700ea` · 0 прямих оголошень
+    - Баггі — `market-auto--moto--bahhi` — `d3c46528-f41b-4f65-af96-f8a46a7a4b0b` · 0 прямих оголошень
+    - Картинг — `market-auto--moto--kartynh` — `e97a0c96-42fd-4f49-9839-fd6afea70c16` · 0 прямих оголошень
+    - Снігохід — `market-auto--moto--snihokhid` — `a682d784-bd92-4f4f-bfc7-10f0ef15d8bc` · 0 прямих оголошень
+    - Мото - інше — `market-auto--moto--moto-inshe` — `178f35d4-bf00-4b76-88c9-7d8c3ca54fd5` · 0 прямих оголошень
+  - Спецтехніка — `market-auto--spetstekhnika` — `9a5fc8ad-08ea-4773-82eb-ed061c73f62f` · 0 прямих оголошень
+    - Бульдозери / трактори — `market-auto--spetstekhnika--buldozery-traktory` — `4897c3c1-e6b1-4440-a6c8-81bd328cf79a` · 0 прямих оголошень
+    - Комунальна техніка — `market-auto--spetstekhnika--komunalna-tekhnika` — `5206a931-941f-4386-bf67-ab8d37ad8c72` · 0 прямих оголошень
+    - Навантажувачі — `market-auto--spetstekhnika--navantazhuvachi` — `e84c232f-ba90-40b4-918f-02593314ff52` · 0 прямих оголошень
+    - Самоскиди — `market-auto--spetstekhnika--samoskydy` — `0434eb74-855c-4854-aa8b-43c00e3e8a9d` · 0 прямих оголошень
+    - Будівельна техніка — `market-auto--spetstekhnika--budivelna-tekhnika` — `5b2f0194-4d95-4b68-83b6-6db5d4627a40` · 0 прямих оголошень
+    - Екскаватори — `market-auto--spetstekhnika--ekskavatory` — `30d03cac-9f67-48f8-81ab-e3b75bb7d1da` · 0 прямих оголошень
+    - Автовишки — `market-auto--spetstekhnika--avtovyshky` — `e610cf78-3933-4fe4-b39f-6a9b2fb7318f` · 0 прямих оголошень
+    - Мінінавантажувач — `market-auto--spetstekhnika--mininavantazhuvach` — `d784b168-ea45-4252-8947-ee126e6a4260` · 0 прямих оголошень
+    - Бетонозмішувачі (міксери) — `market-auto--spetstekhnika--betonozmishuvachi-miksery` — `3b321002-7e5b-4bb1-bc5b-a62a7c00bb04` · 0 прямих оголошень
+    - Бетононасоси — `market-auto--spetstekhnika--betononasosy` — `bb710667-83e3-4f07-8a5f-37f68e5dfca2` · 0 прямих оголошень
+    - Бурова установка — `market-auto--spetstekhnika--burova-ustanovka` — `bc729e91-687a-46a7-b1d8-cc20b52c1652` · 0 прямих оголошень
+    - Сміттєвоз — `market-auto--spetstekhnika--smittyevoz` — `91990275-ec9c-4303-8da1-7daf2431330b` · 0 прямих оголошень
+    - Лісозаготівельна техніка — `market-auto--spetstekhnika--lisozahotivelna-tekhnika` — `2513de9c-d6ca-4c0c-9e3b-4432329cb295` · 0 прямих оголошень
+    - Машина асенізатор (вакуумна) — `market-auto--spetstekhnika--mashyna-asenizator-vakuumna` — `1d990f6d-72a8-413c-a86f-0e78353129e5` · 0 прямих оголошень
+    - Автокрани та маніпулятори — `market-auto--spetstekhnika--avtokrany-ta-manipulyatory` — `9c04f96e-26fb-419a-945e-71978a4a9ca5` · 0 прямих оголошень
+    - Автогрейдер — `market-auto--spetstekhnika--avtohreyder` — `20077eb6-6f80-4f04-a149-c750d378866f` · 0 прямих оголошень
+    - Асфальтоукладач — `market-auto--spetstekhnika--asfaltoukladach` — `036e2b9f-bb79-42c7-8435-f0f50fba8a59` · 0 прямих оголошень
+    - Дорожній каток — `market-auto--spetstekhnika--dorozhniy-katok` — `69abd883-1169-4aa2-aee3-960ac7ca4beb` · 0 прямих оголошень
+    - Всюдиходи — `market-auto--spetstekhnika--vsyudykhody` — `1701f007-7c2b-4f1b-a91f-987010d061fd` · 0 прямих оголошень
+    - Обладнання для спецтехніки — `market-auto--spetstekhnika--obladnannya-dlya-spetstekhniky` — `4dc3e9ff-f5be-4c1b-8ffe-29b67692dffd` · 0 прямих оголошень
+    - Інша спецтехніка — `market-auto--spetstekhnika--insha-spetstekhnika` — `941b79c8-c53d-441b-8962-c5a215813b68` · 0 прямих оголошень
+  - Сільгосптехніка — `market-auto--silhosptekhnika` — `2d680f75-9704-4f00-bceb-b6e4bd113958` · 0 прямих оголошень
+    - Трактор сільськогосподарський — `market-auto--silhosptekhnika--traktor-silskohospodarskyy` — `7d9f1815-23eb-46e3-9032-0e159692337e` · 0 прямих оголошень
+    - Мотоблок — `market-auto--silhosptekhnika--motoblok` — `3bea5310-3de1-43f5-89a7-089431b558ef` · 0 прямих оголошень
+    - Мотокультиватор — `market-auto--silhosptekhnika--motokultyvator` — `bbf155cc-3dfd-4a22-94b8-ca299bdad5d2` · 0 прямих оголошень
+    - Міні-трактор — `market-auto--silhosptekhnika--mini-traktor` — `5fe3caa3-3482-4fbd-b22e-a0c6a6749ef4` · 0 прямих оголошень
+    - Комбайн — `market-auto--silhosptekhnika--kombayn` — `73a7597e-cb20-4c9d-a8de-a15ef5c4af1d` · 0 прямих оголошень
+    - Навісне та додаткове обладнання — `market-auto--silhosptekhnika--navisne-ta-dodatkove-obladnannya` — `f8833b5e-8496-4bf8-a709-7fd273c9d0cd` · 0 прямих оголошень
+    - Інша сільгосптехніка — `market-auto--silhosptekhnika--insha-silhosptekhnika` — `e541ed1d-130b-4ede-81dd-f357dd2beb89` · 0 прямих оголошень
+  - Водний транспорт — `market-auto--vodnyy-transport` — `ab549a35-1e17-415f-813b-43ed2f25d752` · 0 прямих оголошень
+    - Яхта — `market-auto--vodnyy-transport--yakhta` — `0c372d25-e0a8-47da-8edf-ad74ffb94ee4` · 0 прямих оголошень
+    - Катер — `market-auto--vodnyy-transport--kater` — `901ff664-45ce-499e-a691-62ce0f36326e` · 0 прямих оголошень
+    - Моторний човен — `market-auto--vodnyy-transport--motornyy-choven` — `ae74cb5a-2b60-4232-8a93-fe8e280f021c` · 0 прямих оголошень
+    - Катамаран — `market-auto--vodnyy-transport--katamaran` — `73d69d3f-1751-497a-851d-955e9549c108` · 0 прямих оголошень
+    - Гребний човен — `market-auto--vodnyy-transport--hrebnyy-choven` — `4ba3989c-c89b-46bc-b6b6-7ca2f7929604` · 0 прямих оголошень
+    - Гідроцикл — `market-auto--vodnyy-transport--hidrotsykl` — `3fcc206b-b5d2-4320-9d00-f22b8d38124b` · 0 прямих оголошень
+    - Каяк — `market-auto--vodnyy-transport--kayak` — `96d1e2f1-1694-424b-9d13-af615e65e52d` · 0 прямих оголошень
+    - Інший водний транспорт — `market-auto--vodnyy-transport--inshyy-vodnyy-transport` — `5f5e02fc-9b53-4c09-9854-b050e8a43edb` · 0 прямих оголошень
+  - Автомобілі з Польщі — `market-auto--avtomobili-z-polshchi` — `afdaaf5c-bf16-4573-bdf8-fe71c49d3609` · 0 прямих оголошень
+    - Aixam — `market-auto--avtomobili-z-polshchi--aixam` — `ddaaf61d-eef6-48e6-8d00-40453e21bdc3` · 0 прямих оголошень
+    - Alfa Romeo — `market-auto--avtomobili-z-polshchi--alfa-romeo` — `19af13e7-51b2-4742-b185-fd50cc3d38c3` · 0 прямих оголошень
+    - Audi — `market-auto--avtomobili-z-polshchi--audi` — `2e83ab18-c2e1-4d9e-ace4-90f2244f0f88` · 0 прямих оголошень
+    - BMW — `market-auto--avtomobili-z-polshchi--bmw` — `c276c58a-6e1a-419a-93c0-bd4968d97454` · 0 прямих оголошень
+    - Cadillac — `market-auto--avtomobili-z-polshchi--cadillac` — `d89c3cef-9a21-46dd-8842-5fb493f491af` · 0 прямих оголошень
+    - Chevrolet — `market-auto--avtomobili-z-polshchi--chevrolet` — `fad5a034-e85f-4c73-b599-356ca8349bc4` · 0 прямих оголошень
+    - Chrysler — `market-auto--avtomobili-z-polshchi--chrysler` — `cdde9d5d-652d-4816-b947-7e72d98cf681` · 0 прямих оголошень
+    - Citroen — `market-auto--avtomobili-z-polshchi--citroen` — `3d644823-ca1d-436a-b760-c85dc8cba837` · 0 прямих оголошень
+    - Dacia — `market-auto--avtomobili-z-polshchi--dacia` — `fee1bab5-f174-43b3-b91b-14a17a308b8b` · 0 прямих оголошень
+    - Daewoo — `market-auto--avtomobili-z-polshchi--daewoo` — `be68534e-2e31-4bca-92ab-d85390c1ae6d` · 0 прямих оголошень
+    - Daihatsu — `market-auto--avtomobili-z-polshchi--daihatsu` — `5820e043-3e89-4261-a8f6-5d11f8304c81` · 0 прямих оголошень
+    - Dodge — `market-auto--avtomobili-z-polshchi--dodge` — `309cb9fc-b43f-4085-9065-821d65db794f` · 0 прямих оголошень
+    - Fiat — `market-auto--avtomobili-z-polshchi--fiat` — `bdaa6bd0-5e38-4ab5-9c35-a3ec9af379d6` · 0 прямих оголошень
+    - Ford — `market-auto--avtomobili-z-polshchi--ford` — `9f5ebabe-46b1-4550-91ee-9023e7cf79d9` · 0 прямих оголошень
+    - Honda — `market-auto--avtomobili-z-polshchi--honda` — `3d401fc2-7164-4f6e-8606-4f755113f23b` · 0 прямих оголошень
+    - Hyundai — `market-auto--avtomobili-z-polshchi--hyundai` — `33914573-6ed4-430a-8744-561e2d96d2bf` · 0 прямих оголошень
+    - Infiniti — `market-auto--avtomobili-z-polshchi--infiniti` — `3401d796-e084-4aac-a646-21fa051d0149` · 0 прямих оголошень
+    - Jaguar — `market-auto--avtomobili-z-polshchi--jaguar` — `6efe1613-98ab-41b5-bd29-a00813433b37` · 0 прямих оголошень
+    - Jeep — `market-auto--avtomobili-z-polshchi--jeep` — `b423ad57-681c-4721-9343-56a8c6fa8f0e` · 0 прямих оголошень
+    - Kia — `market-auto--avtomobili-z-polshchi--kia` — `7de2eed9-e498-4fae-8649-d1315f72c437` · 0 прямих оголошень
+    - Lancia — `market-auto--avtomobili-z-polshchi--lancia` — `9cdc1a0f-22f1-476a-8722-f3f6a448fb71` · 0 прямих оголошень
+    - Land Rover — `market-auto--avtomobili-z-polshchi--land-rover` — `34142130-d101-4e7d-92ed-e3f6ddee512a` · 0 прямих оголошень
+    - Lexus — `market-auto--avtomobili-z-polshchi--lexus` — `47487e11-6a74-4ad4-9c5e-34256666ac73` · 0 прямих оголошень
+    - Mazda — `market-auto--avtomobili-z-polshchi--mazda` — `2567af51-c08d-477d-bdc9-9f79ddde8dd3` · 0 прямих оголошень
+    - Mercedes-Benz — `market-auto--avtomobili-z-polshchi--mercedes-benz` — `f5e2dc15-9623-4be8-83b1-543a8ee359e0` · 0 прямих оголошень
+    - Mini — `market-auto--avtomobili-z-polshchi--mini` — `8224d5af-cd40-40fe-8d56-686a7b8c548d` · 0 прямих оголошень
+    - Mitsubishi — `market-auto--avtomobili-z-polshchi--mitsubishi` — `e1070204-ddd3-4802-a9c1-acebe308b71c` · 0 прямих оголошень
+    - Nissan — `market-auto--avtomobili-z-polshchi--nissan` — `39eae37e-1f14-4fba-96a4-2497cdcc9b31` · 0 прямих оголошень
+    - Opel — `market-auto--avtomobili-z-polshchi--opel` — `b413c67c-b324-4f55-a535-6ee8c607822a` · 0 прямих оголошень
+    - Peugeot — `market-auto--avtomobili-z-polshchi--peugeot` — `8031c0a8-bcb5-4ded-90ba-8d83002f16de` · 0 прямих оголошень
+    - Polonez — `market-auto--avtomobili-z-polshchi--polonez` — `da44d95c-13ed-4211-bc9d-367144c6a05d` · 0 прямих оголошень
+    - Porsche — `market-auto--avtomobili-z-polshchi--porsche` — `fd8613dd-1d3d-4d07-b767-94683da08fac` · 0 прямих оголошень
+    - Renault — `market-auto--avtomobili-z-polshchi--renault` — `957847a2-8219-46dd-9d14-7a71e448e059` · 0 прямих оголошень
+    - Rover — `market-auto--avtomobili-z-polshchi--rover` — `30ff484a-8f23-418c-adf9-827af3e9ea60` · 0 прямих оголошень
+    - Saab — `market-auto--avtomobili-z-polshchi--saab` — `ed291191-4443-48b7-b4b2-c64af2301eea` · 0 прямих оголошень
+    - Seat — `market-auto--avtomobili-z-polshchi--seat` — `d7054f73-bc9b-4929-b127-e7c416482426` · 0 прямих оголошень
+    - Skoda — `market-auto--avtomobili-z-polshchi--skoda` — `5e8d8dcc-a167-4a77-a128-7ed0580721ce` · 0 прямих оголошень
+    - Smart — `market-auto--avtomobili-z-polshchi--smart` — `489c1d6b-ec92-43a9-a459-823af4d0540c` · 0 прямих оголошень
+    - SsangYong — `market-auto--avtomobili-z-polshchi--ssangyong` — `a40400ed-372a-482d-88bd-3d5e574ef3ed` · 0 прямих оголошень
+    - Subaru — `market-auto--avtomobili-z-polshchi--subaru` — `f2f0f08d-a4c8-4008-9e37-6c6816139a73` · 0 прямих оголошень
+    - Suzuki — `market-auto--avtomobili-z-polshchi--suzuki` — `189f852f-ae4e-4ec7-9229-6cee7845a5af` · 0 прямих оголошень
+    - Toyota — `market-auto--avtomobili-z-polshchi--toyota` — `034b6c9d-3b97-43d1-b109-d231647e23ef` · 0 прямих оголошень
+    - Volkswagen — `market-auto--avtomobili-z-polshchi--volkswagen` — `14647771-c51f-4ea0-a9b5-1d757613360b` · 0 прямих оголошень
+    - Volvo — `market-auto--avtomobili-z-polshchi--volvo` — `ab9220c5-b010-4495-82dc-883f5b378c71` · 0 прямих оголошень
+    - Pozostałe osobowe — `market-auto--avtomobili-z-polshchi--pozosta-e-osobowe` — `c2cc0733-122f-4988-afe0-0b61ae445e72` · 0 прямих оголошень
+  - Причепи / будинки на колесах — `market-auto--prychepy-budynky-na-kolesakh` — `91f1dae2-6159-403d-8009-ff95d91be96c`
+    - Легковий причіп — `market-auto--prychepy-budynky-na-kolesakh--lehkovyy-prychip` — `3d61fa2e-62c2-442f-9447-b36f74e77439` · 0 прямих оголошень
+    - Лафет — `market-auto--prychepy-budynky-na-kolesakh--lafet` — `47307e2e-eeb2-415f-ab8b-58f628807c55` · 0 прямих оголошень
+    - Напівпричіп — `market-auto--prychepy-budynky-na-kolesakh--napivprychip` — `49165c06-80b6-40a2-a3a2-ac05347cab5e` · 0 прямих оголошень
+    - Бортовий напівпричіп — `market-auto--prychepy-budynky-na-kolesakh--bortovyy-napivprychip` — `463465ff-ef33-46ef-be24-317b4a6cacae` · 0 прямих оголошень
+    - Вантажний причіп — `market-auto--prychepy-budynky-na-kolesakh--vantazhnyy-prychip` — `85b58f45-faf8-4844-aa63-792ef3a87365` · 0 прямих оголошень
+    - Причіп контейнеровоз — `market-auto--prychepy-budynky-na-kolesakh--prychip-konteynerovoz` — `34140845-18af-4654-99fa-1b444f6622ee` · 0 прямих оголошень
+    - Причіп зерновоз — `market-auto--prychepy-budynky-na-kolesakh--prychip-zernovoz` — `70335ab9-5bd5-4b90-afd8-972c7e863974` · 0 прямих оголошень
+    - Самоскид напівпричіп — `market-auto--prychepy-budynky-na-kolesakh--samoskyd-napivprychip` — `1c9f59ad-b149-423a-9b9d-da5ea1f1f761` · 0 прямих оголошень
+    - Трал — `market-auto--prychepy-budynky-na-kolesakh--tral` — `2c2436f6-ef19-47fa-b390-e61ca0586bae` · 0 прямих оголошень
+    - Торговий причіп — `market-auto--prychepy-budynky-na-kolesakh--torhovyy-prychip` — `06afd6e9-37c1-4a34-8222-c2b62e2fc025` · 0 прямих оголошень
+    - Тракторний причіп — `market-auto--prychepy-budynky-na-kolesakh--traktornyy-prychip` — `ee5b8ae6-dde3-4200-a0cd-78c2033f5c3b` · 0 прямих оголошень
+    - Причіп фургон — `market-auto--prychepy-budynky-na-kolesakh--prychip-furhon` — `13dbd780-a11b-4b8a-8a9b-7efed41f0f28` · 0 прямих оголошень
+    - Причепи цистерни — `market-auto--prychepy-budynky-na-kolesakh--prychepy-tsysterny` — `9c9a476f-99a4-4889-9ac6-24d7b670b593` · 0 прямих оголошень
+    - Автодім — `market-auto--prychepy-budynky-na-kolesakh--avtodim` — `ceee2ac9-66ab-4974-a99a-ccc23f4461f9` · 0 прямих оголошень
+    - Кемпінг — `market-auto--prychepy-budynky-na-kolesakh--kempinh` — `bc5f15ed-5184-41bb-844e-b80d12b5a6bd` · 0 прямих оголошень
+    - Причіп дача — `market-auto--prychepy-budynky-na-kolesakh--prychip-dacha` — `c44d9cb4-f295-47af-971f-f2f16fcbf3fd` · 0 прямих оголошень
+    - Інші причепи — `market-auto--prychepy-budynky-na-kolesakh--inshi-prychepy` — `ce2e24fc-b388-4376-bc58-27d2e8db039a` · 0 прямих оголошень
+  - Вантажівки та спецтехніка з Польщі — `market-auto--vantazhivky-ta-spetstekhnika-z-polshchi` — `06fb4f31-b5fd-4d68-b881-f6f4f8234441` · 0 прямих оголошень
+    - Вантажні автомобілі з Польщі — `market-auto--vantazhivky-ta-spetstekhnika-z-polshchi--vantazhni-avtomobili-z-polshchi` — `b907be67-0e0b-4ac2-83b4-a8be04126950` · 0 прямих оголошень
+    - Причепи з Польщі — `market-auto--vantazhivky-ta-spetstekhnika-z-polshchi--prychepy-z-polshchi` — `15bafbcc-480a-41c2-aaec-98b54814986f` · 0 прямих оголошень
+    - Сільгосптехніка з Польщі — `market-auto--vantazhivky-ta-spetstekhnika-z-polshchi--silhosptekhnika-z-polshchi` — `d43f44d7-5509-477a-b63f-330035544f3a` · 0 прямих оголошень
+    - Будівельна техніка з Польщі — `market-auto--vantazhivky-ta-spetstekhnika-z-polshchi--budivelna-tekhnika-z-polshchi` — `7d10eb71-c8c5-4e9a-bf9f-a9d100e9630f` · 0 прямих оголошень
+  - Інший транспорт — `market-auto--inshyy-transport` — `965adb80-9a6f-4c0b-b823-1995174731ee` · 0 прямих оголошень
+    - Літаки — `market-auto--inshyy-transport--litaky` — `3b2517cd-0e27-46a3-9202-1bdc41717741` · 0 прямих оголошень
+    - Гелікоптери — `market-auto--inshyy-transport--helikoptery` — `1635fa0c-9cf4-40f3-86e8-1f23541e46da` · 0 прямих оголошень
+    - Дельтаплани — `market-auto--inshyy-transport--deltaplany` — `23c44320-84da-4b8b-85e0-820967625d0f` · 0 прямих оголошень
+    - Карети — `market-auto--inshyy-transport--karety` — `3f5f8062-c512-43d1-9b8e-f9a1fdaf7502` · 0 прямих оголошень
+    - Залізничні тепловози — `market-auto--inshyy-transport--zaliznychni-teplovozy` — `1ae43671-c865-4818-a6a1-552fd174bb00` · 0 прямих оголошень
+    - Залізничні вагони — `market-auto--inshyy-transport--zaliznychni-vahony` — `70c0446a-0b5f-435e-aca8-a4a14b3c3368` · 0 прямих оголошень
+    - Інші види транспорту — `market-auto--inshyy-transport--inshi-vydy-transportu` — `bf9f37af-1a66-447f-906f-c678f2441965` · 0 прямих оголошень
+- Запчастини — `market-auto-parts` — `20685c32-0ab7-49cf-a127-8946534970e1` · 0 прямих оголошень
+  - Автозапчастини — `market-auto-parts--avtozapchastyny` — `4fb1ad16-ac13-40c2-b406-6fcfa6964026`
+    - Автономні обігрівачі та кондиціонери — `market-auto-parts--avtozapchastyny--avtonomni-obihrivachi-ta-kondytsionery` — `bf227487-fd57-430e-90df-83bb8bfbeeee` · 0 прямих оголошень
+    - Двигун та комплектуючі — `market-auto-parts--avtozapchastyny--dvyhun-ta-komplektuyuchi` — `0e5451ec-2b70-4e29-bf8f-96dd6bed5473` · 0 прямих оголошень
+    - Вихлопна система — `market-auto-parts--avtozapchastyny--vykhlopna-systema` — `b6deb880-0a4b-416a-81e7-d0350eda85dd` · 0 прямих оголошень
+    - Трансмісія / КПП та АКПП — `market-auto-parts--avtozapchastyny--transmisiya-kpp-ta-akpp` — `f656d78e-bd14-4e47-8ced-2a8c39db8934` · 0 прямих оголошень
+    - Система охолодження двигуна — `market-auto-parts--avtozapchastyny--systema-okholodzhennya-dvyhuna` — `f9f027fa-50ff-4b0d-928a-c5daf56d0903` · 0 прямих оголошень
+    - Кермове управління — `market-auto-parts--avtozapchastyny--kermove-upravlinnya` — `15445812-3e37-480f-b10e-b3814997a101` · 0 прямих оголошень
+    - Ходова частина / підвіска — `market-auto-parts--avtozapchastyny--khodova-chastyna-pidviska` — `641d9f48-d552-4bdc-9a85-0ed66041b073` · 0 прямих оголошень
+    - Паливна система — `market-auto-parts--avtozapchastyny--palyvna-systema` — `c7f4efcc-44d4-4a51-a4f0-2655c0f72e4f` · 0 прямих оголошень
+    - Гальмівна система — `market-auto-parts--avtozapchastyny--halmivna-systema` — `8e5044be-f982-4910-95d1-996ba8e281e0` · 0 прямих оголошень
+    - Кузовні запчастини — `market-auto-parts--avtozapchastyny--kuzovni-zapchastyny` — `8d7a7c86-fce3-4957-abb9-7dae5b1f9b31` · 0 прямих оголошень
+    - Деталі салону — `market-auto-parts--avtozapchastyny--detali-salonu` — `d0a67ce1-1057-4a2d-9f1c-9f4cfcdf23da` · 0 прямих оголошень
+    - Кліматична система — `market-auto-parts--avtozapchastyny--klimatychna-systema` — `ba85bf66-ce3e-4a95-af6e-2df8455f4021` · 0 прямих оголошень
+    - Система очищення вікон та фар — `market-auto-parts--avtozapchastyny--systema-ochyshchennya-vikon-ta-far` — `6313e880-22db-4efc-b95a-22f166f0fb37` · 0 прямих оголошень
+    - Фари та освітлення — `market-auto-parts--avtozapchastyny--fary-ta-osvitlennya` — `929fb2ba-dffd-472a-adb3-11e4d22ecb0d`
+    - Електрообладнання та система запалювання — `market-auto-parts--avtozapchastyny--elektroobladnannya-ta-systema-zapalyuvannya` — `aee6cc2e-cc44-4846-82c5-aaa620896f05` · 0 прямих оголошень
+    - Фільтри — `market-auto-parts--avtozapchastyny--filtry` — `c152f429-8e64-4ced-9f87-9e7e114612f4` · 0 прямих оголошень
+    - Інші автозапчастин — `market-auto-parts--avtozapchastyny--inshi-avtozapchastyn` — `beddf9a0-92a7-4a86-a584-6b0270dd9470`
+  - Аксесуари для авто — `market-auto-parts--aksesuary-dlya-avto` — `eb049420-8ee6-4da7-aa02-e3b8fec6837a`
+    - Автоелектроніка — `market-auto-parts--aksesuary-dlya-avto--avtoelektronika` — `19044a5d-c95c-45a4-b8fe-c7314703526b` · 0 прямих оголошень
+    - Підйомники та транспортери — `market-auto-parts--aksesuary-dlya-avto--pidyomnyky-ta-transportery` — `a873360f-6b02-4b32-81b7-80c5e9f5d84a` · 0 прямих оголошень
+    - Аксесуари для догляду за авто — `market-auto-parts--aksesuary-dlya-avto--aksesuary-dlya-dohlyadu-za-avto` — `d883fc31-7927-4d8a-9c60-4e4f53e3b313` · 0 прямих оголошень
+    - Емблеми та значки — `market-auto-parts--aksesuary-dlya-avto--emblemy-ta-znachky` — `9891c7d5-916d-4cc3-ba6e-e0232c62e6fa` · 0 прямих оголошень
+    - Візуальний тюнінг — `market-auto-parts--aksesuary-dlya-avto--vizualnyy-tyuninh` — `4730c1c7-ec59-4f0c-b63d-db7af42259b3` · 0 прямих оголошень
+    - Автомобільні килимки — `market-auto-parts--aksesuary-dlya-avto--avtomobilni-kylymky` — `90888e14-8681-4861-a938-cfb1a2711ef1` · 0 прямих оголошень
+    - Органайзери в багажник — `market-auto-parts--aksesuary-dlya-avto--orhanayzery-v-bahazhnyk` — `032a5fda-6b02-4caf-a105-c38a2e8b3c23` · 0 прямих оголошень
+    - Багажники — `market-auto-parts--aksesuary-dlya-avto--bahazhnyky` — `48d328fb-f958-476a-b055-06ecb8dd86a6` · 0 прямих оголошень
+    - Вогнегасник, аптечка, аварійка — `market-auto-parts--aksesuary-dlya-avto--vohnehasnyk-aptechka-avariyka` — `bd7d64e5-a7d1-4ba8-964b-60cf6e016b3a` · 0 прямих оголошень
+    - Дефлектори — `market-auto-parts--aksesuary-dlya-avto--deflektory` — `e2ed662e-4797-418f-ac88-9e2e69843c3d` · 0 прямих оголошень
+    - Каністри та аксесуари — `market-auto-parts--aksesuary-dlya-avto--kanistry-ta-aksesuary` — `33affdbe-a703-4a8c-ae3f-802469d5653b` · 0 прямих оголошень
+    - Ланцюги, браслети протиковзання — `market-auto-parts--aksesuary-dlya-avto--lantsyuhy-braslety-protykovzannya` — `ab9fbfab-bdb0-4205-b98d-eed94be3a08e` · 0 прямих оголошень
+    - Підставки та тримачі — `market-auto-parts--aksesuary-dlya-avto--pidstavky-ta-trymachi` — `e799a385-6020-4a3d-a9b3-53cff325c9e6` · 0 прямих оголошень
+    - Пускові та зарядні пристрої — `market-auto-parts--aksesuary-dlya-avto--puskovi-ta-zaryadni-prystroyi` — `36ec5b53-6fd4-4580-8a63-1ff980c22111` · 0 прямих оголошень
+    - Фаркопи — `market-auto-parts--aksesuary-dlya-avto--farkopy` — `4b043b32-de75-47e2-95b9-7c19b38e43d1` · 0 прямих оголошень
+    - Чохли, тенти та накидки — `market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky` — `e4161197-208a-4ab1-b61c-3e34c5d60b90`
+    - Інші автоаксесуари — `market-auto-parts--aksesuary-dlya-avto--inshi-avtoaksesuary` — `25645e5a-360f-4b94-a8b6-459ccfc28a57` · 0 прямих оголошень
+  - Запчастини для вантажівок — `market-auto-parts--zapchastyny-dlya-vantazhivok` — `79938bff-e8f9-4d7a-9b34-c423f7eee8ba` · 0 прямих оголошень
+  - Запчастини для сільгосптехніки — `market-auto-parts--zapchastyny-dlya-silhosptekhniky` — `a10ebaa7-6003-41bd-8532-b15f4f413eb4` · 0 прямих оголошень
+  - Шини, диски і колеса — `market-auto-parts--shyny-dysky-i-kolesa` — `cd4be889-371c-4dfa-a7b9-066fdb7e0269` · 0 прямих оголошень
+    - Ковпаки та аксесуари — `market-auto-parts--shyny-dysky-i-kolesa--kovpaky-ta-aksesuary` — `2d858707-da49-47e5-b7cb-01291df1e04f` · 0 прямих оголошень
+    - Шини — `market-auto-parts--shyny-dysky-i-kolesa--shyny` — `916a252f-8b04-4942-aa0f-81e33a633f08` · 0 прямих оголошень
+    - Диски — `market-auto-parts--shyny-dysky-i-kolesa--dysky` — `519ab6c6-f7c5-4839-a1f7-beb47f8bdd34` · 0 прямих оголошень
+    - Колеса в зборі — `market-auto-parts--shyny-dysky-i-kolesa--kolesa-v-zbori` — `bf7af4aa-d56b-41da-a37a-b4123787e689` · 0 прямих оголошень
+  - Транспорт на запчастини / авторозбірки — `market-auto-parts--transport-na-zapchastyny-avtorozbirky` — `238c8826-4417-4bc1-994a-ac5caa9d7ebf` · 0 прямих оголошень
+    - Легкові авто на запчастини — `market-auto-parts--transport-na-zapchastyny-avtorozbirky--lehkovi-avto-na-zapchastyny` — `4b42d4f0-030e-4f47-b2c6-279081113a80` · 0 прямих оголошень
+    - Мотоцикли на запчастини — `market-auto-parts--transport-na-zapchastyny-avtorozbirky--mototsykly-na-zapchastyny` — `2400dbca-8fd5-42e5-8c01-0cf21c7f5479` · 0 прямих оголошень
+    - Вантажівки на запчастини — `market-auto-parts--transport-na-zapchastyny-avtorozbirky--vantazhivky-na-zapchastyny` — `0cc7d515-2020-457a-b1d4-4762ccf7d9fb` · 0 прямих оголошень
+    - Сільськогосподарська, спецтехніка та інші транспортні засоби на запчастини — `market-auto-parts--transport-na-zapchastyny-avtorozbirky--silskohospodarska-spetstekhnika-ta-inshi-transportni-zasoby-na-zapchastyny` — `189781e8-5a42-4bd6-abda-74b6ef6b4006` · 0 прямих оголошень
+  - Мотозапчастини та мотоаксесуари — `market-auto-parts--motozapchastyny-ta-motoaksesuary` — `9289dc6c-2e68-41c6-853c-ab2e9fb4263b` · 0 прямих оголошень
+    - Двигуни та комплектуючі — `market-auto-parts--motozapchastyny-ta-motoaksesuary--dvyhuny-ta-komplektuyuchi` — `ddf8cacb-6d15-41e0-836b-5ae37c4f3a04` · 0 прямих оголошень
+    - Кузовні елементи та пластик — `market-auto-parts--motozapchastyny-ta-motoaksesuary--kuzovni-elementy-ta-plastyk` — `2771b11d-d519-4043-b376-8fdb5a5ec35e` · 0 прямих оголошень
+    - Мотоаксесуари — `market-auto-parts--motozapchastyny-ta-motoaksesuary--motoaksesuary` — `9b88e46a-7f69-4218-838b-55bb25ad87d5` · 0 прямих оголошень
+    - Мотоекіпірування — `market-auto-parts--motozapchastyny-ta-motoaksesuary--motoekipiruvannya` — `238a5ece-fa9d-4f85-b6d6-ed8aa534d15a` · 0 прямих оголошень
+    - Амортизатори та підвіска — `market-auto-parts--motozapchastyny-ta-motoaksesuary--amortyzatory-ta-pidviska` — `0ccadf90-7140-446f-b6c4-4ba56b98abbe` · 0 прямих оголошень
+    - Вихлопні системи, прямоструми, глушники — `market-auto-parts--motozapchastyny-ta-motoaksesuary--vykhlopni-systemy-pryamostrumy-hlushnyky` — `3aecf581-8506-4caa-a5a5-34b9994d2526` · 0 прямих оголошень
+    - Освітлення та лампи — `market-auto-parts--motozapchastyny-ta-motoaksesuary--osvitlennya-ta-lampy` — `6e0e8e5f-dd03-40eb-8491-661029e9d46c` · 0 прямих оголошень
+    - Привід та ходова — `market-auto-parts--motozapchastyny-ta-motoaksesuary--pryvid-ta-khodova` — `dceba1ab-0efe-464e-a1f6-f5fd63f505f3` · 0 прямих оголошень
+    - Кермо та управління — `market-auto-parts--motozapchastyny-ta-motoaksesuary--kermo-ta-upravlinnya` — `235e2f69-2cd0-404c-bc0c-31659607fa94` · 0 прямих оголошень
+    - Паливна система — `market-auto-parts--motozapchastyny-ta-motoaksesuary--palyvna-systema` — `8e70eed5-7689-4b18-96d1-7a8c291bc1ff` · 0 прямих оголошень
+    - Гальмівна система — `market-auto-parts--motozapchastyny-ta-motoaksesuary--halmivna-systema` — `89faf891-3a51-4961-aa9b-6ac2cb6c4c2b` · 0 прямих оголошень
+    - Фільтри — `market-auto-parts--motozapchastyny-ta-motoaksesuary--filtry` — `d9381da9-a8d8-4a88-99d1-b40854c17e8f` · 0 прямих оголошень
+    - Електрика — `market-auto-parts--motozapchastyny-ta-motoaksesuary--elektryka` — `a4ed3b36-dce0-486a-a64c-04951745b4ba` · 0 прямих оголошень
+    - Інші мотозапчастини — `market-auto-parts--motozapchastyny-ta-motoaksesuary--inshi-motozapchastyny` — `31a04338-a2dd-415c-821f-dc48776d65d0` · 0 прямих оголошень
+  - Мастила та автохімія — `market-auto-parts--mastyla-ta-avtokhimiya` — `c968c485-2018-4669-9c5a-93aa7fcf7c1f` · 0 прямих оголошень
+    - Інша автохімія та рідини — `market-auto-parts--mastyla-ta-avtokhimiya--insha-avtokhimiya-ta-ridyny` — `ead4e75b-3069-4f6d-859b-f0768a168cf2` · 0 прямих оголошень
+    - Технічні рідини — `market-auto-parts--mastyla-ta-avtokhimiya--tekhnichni-ridyny` — `0bbe1826-57a5-4839-ace7-eaab1e84b177` · 0 прямих оголошень
+    - Моторні оливи — `market-auto-parts--mastyla-ta-avtokhimiya--motorni-olyvy` — `c52ba5dd-0d3a-4044-a5f9-c491dac6616b` · 0 прямих оголошень
+    - Автохімія та автокосметика — `market-auto-parts--mastyla-ta-avtokhimiya--avtokhimiya-ta-avtokosmetyka` — `ecebf2ca-24d7-4b66-9972-33a7a79872d1` · 0 прямих оголошень
+  - Запчастини для іншої техніки — `market-auto-parts--zapchastyny-dlya-inshoyi-tekhniky` — `83d7d925-257d-4e06-af83-cc2d5599fb63` · 0 прямих оголошень
+    - Для спецтехніки — `market-auto-parts--zapchastyny-dlya-inshoyi-tekhniky--dlya-spetstekhniky` — `9b148103-89c5-404c-b061-286bb4b154ff` · 0 прямих оголошень
+    - Для водного транспорту — `market-auto-parts--zapchastyny-dlya-inshoyi-tekhniky--dlya-vodnoho-transportu` — `7bbb6c3a-8b4a-43cf-8c21-d99cf95d99a3` · 0 прямих оголошень
+    - Для інших видів техніки — `market-auto-parts--zapchastyny-dlya-inshoyi-tekhniky--dlya-inshykh-vydiv-tekhniky` — `f8afccb5-c1f4-4255-beb2-343799c6c2ea` · 0 прямих оголошень
+- Робота — `market-jobs` — `c8baeeb6-390d-48d3-88da-f621e71f1fdd` · 0 прямих оголошень
+  - Роздрібна торгівля / продажі / закупки — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky` — `e176ba08-8a9c-45a6-93a7-38a13650db27` · 0 прямих оголошень
+    - Мерчендайзер — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--merchendayzer` — `d2b7f426-6590-49e9-9910-bb9ce27ce8ce` · 0 прямих оголошень
+    - Менеджер з продажу — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--menedzher-z-prodazhu` — `5d3f57e7-8db5-4342-a4aa-4cb6034db3e8` · 0 прямих оголошень
+    - Продавець — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--prodavets` — `970debea-29a8-4c1d-883a-8aeb87e72e21` · 0 прямих оголошень
+    - Супервайзер — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--supervayzer` — `ad53aad8-0a55-489b-996e-25c1940166c4` · 0 прямих оголошень
+    - Флорист — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--floryst` — `90f272b7-0a97-47c6-9b90-35bfc174bc1d` · 0 прямих оголошень
+    - Продавець-консультант — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--prodavets-konsultant` — `e0b29c0e-2dc2-4cb6-9124-096bb8835665` · 0 прямих оголошень
+    - Торговий представник — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--torhovyy-predstavnyk` — `7b014aca-dd57-4939-98da-9f9e85d9b416` · 0 прямих оголошень
+    - Менеджер інтернет магазину — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--menedzher-internet-mahazynu` — `5b297f52-dad2-4687-a3c7-b4fc6c3b7dfa` · 0 прямих оголошень
+    - Касир — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--kasyr` — `7e4633ec-5919-4884-a889-aa593e0e999d` · 0 прямих оголошень
+    - Менеджер по роботі з клієнтами — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--menedzher-po-roboti-z-kliyentamy` — `c06f803d-49d5-4dab-a808-1f9701ffe1e2` · 0 прямих оголошень
+    - Товарознавець — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--tovaroznavets` — `c558c3b5-c6c7-4c52-a416-49da366d8514` · 0 прямих оголошень
+    - Керівник відділу продажів — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--kerivnyk-viddilu-prodazhiv` — `e6773215-6e9a-431d-a356-8e956a473e5a` · 0 прямих оголошень
+    - Менеджер по закупці — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--menedzher-po-zakuptsi` — `f3650356-70a7-4e45-adce-4010091cfd75` · 0 прямих оголошень
+    - Адміністратор — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--administrator` — `a8c28bad-3389-46f2-a4c3-3074595c59fe` · 0 прямих оголошень
+    - Пекар — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--pekar` — `d7f31c8a-2a94-4d6e-a1ab-3e122aaff30c` · 0 прямих оголошень
+    - Інше — `market-jobs--rozdribna-torhivlya-prodazhi-zakupky--inshe` — `855ad43e-6e16-483f-a20d-00c2734de1a5` · 0 прямих оголошень
+  - Логістика / Склад / Доставка — `market-jobs--lohistyka-sklad-dostavka` — `70f0b307-3fb9-4569-a1f4-99fa41aeeeb1` · 0 прямих оголошень
+    - Водій — `market-jobs--lohistyka-sklad-dostavka--vodiy` — `aed2e613-e2be-4fe2-9604-75bd93c6e32c` · 0 прямих оголошень
+    - Вантажник — `market-jobs--lohistyka-sklad-dostavka--vantazhnyk` — `8e854c2b-9e67-4065-b57e-f4e30c9a6b1e` · 0 прямих оголошень
+    - Кур'єр — `market-jobs--lohistyka-sklad-dostavka--kur-yer` — `751d3da0-4b34-4572-9402-dbe94174d7e7` · 0 прямих оголошень
+    - Комірник — `market-jobs--lohistyka-sklad-dostavka--komirnyk` — `3fb56e05-d876-4058-bc07-1392594ef012` · 0 прямих оголошень
+    - Диспетчер — `market-jobs--lohistyka-sklad-dostavka--dyspetcher` — `c76227d5-5516-47c0-8b14-b878e04cfc62` · 0 прямих оголошень
+    - Експедитор — `market-jobs--lohistyka-sklad-dostavka--ekspedytor` — `387fef53-9a09-4030-9442-6b0906a5d14e` · 0 прямих оголошень
+    - Далекобійник — `market-jobs--lohistyka-sklad-dostavka--dalekobiynyk` — `e55eb60a-96a9-4101-a4bb-cf2d73fffd9f` · 0 прямих оголошень
+    - Таксист — `market-jobs--lohistyka-sklad-dostavka--taksyst` — `a047dfd0-1fbc-480c-8f01-ad3dc16e6d2a` · 0 прямих оголошень
+    - Інше — `market-jobs--lohistyka-sklad-dostavka--inshe` — `4ba48730-0f28-4d74-aa8e-2dc8e5297e65` · 0 прямих оголошень
+  - Будівництво / облицювальні роботи — `market-jobs--budivnytstvo-oblytsyuvalni-roboty` — `a41eec4c-23ae-43bd-90c1-f613a805a3ce` · 0 прямих оголошень
+    - Різноробочий — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--riznorobochyy` — `1615458d-1998-49f9-9e06-4e4bf9a8a06d` · 0 прямих оголошень
+    - Муляр — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--mulyar` — `94039fd0-b234-4002-8e70-52bf58545fdf` · 0 прямих оголошень
+    - Плиточник — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--plytochnyk` — `69ea4ab3-a076-4b30-9f35-26ae0990e3cb` · 0 прямих оголошень
+    - Монтажник — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--montazhnyk` — `244dcb2c-8335-458c-bbf8-32535fd1634a` · 0 прямих оголошень
+    - Зварювальник — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--zvaryuvalnyk` — `a387f343-4cba-4db3-9402-6e76cffaec0d` · 0 прямих оголошень
+    - Будівельник — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--budivelnyk` — `f9b03448-9ea4-476b-8ff2-648038126018` · 0 прямих оголошень
+    - Маляр — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--malyar` — `a6014802-b759-412d-90e9-13e22f5d101e` · 0 прямих оголошень
+    - Виконроб — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--vykonrob` — `a24a31f7-6d5c-406a-b358-c2e3ccefbe89` · 0 прямих оголошень
+    - Сантехнік — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--santekhnik` — `c558a0a0-b659-43c3-95fd-81655208ec56` · 0 прямих оголошень
+    - Фасадник — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--fasadnyk` — `0608edf3-824c-461e-aa50-092e664a9c18` · 0 прямих оголошень
+    - Штукатур — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--shtukatur` — `f9ee3f5d-0fb3-4e9a-a5ce-7ecdda0cef05` · 0 прямих оголошень
+    - Електрик — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--elektryk` — `0a61d604-58c8-4951-9e10-d3de247cf7d4` · 0 прямих оголошень
+    - Інше — `market-jobs--budivnytstvo-oblytsyuvalni-roboty--inshe` — `9a973967-d323-4938-ae17-6f19d2af2c11` · 0 прямих оголошень
+  - Колл-центри / Телекомунікації — `market-jobs--koll-tsentry-telekomunikatsiyi` — `9bb18e96-0747-4e67-b4a5-254d0e701124` · 0 прямих оголошень
+    - Оператор колл-центру — `market-jobs--koll-tsentry-telekomunikatsiyi--operator-koll-tsentru` — `373f713a-d5e3-40a4-b0ab-8d810de32b45` · 0 прямих оголошень
+    - Оператор чату — `market-jobs--koll-tsentry-telekomunikatsiyi--operator-chatu` — `f95b39ab-79bc-4188-aa6b-04d7f55c9043` · 0 прямих оголошень
+    - Інше — `market-jobs--koll-tsentry-telekomunikatsiyi--inshe` — `91cc9277-9a87-42bc-a4e9-8c403ec74b39` · 0 прямих оголошень
+  - Адміністративний персонал / HR / Секретаріат — `market-jobs--administratyvnyy-personal-hr-sekretariat` — `981d05f9-ac3b-40a6-9633-90dab33eb859`
+    - Адміністратор — `market-jobs--administratyvnyy-personal-hr-sekretariat--administrator` — `5fc237e0-3fbe-44ae-ab1b-f19342a94eb3` · 0 прямих оголошень
+    - Секретар — `market-jobs--administratyvnyy-personal-hr-sekretariat--sekretar` — `1d219884-0d00-473c-96a4-dc30b30c74e1` · 0 прямих оголошень
+    - Офіс менеджер — `market-jobs--administratyvnyy-personal-hr-sekretariat--ofis-menedzher` — `b95c18b8-4ee7-4e3c-a3d1-8b0b5e623965` · 0 прямих оголошень
+    - HR — `market-jobs--administratyvnyy-personal-hr-sekretariat--hr` — `78ff915a-b69a-43a1-accc-73c52844616f` · 0 прямих оголошень
+    - Інше — `market-jobs--administratyvnyy-personal-hr-sekretariat--inshe` — `0d748007-1ec3-4fe9-bdc6-e08207c07ef0` · 0 прямих оголошень
+  - Охорона / безпека — `market-jobs--okhorona-bezpeka` — `6b6816f7-74ec-4640-87d5-9110c48ece38` · 0 прямих оголошень
+    - Охоронець — `market-jobs--okhorona-bezpeka--okhoronets` — `e3184c3a-8cd4-494e-a253-aa173b48fe90` · 0 прямих оголошень
+    - Сторож — `market-jobs--okhorona-bezpeka--storozh` — `6ce9de1a-e988-41e0-8595-f3b455d456fb` · 0 прямих оголошень
+    - Інше — `market-jobs--okhorona-bezpeka--inshe` — `14cbb119-59a6-47ee-9810-46b2d7b3cf0e` · 0 прямих оголошень
+  - Клінінг / Домашній персонал — `market-jobs--klininh-domashniy-personal` — `33b00652-84ed-4e0c-be14-d6eb6cf0f762` · 0 прямих оголошень
+    - Доглядальниця — `market-jobs--klininh-domashniy-personal--dohlyadalnytsya` — `49eb771b-172a-487b-be6a-81fa2855bb7f` · 0 прямих оголошень
+    - Прибиральниця — `market-jobs--klininh-domashniy-personal--prybyralnytsya` — `e704322c-8097-4a30-8a61-5fa5c2f6b26a` · 0 прямих оголошень
+    - Двірник — `market-jobs--klininh-domashniy-personal--dvirnyk` — `68c8e80b-2231-4877-afff-910ee11074fc` · 0 прямих оголошень
+    - Няня — `market-jobs--klininh-domashniy-personal--nyanya` — `7c1fded2-1d3b-4ab7-86bd-ba076f023852` · 0 прямих оголошень
+    - Домробітниця — `market-jobs--klininh-domashniy-personal--domrobitnytsya` — `db25e4b3-4f19-4c9f-b883-2d0af513fe80` · 0 прямих оголошень
+    - Інше — `market-jobs--klininh-domashniy-personal--inshe` — `425f2338-e407-4b29-85c4-280b6d6c09a3` · 0 прямих оголошень
+  - Краса / фітнес / спорт — `market-jobs--krasa-fitnes-sport` — `4346a3f1-8414-4493-8f8b-032f9b32cf3d` · 0 прямих оголошень
+    - Перукар — `market-jobs--krasa-fitnes-sport--perukar` — `84dbfc4a-dfe8-4c9f-b4dd-5cf4a30816c6` · 0 прямих оголошень
+    - Майстер манікюру — `market-jobs--krasa-fitnes-sport--mayster-manikyuru` — `39311dd5-6544-40d4-a92b-f0aa033e6a3c` · 0 прямих оголошень
+    - Адміністратор — `market-jobs--krasa-fitnes-sport--administrator` — `e190f29e-b9eb-4e22-a8f1-59a546e71fc7` · 0 прямих оголошень
+    - Масажист — `market-jobs--krasa-fitnes-sport--masazhyst` — `5d99d8c6-a1c0-4c0e-8260-e6096c8c7d90` · 0 прямих оголошень
+    - Косметолог — `market-jobs--krasa-fitnes-sport--kosmetoloh` — `66189ce0-82ab-467a-9cb5-5b48d770e93a` · 0 прямих оголошень
+    - Тренер — `market-jobs--krasa-fitnes-sport--trener` — `3fc699a8-112f-482f-a4b5-0807f72bbc5a` · 0 прямих оголошень
+    - Інше — `market-jobs--krasa-fitnes-sport--inshe` — `1aeeef60-f23f-49ba-a56a-cc7e03c13d95` · 0 прямих оголошень
+  - Освіта / переклад — `market-jobs--osvita-pereklad` — `55532a76-2f33-480d-85be-71c0238da211` · 0 прямих оголошень
+    - Викладач / Вчитель — `market-jobs--osvita-pereklad--vykladach-vchytel` — `fdb59773-cd72-449e-9b5d-7f6c515991d2` · 0 прямих оголошень
+    - Вихователь — `market-jobs--osvita-pereklad--vykhovatel` — `c38c7f26-8a41-4322-9afe-f73648fb8955` · 0 прямих оголошень
+    - Репетитор — `market-jobs--osvita-pereklad--repetytor` — `bae08427-cb90-4724-9607-a05dda15d77e` · 0 прямих оголошень
+    - Інше — `market-jobs--osvita-pereklad--inshe` — `4a77ccff-00da-405f-9718-804e71e4f216` · 0 прямих оголошень
+  - Культура / мистецтво / розваги — `market-jobs--kultura-mystetstvo-rozvahy` — `a4f0c78d-6d1d-487c-b356-2397b370553a` · 0 прямих оголошень
+    - Фотограф — `market-jobs--kultura-mystetstvo-rozvahy--fotohraf` — `078ecd53-bbeb-4ef7-b024-99d73f654b10` · 0 прямих оголошень
+    - Модель — `market-jobs--kultura-mystetstvo-rozvahy--model` — `76fd1f7e-c3d4-43be-afd3-8f974126a00b` · 0 прямих оголошень
+    - Аніматор — `market-jobs--kultura-mystetstvo-rozvahy--animator` — `d223e10d-8ec4-4a6b-8037-6e6d0ad7785b` · 0 прямих оголошень
+    - Інше — `market-jobs--kultura-mystetstvo-rozvahy--inshe` — `ab7b05d2-f5e8-48f5-8304-6ee264713688` · 0 прямих оголошень
+  - Медицина / фармацевтика — `market-jobs--medytsyna-farmatsevtyka` — `f7a072f4-f889-4a6a-ac5e-68af02d67c6a` · 0 прямих оголошень
+    - Медсестра — `market-jobs--medytsyna-farmatsevtyka--medsestra` — `be65e495-f0cc-41e4-9edf-137ea1a608fe` · 0 прямих оголошень
+    - Стоматолог — `market-jobs--medytsyna-farmatsevtyka--stomatoloh` — `bee89778-b217-48db-b9de-8e7662ef9918` · 0 прямих оголошень
+    - Фармацевт — `market-jobs--medytsyna-farmatsevtyka--farmatsevt` — `21ad282c-f62b-442b-bcd0-d702f59384d0` · 0 прямих оголошень
+    - Інше — `market-jobs--medytsyna-farmatsevtyka--inshe` — `56dc24a9-1bd3-42cf-9658-bcc1a353a6ce` · 0 прямих оголошень
+  - IT / комп'ютери — `market-jobs--it-komp-yutery` — `5d040a39-735b-4540-a71c-f44d0fb4eae5` · 0 прямих оголошень
+    - Оператор ПК — `market-jobs--it-komp-yutery--operator-pk` — `be20fd44-663a-40ce-bce3-7a8b6a848ef5` · 0 прямих оголошень
+    - Майстер з ремонту — `market-jobs--it-komp-yutery--mayster-z-remontu` — `a54f86a7-b024-4c9f-9013-80a569ed8399` · 0 прямих оголошень
+    - Системний адміністратор — `market-jobs--it-komp-yutery--systemnyy-administrator` — `9efb9041-76ff-4ad1-b9fe-9e710ce4d0b0` · 0 прямих оголошень
+    - Інше — `market-jobs--it-komp-yutery--inshe` — `e07ef0c7-8a05-4407-af2a-e8292c025d97` · 0 прямих оголошень
+  - Банки / фінанси / страхування / юриспруденція — `market-jobs--banky-finansy-strakhuvannya-yurysprudentsiya` — `a2c69d53-6c9f-44a9-b507-beee472eae10` · 0 прямих оголошень
+    - Юрист — `market-jobs--banky-finansy-strakhuvannya-yurysprudentsiya--yuryst` — `cf35cb55-b304-428c-a3d5-02f8783dad10` · 0 прямих оголошень
+    - Інше — `market-jobs--banky-finansy-strakhuvannya-yurysprudentsiya--inshe` — `ccf1b43a-e5b5-4f82-bae9-5a1fa55d9545` · 0 прямих оголошень
+  - Нерухомість — `market-jobs--nerukhomist` — `d9f98a05-8641-4e90-ad75-ec1a08a14af3` · 0 прямих оголошень
+    - Ріелтор — `market-jobs--nerukhomist--rieltor` — `0b79f77a-a4ab-41e3-8b31-8a27f028990a` · 0 прямих оголошень
+    - Менеджер з продажу — `market-jobs--nerukhomist--menedzher-z-prodazhu` — `04c5ef67-c44b-4f29-a459-563305f13b52` · 0 прямих оголошень
+    - Брокер — `market-jobs--nerukhomist--broker` — `200aa94a-60e3-41d0-9675-17799210315d` · 0 прямих оголошень
+    - Інше — `market-jobs--nerukhomist--inshe` — `4dded5a3-14f6-4e5e-8e4a-82df37190217` · 0 прямих оголошень
+  - Реклама / дизайн / PR — `market-jobs--reklama-dyzayn-pr` — `9b7959ab-5cc3-44d8-96a0-9274d51b350b` · 0 прямих оголошень
+    - Промоутер — `market-jobs--reklama-dyzayn-pr--promouter` — `d9d22aa5-4d1c-4da4-b7b8-b6951cc3aca6` · 0 прямих оголошень
+    - Дизайнер — `market-jobs--reklama-dyzayn-pr--dyzayner` — `c234e40a-60cb-4855-8fdf-abd934bbd213` · 0 прямих оголошень
+    - Маркетолог — `market-jobs--reklama-dyzayn-pr--marketoloh` — `81690558-c711-462b-8a16-85a0dc1a0519` · 0 прямих оголошень
+    - SMM-менеджер — `market-jobs--reklama-dyzayn-pr--smm-menedzher` — `b6ad57b8-20fc-4e50-9d14-a2a866c73421` · 0 прямих оголошень
+    - Контент-менеджер — `market-jobs--reklama-dyzayn-pr--kontent-menedzher` — `b9261ebb-4292-4e12-83b5-24dfddf79e8a` · 0 прямих оголошень
+    - Копірайтер — `market-jobs--reklama-dyzayn-pr--kopirayter` — `b5c48e74-b385-4e3a-bded-9c977ff0774e` · 0 прямих оголошень
+    - Інше — `market-jobs--reklama-dyzayn-pr--inshe` — `fe1d9676-4eb2-47b0-9d2d-02ce6b487ca7` · 0 прямих оголошень
+  - Виробництво / робітничі спеціальності — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti` — `ee2a2d8c-7738-492b-870f-78926e1e8f56` · 0 прямих оголошень
+    - Електрик — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--elektryk` — `0a376013-8cbb-4155-8e3c-60b41e133260` · 0 прямих оголошень
+    - Столяр — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--stolyar` — `632cc774-1833-489e-b109-14f7f69a6ed0` · 0 прямих оголошень
+    - Швачка, кравець — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--shvachka-kravets` — `f4376cc9-0d64-4b21-a2b5-d825d532211b` · 0 прямих оголошень
+    - Токар — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--tokar` — `c85bbca6-d3e0-4cf2-b1de-d56a4a541f85` · 0 прямих оголошень
+    - Машиніст екскаватора — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--mashynist-ekskavatora` — `e40d80bc-dd33-4a7e-b00c-ebd2f3a49936` · 0 прямих оголошень
+    - Конструктор — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--konstruktor` — `31e118dd-b1c6-40d7-a93f-ed53096dbdd9`
+    - Комплектувальник — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--komplektuvalnyk` — `47d470a5-4423-49e4-b04b-fbf91b4f7056` · 0 прямих оголошень
+    - Складальник меблів — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--skladalnyk-mebliv` — `eb2459a7-72f6-4bee-a1a7-b6947a890b6d` · 0 прямих оголошень
+    - Різноробочий — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--riznorobochyy` — `827cb0da-ebfc-4112-a041-c381a5f85075` · 0 прямих оголошень
+    - Зварювальник — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--zvaryuvalnyk` — `37d3f576-cd8a-46d5-9413-b44b0178ab90` · 0 прямих оголошень
+    - Складальник — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--skladalnyk` — `078389d5-9368-4334-9598-364c81d5d274` · 0 прямих оголошень
+    - Слюсар — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--slyusar` — `e466db30-166e-4124-8bcc-d83a6cad341b` · 0 прямих оголошень
+    - Маляр — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--malyar` — `a1526295-34ba-4d30-9959-feb0eaec7a90` · 0 прямих оголошень
+    - Пакувальник — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--pakuvalnyk` — `fd79ce66-11b8-48b7-aa7c-4fc977bae7fd` · 0 прямих оголошень
+    - Монтажник — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--montazhnyk` — `fb1035f1-c123-450b-adbb-8c26986980a9` · 0 прямих оголошень
+    - Механік — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--mekhanik` — `45e92b05-ed05-4d6e-b3ea-d6ae694b515f` · 0 прямих оголошень
+    - Підсобник — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--pidsobnyk` — `0d428a6c-3411-44b0-ac4d-0d33a3b1224b` · 0 прямих оголошень
+    - Оператор ЧПУ — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--operator-chpu` — `d1100da6-2a4a-44d5-9528-c8747a45d278` · 0 прямих оголошень
+    - Технолог — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--tekhnoloh` — `9833225e-b604-4bf2-9fe8-c1e6a8a8d64a` · 0 прямих оголошень
+    - Інше — `market-jobs--vyrobnytstvo-robitnychi-spetsialnosti--inshe` — `2844fa93-7c3a-4f68-a559-e629939a3606` · 0 прямих оголошень
+  - Сільське і лісове господарство / агробізнес — `market-jobs--silske-i-lisove-hospodarstvo-ahrobiznes` — `c6f14f98-d746-491c-b153-72abea9efe1e` · 0 прямих оголошень
+    - Агроном — `market-jobs--silske-i-lisove-hospodarstvo-ahrobiznes--ahronom` — `90e9595c-4b2c-4cc5-842a-b947884f11bf` · 0 прямих оголошень
+    - Тракторист — `market-jobs--silske-i-lisove-hospodarstvo-ahrobiznes--traktoryst` — `493286fb-3089-41ba-a32f-2854b917b76e` · 0 прямих оголошень
+    - Пилорамщик — `market-jobs--silske-i-lisove-hospodarstvo-ahrobiznes--pyloramshchyk` — `0c76c70e-c7f7-4a80-b4e4-eaf2643939ae` · 0 прямих оголошень
+    - Інше — `market-jobs--silske-i-lisove-hospodarstvo-ahrobiznes--inshe` — `9e02c7bf-49c7-4c4d-ad2c-0435d6f2e5e1` · 0 прямих оголошень
+  - Часткова зайнятість — `market-jobs--chastkova-zaynyatist` — `d93ed52c-3fbc-485f-aa2b-2bce36d59d88` · 0 прямих оголошень
+  - Початок кар'єри / Студенти — `market-jobs--pochatok-kar-yery-studenty` — `4fc4e150-760d-4e7f-b9af-296d1cb42e48` · 0 прямих оголошень
+  - Робота за кордоном — `market-jobs--robota-za-kordonom` — `31fb1793-8af9-41e9-9f2d-ae16e28aa463` · 0 прямих оголошень
+    - Різноробочий — `market-jobs--robota-za-kordonom--riznorobochyy` — `7bf4c577-cefa-4adb-b2cb-fd76500b812c` · 0 прямих оголошень
+    - Кухар — `market-jobs--robota-za-kordonom--kukhar` — `5310d08a-a53f-4217-b8ac-2b0d3cd25cc0` · 0 прямих оголошень
+    - Водій — `market-jobs--robota-za-kordonom--vodiy` — `1142f697-5a61-4388-9736-1111db15095b` · 0 прямих оголошень
+    - Няня — `market-jobs--robota-za-kordonom--nyanya` — `4339ffbd-ce64-4068-a32b-c8a18c885a09` · 0 прямих оголошень
+    - Доглядальниця — `market-jobs--robota-za-kordonom--dohlyadalnytsya` — `60fc2420-79aa-40d8-8c48-d04de8209e9d` · 0 прямих оголошень
+    - Зварювальник — `market-jobs--robota-za-kordonom--zvaryuvalnyk` — `484bc33d-35d0-4fff-a118-979ec8465447` · 0 прямих оголошень
+    - Будівельник — `market-jobs--robota-za-kordonom--budivelnyk` — `cb2e2734-99d0-479b-b4c0-1a032209aee3` · 0 прямих оголошень
+    - Пакувальник — `market-jobs--robota-za-kordonom--pakuvalnyk` — `a2113f1f-04f9-4acd-8a4b-4279c4d7739a` · 0 прямих оголошень
+    - Інше — `market-jobs--robota-za-kordonom--inshe` — `6ab08ce2-3278-4bd7-869e-f2e2ea8727f8` · 0 прямих оголошень
+  - Бухгалтерія — `market-jobs--bukhhalteriya` — `cf5a1f74-4c1d-4276-9666-0d83d35bcafb` · 0 прямих оголошень
+    - Бухгалтер — `market-jobs--bukhhalteriya--bukhhalter` — `d79dab9b-95cd-4112-840d-2372e3043db5` · 0 прямих оголошень
+    - Аудитор — `market-jobs--bukhhalteriya--audytor` — `2179beb9-743c-4f2a-8c49-a59a152f4e1f` · 0 прямих оголошень
+    - Інше — `market-jobs--bukhhalteriya--inshe` — `abe8b0ce-3b63-4f02-b849-7e5df3977b41` · 0 прямих оголошень
+  - Готельно-ресторанний бізнес / Туризм — `market-jobs--hotelno-restorannyy-biznes-turyzm` — `53ce6166-a5ea-4318-8e63-b1ec6d605457` · 0 прямих оголошень
+    - Адміністратор — `market-jobs--hotelno-restorannyy-biznes-turyzm--administrator` — `1967267d-279c-4c68-9d80-dca2dace541b` · 0 прямих оголошень
+    - Покоївка — `market-jobs--hotelno-restorannyy-biznes-turyzm--pokoyivka` — `1d3b15d9-aba1-4844-958f-88fb8f90d618` · 0 прямих оголошень
+    - Менеджер — `market-jobs--hotelno-restorannyy-biznes-turyzm--menedzher` — `a2c9f11f-a13e-4d9a-8a2f-e03f60cefccc` · 0 прямих оголошень
+    - Бариста — `market-jobs--hotelno-restorannyy-biznes-turyzm--barysta` — `1abddd30-5bc9-4a60-badd-6ba5559d52f2` · 0 прямих оголошень
+    - Кухар — `market-jobs--hotelno-restorannyy-biznes-turyzm--kukhar` — `f4ddbb63-dee1-436b-89cd-e9118ccf74d7` · 0 прямих оголошень
+    - Бармен — `market-jobs--hotelno-restorannyy-biznes-turyzm--barmen` — `4510519d-5270-45b7-8a6f-78a2d0766f79` · 0 прямих оголошень
+    - Офіціант — `market-jobs--hotelno-restorannyy-biznes-turyzm--ofitsiant` — `f9256016-7ae3-4e2a-afc8-b2a5746e835e` · 0 прямих оголошень
+    - Кондитер — `market-jobs--hotelno-restorannyy-biznes-turyzm--kondyter` — `94a08a98-8012-49ab-8cc9-9a5e9a1e6c83` · 0 прямих оголошень
+    - Пекар — `market-jobs--hotelno-restorannyy-biznes-turyzm--pekar` — `3aaa938e-96af-4871-81b5-2578730e9582` · 0 прямих оголошень
+    - Помічник кухаря — `market-jobs--hotelno-restorannyy-biznes-turyzm--pomichnyk-kukharya` — `aa1b3584-e518-4306-bda2-6c3da8ed233e` · 0 прямих оголошень
+    - Сушист — `market-jobs--hotelno-restorannyy-biznes-turyzm--sushyst` — `3224832e-e07b-45d6-a3c5-a15b7cf4bf3d` · 0 прямих оголошень
+    - Посудомийниця — `market-jobs--hotelno-restorannyy-biznes-turyzm--posudomyynytsya` — `a030253d-3431-446a-a12b-e641639b6438` · 0 прямих оголошень
+    - Піцайоло — `market-jobs--hotelno-restorannyy-biznes-turyzm--pitsayolo` — `ce8424aa-ddb3-43ec-a37d-fe45924a7735` · 0 прямих оголошень
+    - Інше — `market-jobs--hotelno-restorannyy-biznes-turyzm--inshe` — `3c29ddbc-5abe-470e-9e95-c125109b962a` · 0 прямих оголошень
+  - Інші сфери занять — `market-jobs--inshi-sfery-zanyat` — `8136fa8a-6dd4-4627-87ca-276d75a800fa` · 0 прямих оголошень
+  - СТО / автомийки — `market-jobs--sto-avtomyyky` — `737d420d-c64a-45ff-82b7-e7032f3b8dff` · 0 прямих оголошень
+    - Автослюсар — `market-jobs--sto-avtomyyky--avtoslyusar` — `63425d29-14e8-49a6-8dbb-30f435ebd13d` · 0 прямих оголошень
+    - Мийник — `market-jobs--sto-avtomyyky--myynyk` — `a17cff56-8304-481f-af4f-a84de582853e` · 0 прямих оголошень
+    - Механік — `market-jobs--sto-avtomyyky--mekhanik` — `ad901d89-df48-4842-a782-316cd3f78eed` · 0 прямих оголошень
+    - Автомаляр — `market-jobs--sto-avtomyyky--avtomalyar` — `fa77b65c-ad67-407e-8562-c41dc7aed6b5` · 0 прямих оголошень
+    - Автоелектрик — `market-jobs--sto-avtomyyky--avtoelektryk` — `4017d7cf-110e-452b-b87f-e2503f0ec650` · 0 прямих оголошень
+    - Рихтувальник — `market-jobs--sto-avtomyyky--rykhtuvalnyk` — `ce84fbdd-9fdb-47ad-8eb2-5c567846dccc` · 0 прямих оголошень
+    - Шиномонтажник — `market-jobs--sto-avtomyyky--shynomontazhnyk` — `5b0928c0-eb37-444c-bda3-7873fa161492` · 0 прямих оголошень
+    - Інше — `market-jobs--sto-avtomyyky--inshe` — `737aac4e-1d46-4dec-8476-62d08ba5fc10` · 0 прямих оголошень
+  - Служба в Силах оборони — `market-jobs--sluzhba-v-sylakh-oborony` — `a44e24c1-e971-4697-9df2-5435c71d2a41` · 0 прямих оголошень
+- Тварини — `market-animals` — `b13fb1e7-8916-4742-bcdf-2395572befaa` · 0 прямих оголошень
+  - Безкоштовно (тварини і в'язка) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka` — `f2c678eb-a5fe-4ff9-b66f-a75be03c370b` · 0 прямих оголошень
+    - Собаки (безкоштовно віддам) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka--sobaky-bezkoshtovno-viddam` — `156f76d7-d859-464b-a8fd-9d917f3f4e83`
+    - Коти (безкоштовно віддам) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka--koty-bezkoshtovno-viddam` — `149184f5-d063-4cef-b3d8-a0f3cad015ea`
+    - Акваріумістика (безкоштовно віддам) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka--akvariumistyka-bezkoshtovno-viddam` — `7ebb59f8-7935-45f8-8705-d31764d53308` · 0 прямих оголошень
+    - Гризуни (безкоштовно віддам) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka--hryzuny-bezkoshtovno-viddam` — `f327053f-df6a-4a5b-986f-481c46f676bb` · 0 прямих оголошень
+    - Сільгосп тварини (безкоштовно віддам) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka--silhosp-tvaryny-bezkoshtovno-viddam` — `1ce1a93b-6d8e-40b3-8bcd-11dc4724e473` · 0 прямих оголошень
+    - Інші тварини (безкоштовно віддам) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka--inshi-tvaryny-bezkoshtovno-viddam` — `2ac9df41-7041-4ef3-aaad-93b9b812a900` · 0 прямих оголошень
+    - В'язка (безкоштовно) — `market-animals--bezkoshtovno-tvaryny-i-v-yazka--v-yazka-bezkoshtovno` — `64700b49-bfcc-4c0d-b879-82c8fc39ab89` · 0 прямих оголошень
+  - Собаки — `market-animals--sobaky` — `915f2b00-d241-4508-93b0-951e1833ab2b`
+  - Коти — `market-animals--koty` — `f4680254-f919-41e0-a48a-347f0337fa52`
+  - Акваріумістика — `market-animals--akvariumistyka` — `6a9b9e5e-a535-4780-aff1-4459ffc2c9a6` · 0 прямих оголошень
+  - Гризуни — `market-animals--hryzuny` — `061a12b9-31b7-49a2-a4ba-dd19181ffca0` · 0 прямих оголошень
+  - Сільгосп тварини — `market-animals--silhosp-tvaryny` — `6755d4ca-149d-4cfc-8037-c5aee756a7e1` · 0 прямих оголошень
+  - Інші тварини — `market-animals--inshi-tvaryny` — `99c0f612-f21c-41ea-b2b2-846f67a437a3` · 0 прямих оголошень
+  - Зоотовари — `market-animals--zootovary` — `d0931c3a-1757-434c-9555-183cb5c4c11f` · 0 прямих оголошень
+    - Товари для котів — `market-animals--zootovary--tovary-dlya-kotiv` — `0eaf8098-d388-4394-a970-42f974a9d53b` · 0 прямих оголошень
+    - Товари для собак — `market-animals--zootovary--tovary-dlya-sobak` — `29ab77c5-ce08-444a-b4c4-c092a8772d3f` · 0 прямих оголошень
+    - Товари для птахів — `market-animals--zootovary--tovary-dlya-ptakhiv` — `cf0d0dba-f693-41e2-9e8b-b9c6cad7de52` · 0 прямих оголошень
+    - Товари для гризунів — `market-animals--zootovary--tovary-dlya-hryzuniv` — `4ef3bbee-07d0-4a2c-b733-57cfaa89bf37` · 0 прямих оголошень
+    - Товари для рептилій — `market-animals--zootovary--tovary-dlya-reptyliy` — `8036bbc8-eb66-42c5-95c9-5c67510eb0c2` · 0 прямих оголошень
+    - Товари для тваринництва — `market-animals--zootovary--tovary-dlya-tvarynnytstva` — `85654599-d642-4413-a4d5-9883c3c555fc` · 0 прямих оголошень
+    - Інші зоотовари — `market-animals--zootovary--inshi-zootovary` — `4af2490f-a55a-4cc9-adb7-0d44914250a5` · 0 прямих оголошень
+  - В'язка — `market-animals--v-yazka` — `22365d68-37a3-4ed3-89cc-bf9d5cadbcc1` · 0 прямих оголошень
+  - Бюро знахідок — `market-animals--byuro-znakhidok` — `83c60940-b571-44dd-b452-a8fa02a1dd6e` · 0 прямих оголошень
+- Дім і сад — `market-home-garden` — `94697db4-88d3-4199-95f8-6bf01e6fa657` · 0 прямих оголошень
+  - Канцтовари / витратні матеріали — `market-home-garden--kantstovary-vytratni-materialy` — `f82ea221-f0de-42ae-a6a0-272238aae82f` · 0 прямих оголошень
+  - Меблі — `market-home-garden--mebli` — `9c5747ef-d592-46e4-9dda-b70e733746fd` · 0 прямих оголошень
+    - Меблі для вітальні — `market-home-garden--mebli--mebli-dlya-vitalni` — `dc1e1cd1-ea0d-4ed3-8605-4b269312e646`
+    - Меблі для спальні — `market-home-garden--mebli--mebli-dlya-spalni` — `9f8a26a0-047e-4d6d-9c8f-f69e58cf567e` · 0 прямих оголошень
+    - Меблі для передпокою — `market-home-garden--mebli--mebli-dlya-peredpokoyu` — `9b421666-54ac-444c-9578-e05baab1d31e` · 0 прямих оголошень
+    - Кухонні меблі — `market-home-garden--mebli--kukhonni-mebli` — `1e7b6e3e-ba7b-4ae3-9b2d-de95ae4b501f` · 0 прямих оголошень
+    - Меблі для ванної кімнати — `market-home-garden--mebli--mebli-dlya-vannoyi-kimnaty` — `4ea3ed12-8eb7-4307-b0c5-0437d134757b` · 0 прямих оголошень
+    - Офісні меблі — `market-home-garden--mebli--ofisni-mebli` — `bd4928a8-c5e1-4369-84a2-db40314b4672` · 0 прямих оголошень
+    - Меблі на замовлення — `market-home-garden--mebli--mebli-na-zamovlennya` — `d84415ce-e08b-4e4a-a5a9-4379b0680929` · 0 прямих оголошень
+    - Садові меблі — `market-home-garden--mebli--sadovi-mebli` — `48e00c90-0fd8-43c3-bc38-55834cc55267` · 0 прямих оголошень
+  - Продукти харчування / напої — `market-home-garden--produkty-kharchuvannya-napoyi` — `92dafe9e-e1c1-4db4-b0ef-0ffe7e41bd2f`
+  - Сад / город — `market-home-garden--sad-horod` — `47b382db-619a-461e-bee5-0e173a2336cc` · 0 прямих оголошень
+  - Предмети інтер'єру — `market-home-garden--predmety-inter-yeru` — `bad35cee-61ac-42cd-88e3-e80e2c539d85` · 0 прямих оголошень
+    - Освітлення — `market-home-garden--predmety-inter-yeru--osvitlennya` — `6eb41865-30f5-4eb4-8dc1-64e29c5dbf93` · 0 прямих оголошень
+    - Текстиль — `market-home-garden--predmety-inter-yeru--tekstyl` — `8565e722-f9fd-413f-ae27-54d2d951f37d` · 0 прямих оголошень
+    - Декор вікон — `market-home-garden--predmety-inter-yeru--dekor-vikon` — `e91578ef-da31-4019-8c94-b70eafad3ec5` · 0 прямих оголошень
+  - Будівництво / ремонт — `market-home-garden--budivnytstvo-remont` — `2cf8df1f-27d5-4ea2-b7ed-2415963cc4e4` · 0 прямих оголошень
+    - Вентиляція — `market-home-garden--budivnytstvo-remont--ventylyatsiya` — `43cf672a-7b3d-4bf1-aac3-5eb6182fdce0` · 0 прямих оголошень
+    - Сантехніка — `market-home-garden--budivnytstvo-remont--santekhnika` — `962ed14f-6caf-4abb-ac88-3d7908a1cf97` · 0 прямих оголошень
+    - Опалення — `market-home-garden--budivnytstvo-remont--opalennya` — `260be4f8-363a-4ed1-9e6c-d1b73bbb3034` · 0 прямих оголошень
+    - Електрика — `market-home-garden--budivnytstvo-remont--elektryka` — `3cc15a71-d187-4f31-97a6-032511a572d2` · 0 прямих оголошень
+    - Пиломатеріали — `market-home-garden--budivnytstvo-remont--pylomaterialy` — `82f1c054-9d4c-4ef2-b3ce-1b29da7960a6` · 0 прямих оголошень
+    - Шпалери — `market-home-garden--budivnytstvo-remont--shpalery` — `06c66707-5999-4358-aadc-896580b56037` · 0 прямих оголошень
+    - Оздоблювальні та облицювальні матеріали — `market-home-garden--budivnytstvo-remont--ozdoblyuvalni-ta-oblytsyuvalni-materialy` — `c9c306ba-72c4-48b0-940e-017b662dac30` · 0 прямих оголошень
+    - Фурнітура (віконна, дверна) — `market-home-garden--budivnytstvo-remont--furnitura-vikonna-dverna` — `5c1d2f22-1822-4f06-b0d0-619121b98bbb` · 0 прямих оголошень
+    - Вікна / двері / скло / дзеркала — `market-home-garden--budivnytstvo-remont--vikna-dveri-sklo-dzerkala` — `7d3f45f7-d033-4d8a-a0be-40781dd5bad4` · 0 прямих оголошень
+    - Лакофарбові матеріали — `market-home-garden--budivnytstvo-remont--lakofarbovi-materialy` — `eb7ad833-7c7f-449d-a8a2-14e535351650` · 0 прямих оголошень
+    - Металопрокат / арматура — `market-home-garden--budivnytstvo-remont--metaloprokat-armatura` — `383b3f25-8c62-4f2c-8da3-9687e84a95d9` · 0 прямих оголошень
+    - Елементи кріплення — `market-home-garden--budivnytstvo-remont--elementy-kriplennya` — `b23a9140-747c-46ae-8f11-45e888640f25` · 0 прямих оголошень
+    - Цегла / бетон / піноблоки — `market-home-garden--budivnytstvo-remont--tsehla-beton-pinobloky` — `de23e770-ab61-4b97-8971-1978fd6146b7` · 0 прямих оголошень
+    - Автоматика для воріт — `market-home-garden--budivnytstvo-remont--avtomatyka-dlya-vorit` — `0a100d1a-8241-4da0-8276-2e354e975031` · 0 прямих оголошень
+    - Інші будматеріали — `market-home-garden--budivnytstvo-remont--inshi-budmaterialy` — `d0d659ec-9589-4ef3-8639-6d6e653573db` · 0 прямих оголошень
+  - Інструменти — `market-home-garden--instrumenty` — `9c3b6c6b-3242-4d80-9dee-bc4848639349` · 0 прямих оголошень
+    - Бензоінструмент — `market-home-garden--instrumenty--benzoinstrument` — `da889535-e64f-4fd3-a954-462f4e28a3a6` · 0 прямих оголошень
+    - Генератори — `market-home-garden--instrumenty--heneratory` — `0b782452-3c6c-4bb1-b9e0-629d545c67d3` · 0 прямих оголошень
+    - Ручний інструмент — `market-home-garden--instrumenty--ruchnyy-instrument` — `1a51f678-7baa-413f-bbc9-844eed28d64f` · 0 прямих оголошень
+    - Електроінструмент — `market-home-garden--instrumenty--elektroinstrument` — `d796f9de-44a3-4714-ba10-b9a9899516f6` · 0 прямих оголошень
+    - Пневмоінструмент — `market-home-garden--instrumenty--pnevmoinstrument` — `388cfdfe-7c81-4e69-8ee8-fc6b5ee1364e` · 0 прямих оголошень
+    - Інший інструмент — `market-home-garden--instrumenty--inshyy-instrument` — `536f4cd7-d81d-4369-aa3f-1babe34893d5` · 0 прямих оголошень
+  - Кімнатні рослини — `market-home-garden--kimnatni-roslyny` — `af9649a0-e0f9-4fd2-8d76-df705f55131b`
+  - Посуд / кухонне приладдя — `market-home-garden--posud-kukhonne-pryladdya` — `d6308867-3ea3-45a9-be77-f54c26a4b74f` · 0 прямих оголошень
+  - Садовий інвентар — `market-home-garden--sadovyy-inventar` — `ecf31645-0e13-4fb8-b41f-e8f31d336266` · 0 прямих оголошень
+  - Господарський інвентар / побутова хімія — `market-home-garden--hospodarskyy-inventar-pobutova-khimiya` — `adb06b00-8f9c-41f7-aded-20f310eba790` · 0 прямих оголошень
+  - Інші товари для дому — `market-home-garden--inshi-tovary-dlya-domu` — `873e4f49-da0d-4f5c-beb7-a63fc8490f94` · 0 прямих оголошень
+- Електроніка — `market-electronics` — `2561f4be-fadd-4103-ad77-34210b206916` · 0 прямих оголошень
+  - Телефони та аксесуари — `market-electronics--telefony-ta-aksesuary` — `548883d4-1cde-4e34-a679-f0b30b673be8` · 0 прямих оголошень
+    - Запчастини для телефонів — `market-electronics--telefony-ta-aksesuary--zapchastyny-dlya-telefoniv` — `4fabb814-4765-40c2-9af6-9e59e3a48983` · 0 прямих оголошень
+    - Аксесуари для телефонів — `market-electronics--telefony-ta-aksesuary--aksesuary-dlya-telefoniv` — `722ba5c5-3589-45ca-b23f-4af81f0afbc5` · 0 прямих оголошень
+    - Смартфони / мобільні телефони — `market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony` — `bb66ca5f-11a6-4583-a7a4-2fdb7491a8e9`
+    - Сім-карти / тарифи / номери — `market-electronics--telefony-ta-aksesuary--sim-karty-taryfy-nomery` — `cd75b4ad-de63-4bc2-8b88-0075a5101b61` · 0 прямих оголошень
+    - Стаціонарні телефони — `market-electronics--telefony-ta-aksesuary--statsionarni-telefony` — `3ae93036-9069-4bc4-884a-ed548b36f07e` · 0 прямих оголошень
+    - Рації та інші телефони — `market-electronics--telefony-ta-aksesuary--ratsiyi-ta-inshi-telefony` — `546d60ee-2b93-4d80-93c6-93b2d8e5614a` · 0 прямих оголошень
+    - Смарт годинники / фітнес браслети — `market-electronics--telefony-ta-aksesuary--smart-hodynnyky-fitnes-braslety` — `28b03c24-fad4-45a3-b5fe-9198d6d00f77`
+  - Комп'ютери та комплектуючі — `market-electronics--komp-yutery-ta-komplektuyuchi` — `e57ea609-49bc-44f4-8b56-654c4ba3cb05` · 0 прямих оголошень
+    - Настільні комп'ютери — `market-electronics--komp-yutery-ta-komplektuyuchi--nastilni-komp-yutery` — `5bdf03fe-f5e5-4bb8-99cc-89bd94bc5965` · 0 прямих оголошень
+    - Сервери — `market-electronics--komp-yutery-ta-komplektuyuchi--servery` — `acf18747-4159-4c9d-85f9-a7234b480cd1` · 0 прямих оголошень
+    - Комплектуючі та запчастини — `market-electronics--komp-yutery-ta-komplektuyuchi--komplektuyuchi-ta-zapchastyny` — `0072f73a-60f2-407d-9df2-1d3c4a86590f` · 0 прямих оголошень
+    - Периферійні пристрої — `market-electronics--komp-yutery-ta-komplektuyuchi--peryferiyni-prystroyi` — `ca01dd92-83d2-4166-ae7f-6d2823eedadc` · 0 прямих оголошень
+    - Монітори — `market-electronics--komp-yutery-ta-komplektuyuchi--monitory` — `e5cfdf2b-99c9-4372-83ef-0ed762de9371` · 0 прямих оголошень
+    - Зовнішні накопичувачі — `market-electronics--komp-yutery-ta-komplektuyuchi--zovnishni-nakopychuvachi` — `2420a826-a374-4d64-a1d9-d31b5be8ba46` · 0 прямих оголошень
+    - Витратні матеріали — `market-electronics--komp-yutery-ta-komplektuyuchi--vytratni-materialy` — `07f4d31e-a5bb-431c-8e39-83223b88f5b6` · 0 прямих оголошень
+    - Мережеве обладнання — `market-electronics--komp-yutery-ta-komplektuyuchi--merezheve-obladnannya` — `43a0682b-47b0-4a12-a230-26c3f3a6c8af` · 0 прямих оголошень
+    - Оргтехніка — `market-electronics--komp-yutery-ta-komplektuyuchi--orhtekhnika` — `3b14d771-ac24-485c-99a5-1565f5833c95` · 0 прямих оголошень
+    - Інше — `market-electronics--komp-yutery-ta-komplektuyuchi--inshe` — `3fd27d6f-e4cd-416b-90a3-7eeda4235513` · 0 прямих оголошень
+  - Фото / відео — `market-electronics--foto-video` — `a8dfe76a-2e46-4ecb-901d-fe6dc401667e` · 0 прямих оголошень
+    - Цифрові фотоапарати — `market-electronics--foto-video--tsyfrovi-fotoaparaty` — `b075efbe-63d0-4375-81d3-3fd64ef9eebf`
+    - Відеокамери — `market-electronics--foto-video--videokamery` — `ca290fc0-a454-4669-b09e-2490edbd46a5` · 0 прямих оголошень
+    - Екшн-камери — `market-electronics--foto-video--ekshn-kamery` — `c772b628-289d-4ab7-ab3e-5ab6b1f1a270` · 0 прямих оголошень
+    - Об'єктиви — `market-electronics--foto-video--ob-yektyvy` — `ed3de810-fd71-4436-88f7-a70841fd447f` · 0 прямих оголошень
+    - Штативи / моноподи — `market-electronics--foto-video--shtatyvy-monopody` — `0ccf2403-d3e3-4103-a8d7-abc999d50df0` · 0 прямих оголошень
+    - Фотоспалахи — `market-electronics--foto-video--fotospalakhy` — `91f3da7b-347e-4368-9343-7145284edd8a` · 0 прямих оголошень
+    - Аксесуари для фото / відеокамер — `market-electronics--foto-video--aksesuary-dlya-foto-videokamer` — `3ea8c7b3-d00c-473f-aa59-96f731efc006` · 0 прямих оголошень
+    - Телескопи / біноклі — `market-electronics--foto-video--teleskopy-binokli` — `bc0da886-4a62-445e-b80c-afd46d94335f` · 0 прямих оголошень
+    - Плівкові фотоапарати — `market-electronics--foto-video--plivkovi-fotoaparaty` — `ecdd7bd5-05a1-4ae6-9a9e-2c6bb496d679`
+    - Студійне обладнання — `market-electronics--foto-video--studiyne-obladnannya` — `6a819adb-4379-49ff-b3b4-3c0dbf8cd27d` · 0 прямих оголошень
+  - Тв / відеотехніка — `market-electronics--tv-videotekhnika` — `98973b08-b099-4f5c-8530-5c45bc5f40fe` · 0 прямих оголошень
+    - Медіа програвачі — `market-electronics--tv-videotekhnika--media-prohravachi` — `efc39ec0-2fbb-4394-8047-0adea4f970d4` · 0 прямих оголошень
+    - Телевізори — `market-electronics--tv-videotekhnika--televizory` — `a164b8e6-15bf-42d1-86bc-e4e60391a63a` · 0 прямих оголошень
+    - Проектори — `market-electronics--tv-videotekhnika--proektory` — `215327cc-80f5-425b-9fdc-cba105673ff1` · 0 прямих оголошень
+    - Аксесуари для ТВ/Відеотехніки — `market-electronics--tv-videotekhnika--aksesuary-dlya-tv-videotekhniky` — `a6e1d926-02e6-43cd-bab5-f925c9b567d1` · 0 прямих оголошень
+    - Супутникове ТВ — `market-electronics--tv-videotekhnika--suputnykove-tv` — `7d74c8bb-c5e6-4a77-8523-aaf8f98e2285` · 0 прямих оголошень
+    - Системи відеоспостереження — `market-electronics--tv-videotekhnika--systemy-videosposterezhennya` — `91962173-c2d7-4bfc-adb7-79920d61565e` · 0 прямих оголошень
+    - Інша ТВ / відеотехніка — `market-electronics--tv-videotekhnika--insha-tv-videotekhnika` — `c1f6b5a8-b05a-404d-b352-bc8ad44045f1` · 0 прямих оголошень
+  - Аудіотехніка — `market-electronics--audiotekhnika` — `fd23a06e-05f5-4f8f-9ffa-06aac20c17ef` · 0 прямих оголошень
+    - Mp3 плеєри — `market-electronics--audiotekhnika--mp3-pleyery` — `ab282041-ffe1-4eff-96fc-b7eac8ea4c4b` · 0 прямих оголошень
+    - Магнітоли та магнітофони — `market-electronics--audiotekhnika--mahnitoly-ta-mahnitofony` — `bc2792ef-9a9d-4185-9496-b6c2fadf707e` · 0 прямих оголошень
+    - Музичні центри — `market-electronics--audiotekhnika--muzychni-tsentry` — `f257f96c-3b06-426f-bfeb-e22bdd81a446` · 0 прямих оголошень
+    - Акустичні системи — `market-electronics--audiotekhnika--akustychni-systemy` — `825c0f05-065f-4500-b16c-d199fc858fa2` · 0 прямих оголошень
+    - Навушники та аксесуари — `market-electronics--audiotekhnika--navushnyky-ta-aksesuary` — `0e4060a5-b3cc-43a1-8859-c57526d6f356`
+    - Радіоприймачі — `market-electronics--audiotekhnika--radiopryymachi` — `9d424d96-1d09-4af2-9d00-6aa5a3c920bc` · 0 прямих оголошень
+    - Портативна акустика — `market-electronics--audiotekhnika--portatyvna-akustyka` — `dff2d1e3-2592-4960-b602-a604ceaf4da5` · 0 прямих оголошень
+    - Підсилювачі та ресивери — `market-electronics--audiotekhnika--pidsylyuvachi-ta-resyvery` — `abc1d045-04a1-459a-a6db-cfb495334f6d` · 0 прямих оголошень
+    - Cd / md / вінілові програвачі — `market-electronics--audiotekhnika--cd-md-vinilovi-prohravachi` — `8866d54d-0614-4163-8bd1-8eead483d24a` · 0 прямих оголошень
+    - Диктофони — `market-electronics--audiotekhnika--dyktofony` — `0b15db88-1918-453b-9e21-4222d9531718` · 0 прямих оголошень
+    - Мікрофони — `market-electronics--audiotekhnika--mikrofony` — `b310a9c6-eaec-49dd-861a-d504cc0f4f5f` · 0 прямих оголошень
+    - Комплектуючі для аудіотехніки — `market-electronics--audiotekhnika--komplektuyuchi-dlya-audiotekhniky` — `0bef8f10-6aa2-4735-b8e7-119d95d35c13` · 0 прямих оголошень
+    - Інша аудіотехніка — `market-electronics--audiotekhnika--insha-audiotekhnika` — `70331da1-55e1-4a5a-bc9f-e37b998af4c1` · 0 прямих оголошень
+  - Ігри та ігрові приставки — `market-electronics--ihry-ta-ihrovi-prystavky` — `74ccf466-08da-4ac3-ada1-f13860ede368`
+    - Ігри для приставок — `market-electronics--ihry-ta-ihrovi-prystavky--ihry-dlya-prystavok` — `3fed546c-b750-423e-9a10-3c507661e55d` · 0 прямих оголошень
+    - Приставки — `market-electronics--ihry-ta-ihrovi-prystavky--prystavky` — `0812d9ca-ee0e-4592-8173-83c31c38db19`
+    - Ігри для PC — `market-electronics--ihry-ta-ihrovi-prystavky--ihry-dlya-pc` — `6c183a6a-faec-4687-83b4-ba6f52036f88` · 0 прямих оголошень
+    - Аксесуари для приставок — `market-electronics--ihry-ta-ihrovi-prystavky--aksesuary-dlya-prystavok` — `15ee6445-1239-4d07-a0d7-bdc88ffe5063` · 0 прямих оголошень
+    - Ігрові акаунти — `market-electronics--ihry-ta-ihrovi-prystavky--ihrovi-akaunty` — `08a4bb6e-095c-4a7f-bfb1-1321595bdbdf` · 0 прямих оголошень
+    - Магазин предметів інвентарю — `market-electronics--ihry-ta-ihrovi-prystavky--mahazyn-predmetiv-inventaryu` — `f70fbd18-6388-49e9-beec-3d11a3e0a708` · 0 прямих оголошень
+    - VR окуляри — `market-electronics--ihry-ta-ihrovi-prystavky--vr-okulyary` — `3b6fb086-b3f7-4013-b2c9-48a7b3ea2318` · 0 прямих оголошень
+  - Планшети / ел. книги та аксесуари — `market-electronics--planshety-el-knyhy-ta-aksesuary` — `7d8fe124-f0a0-4633-b608-f4ca6e5a0c0d`
+    - Планшетні комп'ютери — `market-electronics--planshety-el-knyhy-ta-aksesuary--planshetni-komp-yutery` — `3214903f-b527-4576-825d-c75c1da59c70` · 0 прямих оголошень
+    - Електронні книги — `market-electronics--planshety-el-knyhy-ta-aksesuary--elektronni-knyhy` — `b15d52fa-8073-426c-ac82-d70401938ba9`
+    - Графічні планшети — `market-electronics--planshety-el-knyhy-ta-aksesuary--hrafichni-planshety` — `4f95101b-b8c0-4e29-883a-46acd95d7799` · 0 прямих оголошень
+    - Запчастини для планшетів / ел. книг — `market-electronics--planshety-el-knyhy-ta-aksesuary--zapchastyny-dlya-planshetiv-el-knyh` — `15fe8cda-c287-465d-aa70-770ed5ca266f` · 0 прямих оголошень
+    - Аксесуари для планшетів / ел. книг — `market-electronics--planshety-el-knyhy-ta-aksesuary--aksesuary-dlya-planshetiv-el-knyh` — `81e2aa0b-b8bd-45ff-bfaf-0d27246a1951` · 0 прямих оголошень
+  - Ноутбуки та аксесуари — `market-electronics--noutbuky-ta-aksesuary` — `dfefa856-a524-4d20-8d32-afe45f2399a6`
+    - Ноутбуки — `market-electronics--noutbuky-ta-aksesuary--noutbuky` — `d59248f9-280d-4418-bc40-62639e8439e0`
+    - Запчастини для ноутбуків — `market-electronics--noutbuky-ta-aksesuary--zapchastyny-dlya-noutbukiv` — `b8efdde5-3e28-463f-84e3-90d0817e31be`
+    - Аксесуари для ноутбуків — `market-electronics--noutbuky-ta-aksesuary--aksesuary-dlya-noutbukiv` — `ab2d0703-72f9-41e7-978c-e07b945cfafc`
+  - Техніка для дому — `market-electronics--tekhnika-dlya-domu` — `4ed820e3-9743-4efa-b52f-86150ba9dec1` · 0 прямих оголошень
+    - Пилососи — `market-electronics--tekhnika-dlya-domu--pylososy` — `4dd195dd-388e-41ec-a610-0a967fe1d271` · 0 прямих оголошень
+    - Праски — `market-electronics--tekhnika-dlya-domu--prasky` — `0c905529-17c4-46f0-8808-453d217d05ac` · 0 прямих оголошень
+    - Пральні машини — `market-electronics--tekhnika-dlya-domu--pralni-mashyny` — `107c53e7-d24f-4bcc-89e0-8a7db24a07fc` · 0 прямих оголошень
+    - Швейні машини та оверлоки — `market-electronics--tekhnika-dlya-domu--shveyni-mashyny-ta-overloky` — `c366190c-e281-45ac-b412-f7cbac197912` · 0 прямих оголошень
+    - В'язальні машини — `market-electronics--tekhnika-dlya-domu--v-yazalni-mashyny` — `89f3dee5-7722-4a87-bd05-e8864a272511` · 0 прямих оголошень
+    - Фільтри для води — `market-electronics--tekhnika-dlya-domu--filtry-dlya-vody` — `073204d9-eb41-4b2c-8915-7741bba12906` · 0 прямих оголошень
+    - Зарядні станції — `market-electronics--tekhnika-dlya-domu--zaryadni-stantsiyi` — `49b6af47-3dd9-429d-ac08-e687cda70986` · 0 прямих оголошень
+    - Перетворювачі напруги — `market-electronics--tekhnika-dlya-domu--peretvoryuvachi-napruhy` — `9730c1d4-ced0-4f0c-b6f7-0a774cf2b144` · 0 прямих оголошень
+    - Безперебійники живлення — `market-electronics--tekhnika-dlya-domu--bezperebiynyky-zhyvlennya` — `a33df05f-67f2-4f30-8c04-a3c4672cfdf9` · 0 прямих оголошень
+    - Сушильні машини — `market-electronics--tekhnika-dlya-domu--sushylni-mashyny` — `621321b1-5afa-406f-9322-eebafada79a5` · 0 прямих оголошень
+    - Інша техніка для дому — `market-electronics--tekhnika-dlya-domu--insha-tekhnika-dlya-domu` — `5a51e28d-021a-470e-bfa7-3e90f9573d59` · 0 прямих оголошень
+    - Аксесуари та запчастини — `market-electronics--tekhnika-dlya-domu--aksesuary-ta-zapchastyny` — `f4b6702f-e349-431b-85d3-64fa7b88dfc1` · 0 прямих оголошень
+  - Техніка для кухні — `market-electronics--tekhnika-dlya-kukhni` — `2dc1c0de-e112-4b6d-afa9-7065fdbba9d6` · 0 прямих оголошень
+    - Мікрохвильові печі — `market-electronics--tekhnika-dlya-kukhni--mikrokhvylovi-pechi` — `f4f81e95-8e2d-4fba-9989-cf99249d98b6` · 0 прямих оголошень
+    - Холодильники — `market-electronics--tekhnika-dlya-kukhni--kholodylnyky` — `10310513-dd9d-4630-bdf9-3a6a5e762bb5` · 0 прямих оголошень
+    - Плити / варильні поверхні — `market-electronics--tekhnika-dlya-kukhni--plyty-varylni-poverkhni` — `93b7c353-90a1-43d7-bd8e-5d343e252bd2` · 0 прямих оголошень
+    - Посудомийні машини — `market-electronics--tekhnika-dlya-kukhni--posudomyyni-mashyny` — `c3a74ddd-a9f5-4d81-9826-45159263df69` · 0 прямих оголошень
+    - Витяжки — `market-electronics--tekhnika-dlya-kukhni--vytyazhky` — `7b5632a9-3683-44b4-b240-4a79191982a2` · 0 прямих оголошень
+    - Інша техніка для кухні — `market-electronics--tekhnika-dlya-kukhni--insha-tekhnika-dlya-kukhni` — `524cacfb-8e63-422f-b15c-105832a1721b` · 0 прямих оголошень
+    - Морозильні камери — `market-electronics--tekhnika-dlya-kukhni--morozylni-kamery` — `8c738266-0c11-4b9b-a309-aafeb4f3f80a` · 0 прямих оголошень
+    - Дрібна побутова техніка — `market-electronics--tekhnika-dlya-kukhni--dribna-pobutova-tekhnika` — `2ca9f07b-a0d4-4d63-b8f8-a8ff450244e1` · 0 прямих оголошень
+    - Запчастини для кухонної техніки — `market-electronics--tekhnika-dlya-kukhni--zapchastyny-dlya-kukhonnoyi-tekhniky` — `2cce9b6e-b594-4306-b9f0-5e45f91dc69e` · 0 прямих оголошень
+  - Кліматичне обладнання — `market-electronics--klimatychne-obladnannya` — `6f8a7a59-e70a-4989-9597-78a46778c0e2` · 0 прямих оголошень
+    - Кондиціонери — `market-electronics--klimatychne-obladnannya--kondytsionery` — `3c477f1b-2cc6-457d-98dd-35520a86cf32` · 0 прямих оголошень
+    - Обігрівачі — `market-electronics--klimatychne-obladnannya--obihrivachi` — `64800fe3-4605-4ed3-a24a-73d8b459a7b1` · 0 прямих оголошень
+    - Тепловентилятори — `market-electronics--klimatychne-obladnannya--teploventylyatory` — `eaf41dd6-fcbd-472b-93d1-dc44f37c6c72` · 0 прямих оголошень
+    - Вентилятори — `market-electronics--klimatychne-obladnannya--ventylyatory` — `c43aed93-ba8c-4243-b7db-c3266868387f` · 0 прямих оголошень
+    - Очищувачі та озонатори повітря — `market-electronics--klimatychne-obladnannya--ochyshchuvachi-ta-ozonatory-povitrya` — `d167985f-964d-4d3a-bec3-c3e330fc03a8` · 0 прямих оголошень
+    - Зволожувачі та осушувачі повітря — `market-electronics--klimatychne-obladnannya--zvolozhuvachi-ta-osushuvachi-povitrya` — `564be29a-fdef-4671-88b6-f57cfcdd6b32` · 0 прямих оголошень
+    - Метеостанції — `market-electronics--klimatychne-obladnannya--meteostantsiyi` — `5b059a10-2bae-497d-989f-f6755e678a4a` · 0 прямих оголошень
+    - Інше кліматичне обладнання — `market-electronics--klimatychne-obladnannya--inshe-klimatychne-obladnannya` — `4def7ce4-e44a-40d4-a091-980a2e8be085` · 0 прямих оголошень
+  - Індивідуальний догляд — `market-electronics--indyvidualnyy-dohlyad` — `819c94d8-1453-4ca6-b08a-0e0bc4abc4e3` · 0 прямих оголошень
+    - Бритви — `market-electronics--indyvidualnyy-dohlyad--brytvy` — `33cb4baa-7795-499f-abaa-9013a6e20228` · 0 прямих оголошень
+    - Фени для волосся — `market-electronics--indyvidualnyy-dohlyad--feny-dlya-volossya` — `587c55a7-1103-4472-be0a-6c8b6fa42607` · 0 прямих оголошень
+    - Ваги підлогові — `market-electronics--indyvidualnyy-dohlyad--vahy-pidlohovi` — `08340987-066c-4123-8862-929c20ddb5be` · 0 прямих оголошень
+    - Машинки для стрижки — `market-electronics--indyvidualnyy-dohlyad--mashynky-dlya-stryzhky` — `5f69f945-0417-4831-a5bf-992ef08bc5bf` · 0 прямих оголошень
+    - Епілятори — `market-electronics--indyvidualnyy-dohlyad--epilyatory` — `da87bfe0-7df6-4561-80ef-0f8cdeb43c02` · 0 прямих оголошень
+    - Тримери — `market-electronics--indyvidualnyy-dohlyad--trymery` — `a1a48a38-0dc4-404b-96ee-f848281b971c` · 0 прямих оголошень
+    - Щипці / плойки для волосся — `market-electronics--indyvidualnyy-dohlyad--shchyptsi-ployky-dlya-volossya` — `0e53295d-0327-4e3f-8a00-5f6a558d79d9` · 0 прямих оголошень
+    - Стайлери — `market-electronics--indyvidualnyy-dohlyad--staylery` — `03ba7e51-593d-4f34-9c92-5712cbf75b4f` · 0 прямих оголошень
+    - Масажери — `market-electronics--indyvidualnyy-dohlyad--masazhery` — `20b41557-3a2d-4016-b4f9-db1f3dc93375` · 0 прямих оголошень
+    - Зубні щітки / іригатори — `market-electronics--indyvidualnyy-dohlyad--zubni-shchitky-iryhatory` — `af46c8f6-385f-45b9-ba2a-7ba4dbe25ebb` · 0 прямих оголошень
+    - Девайси для обличчя — `market-electronics--indyvidualnyy-dohlyad--devaysy-dlya-oblychchya` — `1a5fce31-77e5-412d-8224-75301c671c3a` · 0 прямих оголошень
+    - Небулайзери / інгалятори — `market-electronics--indyvidualnyy-dohlyad--nebulayzery-inhalyatory` — `55f826e2-a124-4b59-851e-95f67d5c766d` · 0 прямих оголошень
+    - Інша техніка для індивідуального догляду — `market-electronics--indyvidualnyy-dohlyad--insha-tekhnika-dlya-indyvidualnoho-dohlyadu` — `f6617aa4-1066-4636-904a-1e1b74b74c93` · 0 прямих оголошень
+  - Аксесуари й комплектуючі — `market-electronics--aksesuary-y-komplektuyuchi` — `d65c2b6d-c69e-420d-b694-1fbdf7bb7cef` · 0 прямих оголошень
+    - Адаптери / конектори — `market-electronics--aksesuary-y-komplektuyuchi--adaptery-konektory` — `eb6d6102-4cc6-4372-b285-50a7c4e55f7f` · 0 прямих оголошень
+    - Батарейки / акумулятори — `market-electronics--aksesuary-y-komplektuyuchi--batareyky-akumulyatory` — `1d745970-e9c2-4cf8-a7a0-3e80341da427` · 0 прямих оголошень
+    - Діоди — `market-electronics--aksesuary-y-komplektuyuchi--diody` — `b410626f-3864-47fe-accc-1b419fd624a8` · 0 прямих оголошень
+    - Конденсатори — `market-electronics--aksesuary-y-komplektuyuchi--kondensatory` — `06141c76-3a1d-48b4-b44d-958b130e8988` · 0 прямих оголошень
+    - Плати — `market-electronics--aksesuary-y-komplektuyuchi--platy` — `f8e4748b-731e-45c6-9aa3-bbc032b61116` · 0 прямих оголошень
+    - Резистори — `market-electronics--aksesuary-y-komplektuyuchi--rezystory` — `caf0a93c-6e2f-468e-a9a5-53e11abf0282` · 0 прямих оголошень
+    - Реле / регулятори / стабілізатори — `market-electronics--aksesuary-y-komplektuyuchi--rele-rehulyatory-stabilizatory` — `b2dac76e-3398-4157-a750-9c88c8c6b54b` · 0 прямих оголошень
+    - Транзистори — `market-electronics--aksesuary-y-komplektuyuchi--tranzystory` — `1c07ef4a-a0eb-49d8-9dde-39ec7c51f3cf` · 0 прямих оголошень
+    - Трансформатори — `market-electronics--aksesuary-y-komplektuyuchi--transformatory` — `d278d64e-cc9e-40d3-82cd-7db3274f1ffb` · 0 прямих оголошень
+    - Електродвигуни — `market-electronics--aksesuary-y-komplektuyuchi--elektrodvyhuny` — `6aad60b7-36ca-43f8-a49c-66b7792b2e21` · 0 прямих оголошень
+    - Інші комплектуючі — `market-electronics--aksesuary-y-komplektuyuchi--inshi-komplektuyuchi` — `122c950d-a987-4823-9997-d5014c2b3464` · 0 прямих оголошень
+  - Інша електроніка — `market-electronics--insha-elektronika` — `dbff13c6-ebfb-4e98-9ce5-8197fb1313f6` · 0 прямих оголошень
+- Бізнес та послуги — `market-business-services` — `ebe13f5e-d6f5-46ea-a19e-3c2ecd9ab107` · 0 прямих оголошень
+  - Авто / мото послуги — `market-business-services--avto-moto-posluhy` — `127988ca-60b6-481b-bde3-18e9b401150c` · 0 прямих оголошень
+  - Краса / здоров'я — `market-business-services--krasa-zdorov-ya` — `14abae03-a71e-4c74-8523-7d026f43ab3b` · 0 прямих оголошень
+    - Перукарські послуги — `market-business-services--krasa-zdorov-ya--perukarski-posluhy` — `33b3e896-6c8f-4373-9f4c-5a077aa20c2b` · 0 прямих оголошень
+    - Манікюр, педикюр, нарощування — `market-business-services--krasa-zdorov-ya--manikyur-pedykyur-naroshchuvannya` — `25dc358b-1d4a-4979-a6af-53bae6282c13` · 0 прямих оголошень
+    - Вії та брови — `market-business-services--krasa-zdorov-ya--viyi-ta-brovy` — `8771f131-04e6-4a16-834b-b67a7aa0b7b2` · 0 прямих оголошень
+    - Медичні послуги — `market-business-services--krasa-zdorov-ya--medychni-posluhy` — `39ad6159-ce0b-4cbd-98f8-0d81602bb20b` · 0 прямих оголошень
+    - Масаж — `market-business-services--krasa-zdorov-ya--masazh` — `663dfadd-e60f-4135-b648-fa395c673e7d` · 0 прямих оголошень
+    - Послуги психолога — `market-business-services--krasa-zdorov-ya--posluhy-psykholoha` — `5bf6e8bc-ae39-414b-b353-a25619bcfdf3` · 0 прямих оголошень
+    - Тату, татуаж, пірсинг — `market-business-services--krasa-zdorov-ya--tatu-tatuazh-pirsynh` — `aa096658-cde4-4313-9c99-d71e37347dd4` · 0 прямих оголошень
+    - Візаж та макіяж — `market-business-services--krasa-zdorov-ya--vizazh-ta-makiyazh` — `cc402396-3e0b-4f7c-bc73-c9e777573b38` · 0 прямих оголошень
+    - Косметологічні послуги — `market-business-services--krasa-zdorov-ya--kosmetolohichni-posluhy` — `fcdc605e-c9bf-47e4-8796-bab2587d5b38` · 0 прямих оголошень
+    - Видалення волосся — `market-business-services--krasa-zdorov-ya--vydalennya-volossya` — `6393e3da-6a21-44d2-974c-22a32e76025d` · 0 прямих оголошень
+    - Моделі для б'юті-послуг — `market-business-services--krasa-zdorov-ya--modeli-dlya-b-yuti-posluh` — `9d67c580-0346-429e-ac38-9bdd9c31e9dd` · 0 прямих оголошень
+    - Лазні, сауни та СПА — `market-business-services--krasa-zdorov-ya--lazni-sauny-ta-spa` — `27050bc6-d6a0-4317-8b5f-390aa62b213d` · 0 прямих оголошень
+    - Інші б'юті-послуги — `market-business-services--krasa-zdorov-ya--inshi-b-yuti-posluhy` — `dd921c8d-96ed-4d5a-a7f9-7f0a9c4efd9b` · 0 прямих оголошень
+  - Догляд за дітьми та літніми людьми — `market-business-services--dohlyad-za-ditmy-ta-litnimy-lyudmy` — `66b76593-cfad-4910-b853-0d69a60c1181` · 0 прямих оголошень
+    - Няня — `market-business-services--dohlyad-za-ditmy-ta-litnimy-lyudmy--nyanya` — `867bf439-7024-41f2-9e79-d78b0036c542` · 0 прямих оголошень
+    - Доглядальниця — `market-business-services--dohlyad-za-ditmy-ta-litnimy-lyudmy--dohlyadalnytsya` — `62b8434c-34d1-4c11-b8d6-81cae8b1edd5` · 0 прямих оголошень
+  - Побутові послуги — `market-business-services--pobutovi-posluhy` — `79c94e6d-ebca-47ff-951b-d5362d6ef3da` · 0 прямих оголошень
+    - Хімчистка та прання — `market-business-services--pobutovi-posluhy--khimchystka-ta-prannya` — `1725f0cc-338f-47e3-b116-65b6ea92c911` · 0 прямих оголошень
+    - Пошиття та ремонт одягу — `market-business-services--pobutovi-posluhy--poshyttya-ta-remont-odyahu` — `4f210e18-d96f-4da5-871b-db0e5f8338a9`
+    - Ремонт взуття та сумок — `market-business-services--pobutovi-posluhy--remont-vzuttya-ta-sumok` — `68710730-6589-4925-b965-1d6ad6129ab4`
+    - Дезінфекція та дезінсекція — `market-business-services--pobutovi-posluhy--dezinfektsiya-ta-dezinsektsiya` — `00865bb8-b7ae-4b49-abc1-8e77b8df5b0d` · 0 прямих оголошень
+    - Аварійне відкриття замків — `market-business-services--pobutovi-posluhy--avariyne-vidkryttya-zamkiv` — `cebfe867-d918-442c-8e2f-0b7c66f31539` · 0 прямих оголошень
+    - Виготовлення ключів — `market-business-services--pobutovi-posluhy--vyhotovlennya-klyuchiv` — `438ddc29-8ac9-4850-af0e-cd910c4670b4` · 0 прямих оголошень
+    - Послуги домробітниці — `market-business-services--pobutovi-posluhy--posluhy-domrobitnytsi` — `d66c58ed-6ada-4033-ac71-d53a40315bc5` · 0 прямих оголошень
+    - Послуги асенізатора — `market-business-services--pobutovi-posluhy--posluhy-asenizatora` — `e62c4f4f-0c82-4d4b-af06-a15c4d4b90b5` · 0 прямих оголошень
+    - Вивезення сміття — `market-business-services--pobutovi-posluhy--vyvezennya-smittya` — `a82d0a64-7493-4bb6-b0bc-1bd2b4c0a88e` · 0 прямих оголошень
+    - Послуги садівника, догляд за територією — `market-business-services--pobutovi-posluhy--posluhy-sadivnyka-dohlyad-za-terytoriyeyu` — `a418da4b-512d-41a9-a4bf-55a7f8432df7` · 0 прямих оголошень
+    - Інші побутові послуги — `market-business-services--pobutovi-posluhy--inshi-pobutovi-posluhy` — `4c0c28c1-2453-4d5e-ab5e-b0a41cd5c0a0` · 0 прямих оголошень
+  - Клінінг — `market-business-services--klininh` — `2daf1fad-c11b-4fd5-b165-7749b639511a` · 0 прямих оголошень
+  - Послуги освіти та спорту — `market-business-services--posluhy-osvity-ta-sportu` — `7ff065ee-be95-4ac8-b223-492f5cbb4542` · 0 прямих оголошень
+    - Автоінструктори — `market-business-services--posluhy-osvity-ta-sportu--avtoinstruktory` — `cf624658-4284-49a9-a5af-673d591daf81` · 0 прямих оголошень
+    - Дитячий розвиток, логопеди — `market-business-services--posluhy-osvity-ta-sportu--dytyachyy-rozvytok-lohopedy` — `1168491d-a81a-4245-9736-468210b988eb`
+    - Репетитори — `market-business-services--posluhy-osvity-ta-sportu--repetytory` — `86cc8664-e7ae-44ad-b54c-6f75af700b37` · 0 прямих оголошень
+    - Курси та тренінги — `market-business-services--posluhy-osvity-ta-sportu--kursy-ta-treninhy` — `b369474f-b090-4f21-9fea-11d1adfedd07` · 0 прямих оголошень
+    - Викладачі музики та вокалу — `market-business-services--posluhy-osvity-ta-sportu--vykladachi-muzyky-ta-vokalu` — `bb8c9cc5-5b92-4e3b-af10-e370d8cf6513` · 0 прямих оголошень
+    - Спорт і танці — `market-business-services--posluhy-osvity-ta-sportu--sport-i-tantsi` — `42bbc9c8-e553-4d7f-80df-d2f1422e4f51` · 0 прямих оголошень
+    - Інші послуги освіти — `market-business-services--posluhy-osvity-ta-sportu--inshi-posluhy-osvity` — `e8a50426-9da6-4244-b16d-6f3be8cdd8c6` · 0 прямих оголошень
+  - Перевезення та послуги спецтехніки — `market-business-services--perevezennya-ta-posluhy-spetstekhniky` — `2577eb5e-aa3b-4f97-8780-9059b7e371ad` · 0 прямих оголошень
+    - Вантажоперевезення — `market-business-services--perevezennya-ta-posluhy-spetstekhniky--vantazhoperevezennya` — `f450c5bf-d357-4465-a4bb-3e7ea090a6e4` · 0 прямих оголошень
+    - Пасажирські перевезення — `market-business-services--perevezennya-ta-posluhy-spetstekhniky--pasazhyrski-perevezennya` — `b663eb0b-0079-4570-afe5-80668cda3541` · 0 прямих оголошень
+    - Послуги маніпулятора — `market-business-services--perevezennya-ta-posluhy-spetstekhniky--posluhy-manipulyatora` — `4af38587-05f0-4350-b668-a420c1eefb65` · 0 прямих оголошень
+    - Послуги евакуатора, автовозу — `market-business-services--perevezennya-ta-posluhy-spetstekhniky--posluhy-evakuatora-avtovozu` — `8d3ff7df-9499-435b-bd08-1dd600057b2a` · 0 прямих оголошень
+    - Послуги вантажників — `market-business-services--perevezennya-ta-posluhy-spetstekhniky--posluhy-vantazhnykiv` — `bebfcb18-c4c5-413f-937a-ecc06e39eed0` · 0 прямих оголошень
+    - Послуги водіїв — `market-business-services--perevezennya-ta-posluhy-spetstekhniky--posluhy-vodiyiv` — `0c0fd9e6-95dc-400f-bfa1-e7021ca4a8b8` · 0 прямих оголошень
+    - Інші транспортні послуги — `market-business-services--perevezennya-ta-posluhy-spetstekhniky--inshi-transportni-posluhy` — `fdd7f822-2667-4a9a-89c6-4e9695c78113` · 0 прямих оголошень
+  - Фото та відеозйомка — `market-business-services--foto-ta-videozyomka` — `6858c017-d62e-4365-bcce-80d9a90e079f` · 0 прямих оголошень
+    - Фотозйомка та ретуш фото — `market-business-services--foto-ta-videozyomka--fotozyomka-ta-retush-foto` — `7453b222-27f4-40be-91bc-18a8e2af45ef` · 0 прямих оголошень
+    - Оцифрування та реставрація — `market-business-services--foto-ta-videozyomka--otsyfruvannya-ta-restavratsiya` — `bb789997-ee8c-4a9d-afeb-df21dcced3ab` · 0 прямих оголошень
+    - Відеозйомка та монтаж відео — `market-business-services--foto-ta-videozyomka--videozyomka-ta-montazh-video` — `e86953ec-fe80-45bb-81ae-5031b08a61f2` · 0 прямих оголошень
+    - Інші фото та відео послуги — `market-business-services--foto-ta-videozyomka--inshi-foto-ta-video-posluhy` — `860134a7-1d49-4d3c-a658-239fcebb96f5` · 0 прямих оголошень
+  - Організація свят — `market-business-services--orhanizatsiya-svyat` — `45553000-e01b-46a6-8497-4831912762e9` · 0 прямих оголошень
+    - Аніматори та ростові ляльки — `market-business-services--orhanizatsiya-svyat--animatory-ta-rostovi-lyalky` — `c08e15b9-502b-4bcd-b120-a1f54ee0b4ca`
+    - Кейтеринг, кухарі — `market-business-services--orhanizatsiya-svyat--keyterynh-kukhari` — `e6166668-484d-40c4-bd5a-b58f76e1564b` · 0 прямих оголошень
+    - Ведучі, музиканти, тамада — `market-business-services--orhanizatsiya-svyat--veduchi-muzykanty-tamada` — `44a41957-f771-4d45-9b80-e84890266d7a` · 0 прямих оголошень
+    - Оформлення кульками — `market-business-services--orhanizatsiya-svyat--oformlennya-kulkamy` — `05309822-139d-42c8-9ead-ed0cd366bf16` · 0 прямих оголошень
+    - Десерти та випічка на замовлення — `market-business-services--orhanizatsiya-svyat--deserty-ta-vypichka-na-zamovlennya` — `f79f57e0-ec5e-4517-8f96-6af8e7a4f886` · 0 прямих оголошень
+    - Інші послуги для свят — `market-business-services--orhanizatsiya-svyat--inshi-posluhy-dlya-svyat` — `2e0fb08c-fa51-4f35-8089-037fb6bf3a17` · 0 прямих оголошень
+  - Ремонт та обслуговування техніки — `market-business-services--remont-ta-obsluhovuvannya-tekhniky` — `33f2e32b-9ca6-4359-9751-259bf262aba3` · 0 прямих оголошень
+    - Телефони і смартфони — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--telefony-i-smartfony` — `5a0a0cb0-c16d-4703-b04b-52d468310b29`
+    - Комп'ютерна техніка — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--komp-yuterna-tekhnika` — `16486865-c8f9-4f5b-8c0f-88388df9de59` · 0 прямих оголошень
+    - Побутова техніка — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--pobutova-tekhnika` — `41da845e-79e6-4d9e-8601-163d8e091b03` · 0 прямих оголошень
+    - Фото і відеоапаратура — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--foto-i-videoaparatura` — `eac45ea2-fb4f-4e07-962f-bd9ab0e249c3` · 0 прямих оголошень
+    - Тв і відеотехніка — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--tv-i-videotekhnika` — `b5a77d25-6428-4be2-ab61-5e85416c50b1` · 0 прямих оголошень
+    - Аудіотехніка — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--audiotekhnika` — `e48c15bf-50ae-4c97-a498-5980bef92680` · 0 прямих оголошень
+    - Кліматична техніка — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--klimatychna-tekhnika` — `47757a78-982c-4147-96d0-33e19a113d26` · 0 прямих оголошень
+    - Ігрові приставки — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--ihrovi-prystavky` — `e581fad7-6e27-4a13-98b3-9931e7341434`
+    - Оргтехніка, заправка картриджів — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--orhtekhnika-zapravka-kartrydzhiv` — `1660fdfe-b361-4f18-afe2-667deb17407d` · 0 прямих оголошень
+    - Електротранспорт — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--elektrotransport` — `086bc495-698d-480f-9751-8a820c8e306e` · 0 прямих оголошень
+    - Електро та бензоінструмент — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--elektro-ta-benzoinstrument` — `c73f22c1-24dc-4437-9286-1060c8484d7c` · 0 прямих оголошень
+    - Інша техніка — `market-business-services--remont-ta-obsluhovuvannya-tekhniky--insha-tekhnika` — `a2432823-ce60-42d1-843f-b61f345ed5d8` · 0 прямих оголошень
+  - Будівництво та ремонт — `market-business-services--budivnytstvo-ta-remont` — `c5a1c868-2c56-4162-8614-75aaddd8a990` · 0 прямих оголошень
+    - Будівництво під ключ — `market-business-services--budivnytstvo-ta-remont--budivnytstvo-pid-klyuch` — `580added-09be-45c6-bd6e-7ecd969ee966` · 0 прямих оголошень
+    - Ремонт під ключ — `market-business-services--budivnytstvo-ta-remont--remont-pid-klyuch` — `06fd0feb-0e4f-45e0-9eeb-b339f1ec91ff` · 0 прямих оголошень
+    - Проєктування та дизайн — `market-business-services--budivnytstvo-ta-remont--proyektuvannya-ta-dyzayn` — `2252a645-a592-4582-8ecd-bf6b145c3514` · 0 прямих оголошень
+    - Будівельні послуги — `market-business-services--budivnytstvo-ta-remont--budivelni-posluhy` — `9ceecd1e-10e5-42b5-8477-cc5f77918bdc` · 0 прямих оголошень
+    - Сантехніка та комунікації — `market-business-services--budivnytstvo-ta-remont--santekhnika-ta-komunikatsiyi` — `1001e089-641e-4a0c-a187-a16ffda96843` · 0 прямих оголошень
+    - Оздоблення, ремонт — `market-business-services--budivnytstvo-ta-remont--ozdoblennya-remont` — `1373fd7b-c6db-44d1-b601-5b2d50833374` · 0 прямих оголошень
+    - Електромонтажні послуги — `market-business-services--budivnytstvo-ta-remont--elektromontazhni-posluhy` — `d0f798cb-e0dc-4747-83c5-5e808b76ee03` · 0 прямих оголошень
+    - Встановлення та ремонт систем безпеки — `market-business-services--budivnytstvo-ta-remont--vstanovlennya-ta-remont-system-bezpeky` — `a83a834b-b125-4edc-9024-89c94cd26551` · 0 прямих оголошень
+    - Вентиляція та кондиціонування — `market-business-services--budivnytstvo-ta-remont--ventylyatsiya-ta-kondytsionuvannya` — `a75a6b49-9c4c-4dc5-b659-f0fa362a46fb` · 0 прямих оголошень
+    - Монтаж вікон, дверей, балконів — `market-business-services--budivnytstvo-ta-remont--montazh-vikon-dverey-balkoniv` — `28a0e85d-9b9f-4407-a046-f88863a99788` · 0 прямих оголошень
+    - Зварювальні роботи — `market-business-services--budivnytstvo-ta-remont--zvaryuvalni-roboty` — `9c7a4ada-b25c-4443-9309-34f1e114ef9d` · 0 прямих оголошень
+    - Демонтажні роботи — `market-business-services--budivnytstvo-ta-remont--demontazhni-roboty` — `f5c19800-bbf5-49c6-bb2a-1dce784df019` · 0 прямих оголошень
+    - Готові конструкції — `market-business-services--budivnytstvo-ta-remont--hotovi-konstruktsiyi` — `3d242cac-d1ac-419b-adc8-206959052ea3` · 0 прямих оголошень
+    - Ландшафтні та земляні роботи — `market-business-services--budivnytstvo-ta-remont--landshaftni-ta-zemlyani-roboty` — `5df6a1e8-3f91-431c-84cc-d1832d6d8df4` · 0 прямих оголошень
+    - Буріння свердловин — `market-business-services--budivnytstvo-ta-remont--burinnya-sverdlovyn` — `1b721af2-b297-49cd-bf0d-f22a3fd341eb` · 0 прямих оголошень
+    - Інші послуги з будівництва — `market-business-services--budivnytstvo-ta-remont--inshi-posluhy-z-budivnytstva` — `ee1b136a-9a4e-4a61-be33-61d852f5caaa` · 0 прямих оголошень
+  - Сировина / матеріали — `market-business-services--syrovyna-materialy` — `4e6b663e-1508-4f9f-bd9b-cad7b408edd8` · 0 прямих оголошень
+    - Паливо — `market-business-services--syrovyna-materialy--palyvo` — `ec83fb59-c5e1-46fb-8b6b-63c0c44bbde2` · 0 прямих оголошень
+    - Дрова, вугілля, пелети — `market-business-services--syrovyna-materialy--drova-vuhillya-pelety` — `4ecb8b95-b441-40a4-8cd3-e328f45f5766` · 0 прямих оголошень
+    - Текстильні матеріали — `market-business-services--syrovyna-materialy--tekstylni-materialy` — `2ab87eaa-2671-49fc-bded-79c09e097708` · 0 прямих оголошень
+    - Гума, пластик, полімери — `market-business-services--syrovyna-materialy--huma-plastyk-polimery` — `2d88a226-f77c-46ff-93ec-8347d38e3036` · 0 прямих оголошень
+    - Інша сировина — `market-business-services--syrovyna-materialy--insha-syrovyna` — `6b98b7de-5c48-44e1-8556-60afb5576e08` · 0 прямих оголошень
+  - Прийом вторсировини — `market-business-services--pryyom-vtorsyrovyny` — `572de55e-0b7f-49cf-9a35-08d50b9a92b2` · 0 прямих оголошень
+  - Туризм / іміграція — `market-business-services--turyzm-imihratsiya` — `16918f8d-d3ec-4000-9470-89b87ec0e2a3` · 0 прямих оголошень
+    - Тури та екскурсії — `market-business-services--turyzm-imihratsiya--tury-ta-ekskursiyi` — `6018011e-cdc1-4fa5-bb96-25302c04a9a7` · 0 прямих оголошень
+    - Оформлення віз — `market-business-services--turyzm-imihratsiya--oformlennya-viz` — `a8706d46-ec10-449c-ac61-8584fb7c1bdd` · 0 прямих оголошень
+    - Інші послуги туризму — `market-business-services--turyzm-imihratsiya--inshi-posluhy-turyzmu` — `fb82cecd-9699-48d4-9786-0b90cd1b321c` · 0 прямих оголошень
+  - Ділові послуги — `market-business-services--dilovi-posluhy` — `43843c5a-ec18-4a72-b07b-0ddf1e1604b5`
+    - Бухгалтерські послуги — `market-business-services--dilovi-posluhy--bukhhalterski-posluhy` — `cdac3b98-67c1-4bfa-a8a9-20e007ecda8a` · 0 прямих оголошень
+    - Створення сайтів — `market-business-services--dilovi-posluhy--stvorennya-saytiv` — `c5d0cdea-738d-43fa-b6c4-8668b96813cb` · 0 прямих оголошень
+    - Юридичні послуги — `market-business-services--dilovi-posluhy--yurydychni-posluhy` — `4b43e542-aff6-4843-a19f-c8c44486b76a` · 0 прямих оголошень
+    - Поліграфія, реклама, друк — `market-business-services--dilovi-posluhy--polihrafiya-reklama-druk` — `5072553b-57f9-48b3-87bc-9380fcaa022e` · 0 прямих оголошень
+    - Фінансові послуги, партнерство — `market-business-services--dilovi-posluhy--finansovi-posluhy-partnerstvo` — `ee5b082b-80ce-4fd6-ac68-bdba7ad3c955` · 0 прямих оголошень
+    - Маркетингові послуги — `market-business-services--dilovi-posluhy--marketynhovi-posluhy` — `e2a7b388-8b16-4265-b5ec-27de442c3d9b` · 0 прямих оголошень
+    - Послуги перекладачів, набір тексту — `market-business-services--dilovi-posluhy--posluhy-perekladachiv-nabir-tekstu` — `580507fd-8f2a-45b4-bf62-d0cc8710c49d` · 0 прямих оголошень
+    - Інші ділові послуги — `market-business-services--dilovi-posluhy--inshi-dilovi-posluhy` — `7db88a51-e46c-4c14-8e5d-d5092ae1176b`
+  - Продаж бізнесу — `market-business-services--prodazh-biznesu` — `12725a25-df0f-4232-a20b-e23a5e2fdfc0` · 0 прямих оголошень
+    - Магазини — `market-business-services--prodazh-biznesu--mahazyny` — `60cdbdfe-af41-4363-882d-8bedacc5db05` · 0 прямих оголошень
+    - Акаунти в соц мережах — `market-business-services--prodazh-biznesu--akaunty-v-sots-merezhakh` — `22b426f3-d934-492d-88a8-bc4ef2ec228d` · 0 прямих оголошень
+    - Підприємства, компанії — `market-business-services--prodazh-biznesu--pidpryyemstva-kompaniyi` — `78b70af3-8bc6-4414-8cbf-aa314f83dcd3` · 0 прямих оголошень
+    - Кафе, ресторани, кав'ярні — `market-business-services--prodazh-biznesu--kafe-restorany-kav-yarni` — `9561c84c-390a-4630-b539-3e7ea44fb9a7` · 0 прямих оголошень
+    - Франшизи — `market-business-services--prodazh-biznesu--franshyzy` — `6109f8c6-2e56-4680-bdb9-195611901291` · 0 прямих оголошень
+    - Інтернет-магазини — `market-business-services--prodazh-biznesu--internet-mahazyny` — `1df1e1a8-908e-4289-911d-dde805b91753` · 0 прямих оголошень
+    - Інші види бізнесу — `market-business-services--prodazh-biznesu--inshi-vydy-biznesu` — `201557ce-780f-464a-a1b2-8f5e25cef65a` · 0 прямих оголошень
+  - Продаж обладнання для бізнесу — `market-business-services--prodazh-obladnannya-dlya-biznesu` — `3501ec65-fdd8-4bff-b602-b93e198dd729` · 0 прямих оголошень
+    - Торгово-виставкове обладнання — `market-business-services--prodazh-obladnannya-dlya-biznesu--torhovo-vystavkove-obladnannya` — `7112c49c-e002-49f3-8b3f-f38e249ac6b2` · 0 прямих оголошень
+    - Холодильне обладнання — `market-business-services--prodazh-obladnannya-dlya-biznesu--kholodylne-obladnannya` — `7b922022-4c2e-454b-b750-e79fbe4eb504` · 0 прямих оголошень
+    - Розрахунково-касове обладнання — `market-business-services--prodazh-obladnannya-dlya-biznesu--rozrakhunkovo-kasove-obladnannya` — `08828951-7663-48ee-99ce-89f9fe4fb844` · 0 прямих оголошень
+    - Промислове обладнання — `market-business-services--prodazh-obladnannya-dlya-biznesu--promyslove-obladnannya` — `c97f2cb9-6925-4d78-8f0b-dc9f5619cb11` · 0 прямих оголошень
+    - Обладнання для ресторанів і кафе — `market-business-services--prodazh-obladnannya-dlya-biznesu--obladnannya-dlya-restoraniv-i-kafe` — `7b093d6f-3b78-4c08-aa1c-bb5a917e9882` · 0 прямих оголошень
+    - Лабораторне обладнання — `market-business-services--prodazh-obladnannya-dlya-biznesu--laboratorne-obladnannya` — `e066cb02-9669-41b0-9cae-64c3658d1910` · 0 прямих оголошень
+    - Медичне обладнання — `market-business-services--prodazh-obladnannya-dlya-biznesu--medychne-obladnannya` — `e7567b91-45c7-4fba-a93d-b76796fa2a78` · 0 прямих оголошень
+    - Обладнання для салонів краси — `market-business-services--prodazh-obladnannya-dlya-biznesu--obladnannya-dlya-saloniv-krasy` — `253c4552-00a9-4446-89be-685ed84e8773` · 0 прямих оголошень
+    - Інше обладнання — `market-business-services--prodazh-obladnannya-dlya-biznesu--inshe-obladnannya` — `85576a69-ec3b-42e6-97c2-c4c3f2989521` · 0 прямих оголошень
+  - Послуги для тварин — `market-business-services--posluhy-dlya-tvaryn` — `50a2c02b-03fd-4b19-903e-615610c89fc7` · 0 прямих оголошень
+    - Дресирування, кінологи, вигул — `market-business-services--posluhy-dlya-tvaryn--dresyruvannya-kinolohy-vyhul` — `2d51207a-0197-420c-b795-14d74259b1ca` · 0 прямих оголошень
+    - Грумінг, стрижки, салони — `market-business-services--posluhy-dlya-tvaryn--hruminh-stryzhky-salony` — `63c0868f-a124-4609-b730-89227357265d` · 0 прямих оголошень
+    - Перетримка тварин і готелі — `market-business-services--posluhy-dlya-tvaryn--peretrymka-tvaryn-i-hoteli` — `542efbc0-0e30-410b-b630-06d5e9ed04d8` · 0 прямих оголошень
+    - Ветеринарна допомога — `market-business-services--posluhy-dlya-tvaryn--veterynarna-dopomoha` — `fa33d12c-2c67-4618-a778-d7f39cbfc0ec` · 0 прямих оголошень
+    - Інші послуги для тварин — `market-business-services--posluhy-dlya-tvaryn--inshi-posluhy-dlya-tvaryn` — `8849a268-b794-4d9f-86cd-96ab68ac9d17` · 0 прямих оголошень
+  - Ритуальні послуги — `market-business-services--rytualni-posluhy` — `a8049f16-b6e9-4542-9644-a5b44dc64984` · 0 прямих оголошень
+    - Виготовлення пам'ятників — `market-business-services--rytualni-posluhy--vyhotovlennya-pam-yatnykiv` — `bf8ed69b-e99b-4c0b-9f40-a91aa4c41588` · 0 прямих оголошень
+    - Інші ритуальні послуги — `market-business-services--rytualni-posluhy--inshi-rytualni-posluhy` — `5b273435-dfab-4622-9dc7-6511d706d241` · 0 прямих оголошень
+  - Інші послуги — `market-business-services--inshi-posluhy` — `818e723f-08e5-4780-8f9f-75e9963eaeb2` · 0 прямих оголошень
+- Житло подобово — `market-daily-housing` — `b16f9564-d526-439d-8f61-a35eaf9b2d48` · 0 прямих оголошень
+  - Будинки подобово, погодинно — `market-daily-housing--budynky-podobovo-pohodynno` — `d76d0bd2-1dcd-42e5-acc9-1e89d860d23c`
+  - Квартири подобово, погодинно — `market-daily-housing--kvartyry-podobovo-pohodynno` — `cb376c69-a797-4a03-a472-ecd2b0dcf3d9` · 0 прямих оголошень
+  - Кімнати подобово, погодинно — `market-daily-housing--kimnaty-podobovo-pohodynno` — `8f276a12-89ee-4037-b652-2624ba42dba0` · 0 прямих оголошень
+  - Готелі, бази відпочинку — `market-daily-housing--hoteli-bazy-vidpochynku` — `252aa4cd-e96a-475d-8a24-83f4ff3eac6e` · 0 прямих оголошень
+  - Хостели, койко-місця — `market-daily-housing--khostely-koyko-mistsya` — `7b399728-11eb-4f3b-bf72-a85f0a28dcdd` · 0 прямих оголошень
+  - Пропозиції Туроператорів — `market-daily-housing--propozytsiyi-turoperatoriv` — `2942399b-8793-4367-a687-456583856b93` · 0 прямих оголошень
+- Оренда та прокат — `market-rental` — `1186f11f-e078-4f68-9cd5-f6526b7e0840` · 0 прямих оголошень
+  - Оренда транспорту та спецтехніки — `market-rental--orenda-transportu-ta-spetstekhniky` — `b1e79452-4dad-4ed2-9046-1e031af5ffec` · 0 прямих оголошень
+    - Авто — `market-rental--orenda-transportu-ta-spetstekhniky--avto` — `4c9c2133-1d2f-48d4-8e60-1959b94b3078` · 0 прямих оголошень
+    - Автобус, мікроавтобус — `market-rental--orenda-transportu-ta-spetstekhniky--avtobus-mikroavtobus` — `7c4bdc6c-d9c5-4819-8857-29517f94b59b` · 0 прямих оголошень
+    - Причеп — `market-rental--orenda-transportu-ta-spetstekhniky--prychep` — `71d602f9-f332-4015-87c3-764bfe33afa5` · 0 прямих оголошень
+    - Фура, трал, довгомір — `market-rental--orenda-transportu-ta-spetstekhniky--fura-tral-dovhomir` — `18375ef2-c501-4f69-aeef-a33eed48623c` · 0 прямих оголошень
+    - Самоскид, зерновоз — `market-rental--orenda-transportu-ta-spetstekhniky--samoskyd-zernovoz` — `b7f6e87e-f85c-40ee-bbfb-514db6659098` · 0 прямих оголошень
+    - Навантажувач — `market-rental--orenda-transportu-ta-spetstekhniky--navantazhuvach` — `6b04edd3-1d85-43b5-b6f5-0fd6bfa1933c` · 0 прямих оголошень
+    - Кран — `market-rental--orenda-transportu-ta-spetstekhniky--kran` — `86b5d7de-bfd6-481a-a254-24758a553e42` · 0 прямих оголошень
+    - Автовишка — `market-rental--orenda-transportu-ta-spetstekhniky--avtovyshka` — `96e8cd04-7bf2-44ae-bf64-6f528b265042` · 0 прямих оголошень
+    - Екскаватор, бульдозер — `market-rental--orenda-transportu-ta-spetstekhniky--ekskavator-buldozer` — `57a49085-47ee-4373-b625-68cdc8135e00` · 0 прямих оголошень
+    - Трактор, комбайн — `market-rental--orenda-transportu-ta-spetstekhniky--traktor-kombayn` — `e84f217f-3771-4a68-837b-568b785ede26` · 0 прямих оголошень
+    - Інший транспорт — `market-rental--orenda-transportu-ta-spetstekhniky--inshyy-transport` — `7a2895b6-7ef1-4694-bce1-22bb504c26c7` · 0 прямих оголошень
+  - Прокат велосипедів і мото — `market-rental--prokat-velosypediv-i-moto` — `4b3274d8-f2c3-4d65-bd10-73574fbb897e`
+  - Оренда обладнання — `market-rental--orenda-obladnannya` — `d4c2e8b7-d03a-4951-baa4-fbd02f6bc0b0` · 0 прямих оголошень
+    - Оренда генераторів — `market-rental--orenda-obladnannya--orenda-heneratoriv` — `b2900698-b71b-4771-9bc2-dc3a76aed875` · 0 прямих оголошень
+    - Оренда опалубки — `market-rental--orenda-obladnannya--orenda-opalubky` — `8d0d140e-d7b4-4d6a-acbb-8403b5106576` · 0 прямих оголошень
+    - Оренда риштувань — `market-rental--orenda-obladnannya--orenda-ryshtuvan` — `a093fb00-ace7-4cca-afb3-b46c6ab09a59` · 0 прямих оголошень
+    - Оренда бетонозмішувачів та віброплит — `market-rental--orenda-obladnannya--orenda-betonozmishuvachiv-ta-vibroplyt` — `057a704c-3dfe-4bc6-8600-cb36a85490c8` · 0 прямих оголошень
+    - Оренда біотуалетів і побутівок — `market-rental--orenda-obladnannya--orenda-biotualetiv-i-pobutivok` — `7ffc3a60-88c8-4b75-8bc3-a5033b6e979d` · 0 прямих оголошень
+    - Інше обладнання — `market-rental--orenda-obladnannya--inshe-obladnannya` — `4bfc27bd-feec-42cb-b844-c043b1581743` · 0 прямих оголошень
+  - Прокат інструментів — `market-rental--prokat-instrumentiv` — `99700d6e-7272-435e-897e-03341f153c97` · 0 прямих оголошень
+  - Прокат товарів мед призначення — `market-rental--prokat-tovariv-med-pryznachennya` — `6049ca5f-126c-40b6-b5e9-42ed9eefffd6` · 0 прямих оголошень
+  - Прокат техніки та електроніки — `market-rental--prokat-tekhniky-ta-elektroniky` — `bf98016b-653d-43bb-8a94-30f2f8c94305` · 0 прямих оголошень
+  - Прокат товарів для заходів — `market-rental--prokat-tovariv-dlya-zakhodiv` — `d0a99bac-35a6-40a7-86f4-9e042993654f` · 0 прямих оголошень
+  - Прокат спорт і туристичних товарів — `market-rental--prokat-sport-i-turystychnykh-tovariv` — `cfdca191-4ef8-4b25-bf30-214c0174f1d4` · 0 прямих оголошень
+  - Прокат одягу та аксесуарів — `market-rental--prokat-odyahu-ta-aksesuariv` — `fa15bf3b-e51b-48f5-93e1-63698ef0a4a0`
+  - Прокат дитячого одягу та товарів — `market-rental--prokat-dytyachoho-odyahu-ta-tovariv` — `1f730bc4-a94e-43d4-a9e4-da8bf8172837`
+  - Інші товари на прокат — `market-rental--inshi-tovary-na-prokat` — `b5f19cfe-8d9b-492e-bf1c-9a84277a4f36` · 0 прямих оголошень
+- Мода і стиль — `market-fashion` — `2e467839-5fbb-4092-b81e-85379acd72f0` · 0 прямих оголошень
+  - Жіночий одяг — `market-fashion--zhinochyy-odyah` — `4a812358-8748-4c19-9c10-fa11e856f10c` · 0 прямих оголошень
+    - Боді — `market-fashion--zhinochyy-odyah--bodi` — `7e8c8464-b597-438b-a8fd-c853ec7e91bb` · 0 прямих оголошень
+    - Майки та футболки — `market-fashion--zhinochyy-odyah--mayky-ta-futbolky` — `c0886b9d-b01a-4aed-9697-abbc353a1760`
+    - Блузи і сорочки — `market-fashion--zhinochyy-odyah--bluzy-i-sorochky` — `9e7a62b2-7d25-4db5-b578-70795062ec8b` · 0 прямих оголошень
+    - Светри, кардигани, худі — `market-fashion--zhinochyy-odyah--svetry-kardyhany-khudi` — `7bb2e71d-c709-4d61-8da3-c8236739d095` · 0 прямих оголошень
+    - Плаття — `market-fashion--zhinochyy-odyah--plattya` — `ebdc9e59-479c-417e-a52d-249ab9575724` · 0 прямих оголошень
+    - Спідниці — `market-fashion--zhinochyy-odyah--spidnytsi` — `e899213b-2192-4d26-909e-8f2acc565de1` · 0 прямих оголошень
+    - Верхній одяг — `market-fashion--zhinochyy-odyah--verkhniy-odyah` — `689f8e0c-9dfe-46a1-8f3d-c543758b0ac3` · 0 прямих оголошень
+    - Джинси — `market-fashion--zhinochyy-odyah--dzhynsy` — `92457ff6-9a81-4295-85fc-f088cb0e5183` · 0 прямих оголошень
+    - Шорти — `market-fashion--zhinochyy-odyah--shorty` — `d793e060-b392-434a-9278-c85160bc84fa` · 0 прямих оголошень
+    - Брюки — `market-fashion--zhinochyy-odyah--bryuky` — `2844122f-4ef6-4203-9c96-07ea9e6bdfbc` · 0 прямих оголошень
+    - Комбінезони — `market-fashion--zhinochyy-odyah--kombinezony` — `ccc0c8d3-7040-4e9c-bb2f-faac3bb51fab` · 0 прямих оголошень
+    - Костюми — `market-fashion--zhinochyy-odyah--kostyumy` — `b8c535d8-7e27-4e56-9d2a-00a83970e94f` · 0 прямих оголошень
+    - Жіночі піджаки та жакети — `market-fashion--zhinochyy-odyah--zhinochi-pidzhaky-ta-zhakety` — `7257fd12-4a1f-4cc9-8f99-654e4030768f` · 0 прямих оголошень
+    - Домашній одяг та одяг для сну — `market-fashion--zhinochyy-odyah--domashniy-odyah-ta-odyah-dlya-snu` — `83fa6688-10b8-461f-9596-5c884a64f481`
+    - Спортивний одяг — `market-fashion--zhinochyy-odyah--sportyvnyy-odyah` — `d3fde44b-e646-4157-b7b4-ae08fb32d894` · 0 прямих оголошень
+    - Вишиванки — `market-fashion--zhinochyy-odyah--vyshyvanky` — `f6a19b8c-1eb6-44a5-b886-0ef7f25428f3` · 0 прямих оголошень
+    - Інший жіночий одяг — `market-fashion--zhinochyy-odyah--inshyy-zhinochyy-odyah` — `816de579-30b4-488f-86ae-463fbd8d2ab6`
+  - Жіноче взуття — `market-fashion--zhinoche-vzuttya` — `92a2f91f-7961-43cc-86c4-75beb2ea6d64` · 0 прямих оголошень
+    - Черевики та напівчеревики — `market-fashion--zhinoche-vzuttya--cherevyky-ta-napivcherevyky` — `9aae8a89-60cc-45dd-a70a-444a70943310` · 0 прямих оголошень
+    - Туфлі — `market-fashion--zhinoche-vzuttya--tufli` — `ee813a8f-5f32-436f-9062-ce701ce7f172` · 0 прямих оголошень
+    - Чоботи, напівчоботи — `market-fashion--zhinoche-vzuttya--choboty-napivchoboty` — `fd17d9a8-30af-4dab-aac4-067b86076a35` · 0 прямих оголошень
+    - Уггі — `market-fashion--zhinoche-vzuttya--uhhi` — `bcd9282b-3a11-4c04-a6e8-73e9018b8378` · 0 прямих оголошень
+    - Мокасини та сліпони — `market-fashion--zhinoche-vzuttya--mokasyny-ta-slipony` — `5a35fbd8-f2ee-469e-a185-33a4c604b2a0` · 0 прямих оголошень
+    - Кросівки — `market-fashion--zhinoche-vzuttya--krosivky` — `dce5099b-9a46-4f4b-b91e-e2666238eb72`
+    - Кеди — `market-fashion--zhinoche-vzuttya--kedy` — `e4f4f9e6-919b-493f-bc47-373e9e8c171b`
+    - Домашні капці — `market-fashion--zhinoche-vzuttya--domashni-kaptsi` — `8a336071-7312-4f46-8d37-02de16e00b00` · 0 прямих оголошень
+    - Ортопедичне взуття — `market-fashion--zhinoche-vzuttya--ortopedychne-vzuttya` — `e9a27b73-9933-4ec6-ab77-cc6365fa8e01` · 0 прямих оголошень
+    - Спортивне взуття — `market-fashion--zhinoche-vzuttya--sportyvne-vzuttya` — `ceceefc8-f855-4ad0-8274-aa2186f3b314` · 0 прямих оголошень
+    - Босоніжки, сандалі, в'єтнамки — `market-fashion--zhinoche-vzuttya--bosonizhky-sandali-v-yetnamky` — `fbd851d6-5487-4593-9f75-999880b712f4` · 0 прямих оголошень
+    - Інше жіноче взуття — `market-fashion--zhinoche-vzuttya--inshe-zhinoche-vzuttya` — `e042d031-a6e9-4b5f-bf4e-b87c85b8b7ce` · 0 прямих оголошень
+  - Чоловічий одяг — `market-fashion--cholovichyy-odyah` — `23a96001-271c-4df5-aa22-cc0121462da5`
+    - Футболки та майки — `market-fashion--cholovichyy-odyah--futbolky-ta-mayky` — `102ed736-a4ca-42ad-8e4c-e87d86f0d099` · 0 прямих оголошень
+    - Сорочки і теніски — `market-fashion--cholovichyy-odyah--sorochky-i-tenisky` — `f8b6aa24-ed35-4419-8fac-ae7003982628`
+    - Кофти й светри — `market-fashion--cholovichyy-odyah--kofty-y-svetry` — `9a49a6af-b89e-4ed1-96e0-191d3e1a05aa`
+    - Верхній одяг — `market-fashion--cholovichyy-odyah--verkhniy-odyah` — `61cc0d31-d8a1-41b3-b918-b65e6187815c` · 0 прямих оголошень
+    - Шорти — `market-fashion--cholovichyy-odyah--shorty` — `67b797dd-a985-43b6-8481-8450b185dbeb` · 0 прямих оголошень
+    - Джинси — `market-fashion--cholovichyy-odyah--dzhynsy` — `7c0bdfaa-7553-48aa-bca0-2eb2619c6970` · 0 прямих оголошень
+    - Штани — `market-fashion--cholovichyy-odyah--shtany` — `dd9f35b8-0b5c-4f22-af09-8524ef1b4b57`
+    - Костюми та піджаки — `market-fashion--cholovichyy-odyah--kostyumy-ta-pidzhaky` — `456ae2f6-5b97-4521-ad6b-330bc38a6933` · 0 прямих оголошень
+    - Комбінезони — `market-fashion--cholovichyy-odyah--kombinezony` — `f22e7d7b-01c1-481f-9c0f-8a658ecba37f` · 0 прямих оголошень
+    - Одяг для дому та сну — `market-fashion--cholovichyy-odyah--odyah-dlya-domu-ta-snu` — `814599d3-931f-433f-bf82-eb273f510712`
+    - Спортивний одяг — `market-fashion--cholovichyy-odyah--sportyvnyy-odyah` — `81335dcf-2480-494a-9f4c-dd268f66bd45`
+    - Інший чоловічий одяг — `market-fashion--cholovichyy-odyah--inshyy-cholovichyy-odyah` — `1ae0015a-1467-4970-87e5-e8a6026c829b` · 0 прямих оголошень
+  - Чоловіче взуття — `market-fashion--choloviche-vzuttya` — `0068ff10-baf1-4f27-97e7-c3069d39ab33`
+    - Кросівки — `market-fashion--choloviche-vzuttya--krosivky` — `cc918f5f-92c4-45e4-9ce0-ef0c7b538f2a`
+    - Кеди — `market-fashion--choloviche-vzuttya--kedy` — `9341499b-5dcd-4f11-9507-dafcef5faee0`
+    - Черевики — `market-fashion--choloviche-vzuttya--cherevyky` — `906f13cb-bae4-4165-a1a6-505c43fe61f5`
+    - Сандалі і шльопанці — `market-fashion--choloviche-vzuttya--sandali-i-shlopantsi` — `8df13d65-be77-4619-90e4-3f130ba9fc35` · 0 прямих оголошень
+    - Чоботи — `market-fashion--choloviche-vzuttya--choboty` — `5eed41c2-11f1-47c0-b247-dd2bcf30da4b` · 0 прямих оголошень
+    - Домашні капці — `market-fashion--choloviche-vzuttya--domashni-kaptsi` — `6c46fe44-d016-40d8-bcda-9c0a2d95c21d` · 0 прямих оголошень
+    - Мокасини та сліпони — `market-fashion--choloviche-vzuttya--mokasyny-ta-slipony` — `9ec09ed8-47de-4b9b-bbe9-6beedf906dc9` · 0 прямих оголошень
+    - Ортопедичне взуття — `market-fashion--choloviche-vzuttya--ortopedychne-vzuttya` — `91f4d09f-9eda-4c6e-8a7b-4d1669124f67`
+    - Туфлі — `market-fashion--choloviche-vzuttya--tufli` — `6805556a-72f2-4b6c-b848-879d92d26abb`
+    - Інше чоловіче взуття — `market-fashion--choloviche-vzuttya--inshe-choloviche-vzuttya` — `91abc954-a5f0-42a6-a074-c459f4aca4c6` · 0 прямих оголошень
+  - Жіноча білизна та купальники — `market-fashion--zhinocha-bilyzna-ta-kupalnyky` — `9153c1bc-76d1-4b66-ba4d-dd4f96b069c8` · 0 прямих оголошень
+    - Пляжні сукні та туніки — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--plyazhni-sukni-ta-tuniky` — `57a0cd70-af9d-4287-bcce-6140122a694c` · 0 прямих оголошень
+    - Парео, накидки — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--pareo-nakydky` — `26a7ff70-ac96-47af-933b-e16877f01d94` · 0 прямих оголошень
+    - Пляжні шорти — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--plyazhni-shorty` — `1dc4df87-cc8c-4055-b1cd-ad5b2317ff1a` · 0 прямих оголошень
+    - Купальники — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--kupalnyky` — `2ef4dbee-7a14-4cb3-93d9-5086f4b1c1e8` · 0 прямих оголошень
+    - Труси — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--trusy` — `dc90dac2-2498-4060-a279-b40e4012dc92` · 0 прямих оголошень
+    - Бюстгалтери — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--byusthaltery` — `2afcfe44-2967-4fad-b4c8-8e832b59d813` · 0 прямих оголошень
+    - Комплекти спідньої білизни — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--komplekty-spidnoyi-bilyzny` — `e27c9840-6a05-42b3-97a0-17a2e42a5b67` · 0 прямих оголошень
+    - Корегуюча білизна — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--korehuyucha-bilyzna` — `1e8d583e-1b8f-42a4-a778-4644c2ac20f0` · 0 прямих оголошень
+    - Термобілизна — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--termobilyzna` — `d1794aa7-55eb-4801-9ada-7c462fb458fa` · 0 прямих оголошень
+    - Еротична білизна — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--erotychna-bilyzna` — `03321594-47c8-4cfc-aaf1-cde58b9fe5f8` · 0 прямих оголошень
+    - Корсети — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--korsety` — `dd72dca6-7bcd-4282-9258-7f9b67ec2a3d` · 0 прямих оголошень
+    - Комбінації — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--kombinatsiyi` — `497f2a9d-72b0-4e1c-a914-7db3aef64e28` · 0 прямих оголошень
+    - Топи бюстьє — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--topy-byustye` — `73b0073d-8e5a-4014-a7da-cddb3a456423` · 0 прямих оголошень
+    - Пояси і підв'язки для панчох — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--poyasy-i-pidv-yazky-dlya-panchokh` — `b33c21c1-2b3d-45c6-ab4f-70061e8f41b9` · 0 прямих оголошень
+    - Комбідреси — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--kombidresy` — `43716504-9603-4134-94b3-16d41c3460f4` · 0 прямих оголошень
+    - Панчохи / шкарпетки / колготки — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--panchokhy-shkarpetky-kolhotky` — `4d867740-8a7f-426a-bc4c-df364ce206ad` · 0 прямих оголошень
+    - Інша жіноча білизна — `market-fashion--zhinocha-bilyzna-ta-kupalnyky--insha-zhinocha-bilyzna` — `1036793d-5f51-4bf4-97a6-c3c82308d7d3` · 0 прямих оголошень
+  - Чоловіча білизна та плавки — `market-fashion--cholovicha-bilyzna-ta-plavky` — `c100ac59-3383-4a92-bdbb-4a839366fa7a` · 0 прямих оголошень
+    - Труси — `market-fashion--cholovicha-bilyzna-ta-plavky--trusy` — `a4f94234-1132-4cbb-b8bd-7c070dab6afd` · 0 прямих оголошень
+    - Термобілизна — `market-fashion--cholovicha-bilyzna-ta-plavky--termobilyzna` — `1a1216a5-0797-4bea-a186-8a0bf9fa03a4` · 0 прямих оголошень
+    - Шкарпетки — `market-fashion--cholovicha-bilyzna-ta-plavky--shkarpetky` — `b885b551-775f-416d-9009-646c5b921cd1` · 0 прямих оголошень
+    - Плавки — `market-fashion--cholovicha-bilyzna-ta-plavky--plavky` — `5d69ff9c-664d-4cc8-bfd8-54afd77933ea` · 0 прямих оголошень
+    - Інша чоловіча білизна — `market-fashion--cholovicha-bilyzna-ta-plavky--insha-cholovicha-bilyzna` — `e7aa4a81-1451-4f40-aa54-b5f7c45ebebe` · 0 прямих оголошень
+  - Головні убори — `market-fashion--holovni-ubory` — `e60bb065-376d-4651-a3eb-32765aba6aac` · 0 прямих оголошень
+    - Бейсболки та кепки — `market-fashion--holovni-ubory--beysbolky-ta-kepky` — `9bd473ef-dab4-45b3-97b7-c343b797d9c4` · 0 прямих оголошень
+    - Балаклави — `market-fashion--holovni-ubory--balaklavy` — `82eeb8de-673b-462b-a68c-faa382ed32b4` · 0 прямих оголошень
+    - Комплекти — `market-fashion--holovni-ubory--komplekty` — `c27d5e59-f0dd-4a0d-adbe-8f1c7b9ae42f` · 0 прямих оголошень
+    - Панами — `market-fashion--holovni-ubory--panamy` — `21d89d10-c9a4-4fca-8758-0977da176a61` · 0 прямих оголошень
+    - Капелюхи — `market-fashion--holovni-ubory--kapelyukhy` — `63f269df-e6c1-48ca-9959-cac6847c3cbe` · 0 прямих оголошень
+    - Шапки — `market-fashion--holovni-ubory--shapky` — `26a1eb8f-a77f-4da9-bce5-cd039f7943f3` · 0 прямих оголошень
+    - Берети — `market-fashion--holovni-ubory--berety` — `2926920c-3885-430f-9a54-5de08ff4a3d5` · 0 прямих оголошень
+    - Бандани, бафи — `market-fashion--holovni-ubory--bandany-bafy` — `f85aef27-2627-4d17-b815-014edbf4e5e6` · 0 прямих оголошень
+    - Пов'язки та хутряні навушники — `market-fashion--holovni-ubory--pov-yazky-ta-khutryani-navushnyky` — `f17db59f-b3fc-43c3-bfe7-c5c769a75203` · 0 прямих оголошень
+    - Інші головні убори — `market-fashion--holovni-ubory--inshi-holovni-ubory` — `8dd77dc3-d01b-4f94-8645-27857ce250aa` · 0 прямих оголошень
+  - Для весілля — `market-fashion--dlya-vesillya` — `d46f212a-249a-465a-be22-7c6dfcbe8da8` · 0 прямих оголошень
+    - Весільні сукні — `market-fashion--dlya-vesillya--vesilni-sukni` — `799cfa8e-e56c-4290-80ca-ee37efbfa05b`
+    - Весільні костюми — `market-fashion--dlya-vesillya--vesilni-kostyumy` — `05fc1ad6-4f28-4e33-ad81-0d470c1ef990` · 0 прямих оголошень
+    - Сукні для подружок нареченої — `market-fashion--dlya-vesillya--sukni-dlya-podruzhok-narechenoyi` — `7942fac9-9d71-4bfe-abf2-edb6d5ca5fa6` · 0 прямих оголошень
+    - Весільне взуття — `market-fashion--dlya-vesillya--vesilne-vzuttya` — `95373e01-a943-4cce-8dee-fc2f64cff29f`
+    - Весільні аксесуари для нареченої — `market-fashion--dlya-vesillya--vesilni-aksesuary-dlya-narechenoyi` — `616ebd6c-3d4d-4b82-bbd6-a74ed6b474dc` · 0 прямих оголошень
+    - Весільна білизна — `market-fashion--dlya-vesillya--vesilna-bilyzna` — `e412691d-028f-4f61-a406-10d9c768bdec` · 0 прямих оголошень
+    - Весільні аксесуари (декор) — `market-fashion--dlya-vesillya--vesilni-aksesuary-dekor` — `b797f3b1-2d15-4d45-8370-a2965dadc6f5` · 0 прямих оголошень
+    - Інше — `market-fashion--dlya-vesillya--inshe` — `0c3a6630-6a77-40b9-a386-d022286121d2` · 0 прямих оголошень
+  - Наручні годинники — `market-fashion--naruchni-hodynnyky` — `f77019c2-a908-485f-9931-f5e9b9830d52` · 0 прямих оголошень
+  - Аксесуари — `market-fashion--aksesuary` — `bf0ff172-3a36-4356-94f9-fb8c648847e4` · 0 прямих оголошень
+    - Ювелірні вироби — `market-fashion--aksesuary--yuvelirni-vyroby` — `323c8971-f1c5-46b2-a04d-17e8a975cfbf` · 0 прямих оголошень
+    - Сумки — `market-fashion--aksesuary--sumky` — `60dd6a3e-f554-472f-af14-71cd535bf7e2` · 0 прямих оголошень
+    - Біжутерія — `market-fashion--aksesuary--bizhuteriya` — `235ea9e3-dd55-490b-b841-fc12d566cf16` · 0 прямих оголошень
+    - Скриньки для прикрас — `market-fashion--aksesuary--skrynky-dlya-prykras` — `637ef2c7-9115-490c-9628-f83646e29068` · 0 прямих оголошень
+    - Рюкзаки міські та спортивні — `market-fashion--aksesuary--ryukzaky-miski-ta-sportyvni` — `587d1d13-cd52-4e45-b537-4df2ab286304` · 0 прямих оголошень
+    - Гаманці, косметички, візитниці — `market-fashion--aksesuary--hamantsi-kosmetychky-vizytnytsi` — `7b31f3aa-7e73-425b-8e8b-e61602cc8127` · 0 прямих оголошень
+    - Парасолі — `market-fashion--aksesuary--parasoli` — `4cb8af80-fb14-4425-91c0-537c673e86e5` · 0 прямих оголошень
+    - Аксесуари для волосся — `market-fashion--aksesuary--aksesuary-dlya-volossya` — `0c2ba918-7bb7-406b-9384-3f97fbf5bc4a` · 0 прямих оголошень
+    - Ремені та пояси — `market-fashion--aksesuary--remeni-ta-poyasy` — `608e7236-4bec-49f4-bdc6-5537780143d6` · 0 прямих оголошень
+    - Шарфи і рукавички — `market-fashion--aksesuary--sharfy-i-rukavychky` — `1530defc-84bc-40f1-8492-a1f9d79bb655` · 0 прямих оголошень
+    - Окуляри — `market-fashion--aksesuary--okulyary` — `b6fd3d79-e1c2-4c7f-9734-23a78c95ed0f` · 0 прямих оголошень
+    - Краватки і метелики — `market-fashion--aksesuary--kravatky-i-metelyky` — `24f457cc-bda9-4768-8ef1-6b61cc2d1d71` · 0 прямих оголошень
+    - Аксесуари для взуття — `market-fashion--aksesuary--aksesuary-dlya-vzuttya` — `6f20bcb6-453f-45b4-a03e-15419e9f9fff` · 0 прямих оголошень
+    - Ремінці та браслети для годинника — `market-fashion--aksesuary--remintsi-ta-braslety-dlya-hodynnyka` — `d281ca8d-e35b-417f-b445-776d0b9a61cc`
+    - Інші аксесуари — `market-fashion--aksesuary--inshi-aksesuary` — `e514f2b6-bec5-4e6e-bb91-be7be61c9b71` · 0 прямих оголошень
+    - Маски для сну — `market-fashion--aksesuary--masky-dlya-snu` — `0cff453c-fe07-4e26-b1b5-8f51100adb32` · 0 прямих оголошень
+  - Одяг для вагітних — `market-fashion--odyah-dlya-vahitnykh` — `e1091428-9a05-4f2c-99b9-22ee3ef07576` · 0 прямих оголошень
+    - Футболки та майки для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--futbolky-ta-mayky-dlya-vahitnykh-ta-hoduyuchykh` — `e41ad61b-feb5-45d0-b5af-45c4d5a6ad33` · 0 прямих оголошень
+    - Блузки та туніки для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--bluzky-ta-tuniky-dlya-vahitnykh-ta-hoduyuchykh` — `566efe03-97dc-4fa6-b2e2-bf2cf7420dd1` · 0 прямих оголошень
+    - Плаття для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--plattya-dlya-vahitnykh-ta-hoduyuchykh` — `f34d2726-0194-43d2-a52c-509d86e86ea6` · 0 прямих оголошень
+    - Спідниці для вагітних — `market-fashion--odyah-dlya-vahitnykh--spidnytsi-dlya-vahitnykh` — `7f7b192c-c8e3-4c8b-96d6-c59d09583a53` · 0 прямих оголошень
+    - Купальники для вагітних — `market-fashion--odyah-dlya-vahitnykh--kupalnyky-dlya-vahitnykh` — `3948e0ab-4672-4b12-97f7-50bab74b15de` · 0 прямих оголошень
+    - Нижня білизна для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--nyzhnya-bilyzna-dlya-vahitnykh-ta-hoduyuchykh` — `4b507ba3-b356-4ced-976c-9ec61dd4519d` · 0 прямих оголошень
+    - Шорти для вагітних — `market-fashion--odyah-dlya-vahitnykh--shorty-dlya-vahitnykh` — `f512c759-a9ca-41c6-96af-50c153af19dd` · 0 прямих оголошень
+    - Комбінезони для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--kombinezony-dlya-vahitnykh-ta-hoduyuchykh` — `dd91b83e-b2a3-43ab-b408-b51b1eef8135` · 0 прямих оголошень
+    - Штани і легінси для вагітних — `market-fashion--odyah-dlya-vahitnykh--shtany-i-lehinsy-dlya-vahitnykh` — `e62809f2-fca8-44bc-8986-03a79c3edc2b`
+    - Джинси для вагітних — `market-fashion--odyah-dlya-vahitnykh--dzhynsy-dlya-vahitnykh` — `5cd93afc-6737-4ab4-b9ff-b65820f122cb` · 0 прямих оголошень
+    - Колготки для вагітних — `market-fashion--odyah-dlya-vahitnykh--kolhotky-dlya-vahitnykh` — `e18d69bd-71d0-42df-957e-2d559039ef20` · 0 прямих оголошень
+    - Верхній одяг для вагітних — `market-fashion--odyah-dlya-vahitnykh--verkhniy-odyah-dlya-vahitnykh` — `34a94b04-363f-4b79-b8f0-e718d8ef70a7` · 0 прямих оголошень
+    - Одяг для сну і дому для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--odyah-dlya-snu-i-domu-dlya-vahitnykh-ta-hoduyuchykh` — `f77f647f-6ac8-4783-8387-c50e82802b86`
+    - Светри і толстовки для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--svetry-i-tolstovky-dlya-vahitnykh-ta-hoduyuchykh` — `0fe62f96-4bc2-4055-9455-3e1a8f5ae7c7` · 0 прямих оголошень
+    - Костюми для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--kostyumy-dlya-vahitnykh-ta-hoduyuchykh` — `797f9e62-6aa1-4ea2-b3de-4a916bcf63c3` · 0 прямих оголошень
+    - Сарафани для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--sarafany-dlya-vahitnykh-ta-hoduyuchykh` — `0571a7b7-f165-4ef7-9c44-e0b09ed59543` · 0 прямих оголошень
+    - Пояси для вагітних та годуючих — `market-fashion--odyah-dlya-vahitnykh--poyasy-dlya-vahitnykh-ta-hoduyuchykh` — `bf7747fc-b292-4094-87be-8a05b06274f4` · 0 прямих оголошень
+    - Інший одяг для вагітних — `market-fashion--odyah-dlya-vahitnykh--inshyy-odyah-dlya-vahitnykh` — `e99d4e66-ed59-4ca5-9bf6-b6837e1189ca` · 0 прямих оголошень
+  - Краса / здоров'я — `market-fashion--krasa-zdorov-ya` — `c69190e3-ca54-4259-a6ea-14b86b9b9124` · 0 прямих оголошень
+    - Парфумерія — `market-fashion--krasa-zdorov-ya--parfumeriya` — `e9f2b877-d221-4aee-a1a0-bbd91c9b83f6` · 0 прямих оголошень
+    - Обладнання перукарень / салонів краси — `market-fashion--krasa-zdorov-ya--obladnannya-perukaren-saloniv-krasy` — `c1df8adf-6855-4338-9d7d-e3e0bfbba28d` · 0 прямих оголошень
+    - Товари для реабілітації та осіб з інвалідністю — `market-fashion--krasa-zdorov-ya--tovary-dlya-reabilitatsiyi-ta-osib-z-invalidnistyu` — `46a6c8d9-a3cc-415b-a60b-40bdac245972` · 0 прямих оголошень
+    - Догляд за обличчям — `market-fashion--krasa-zdorov-ya--dohlyad-za-oblychchyam` — `00293948-4525-4838-a744-542dad0f4c94` · 0 прямих оголошень
+    - Макіяж / декоративна косметика — `market-fashion--krasa-zdorov-ya--makiyazh-dekoratyvna-kosmetyka` — `6a40c9f9-aaf6-409c-bf9d-f425569a70bd` · 0 прямих оголошень
+    - Косметика для волосся — `market-fashion--krasa-zdorov-ya--kosmetyka-dlya-volossya` — `99388c11-3c1b-47ac-9436-9cb8f60f7c02` · 0 прямих оголошень
+    - Фарбування — `market-fashion--krasa-zdorov-ya--farbuvannya` — `af02e682-277f-4c5a-adc3-1d0938e5724a` · 0 прямих оголошень
+    - Косметика для тіла — `market-fashion--krasa-zdorov-ya--kosmetyka-dlya-tila` — `67b639e1-2076-419c-bdf6-d3cc7de9fece` · 0 прямих оголошень
+    - Для ротової порожнини — `market-fashion--krasa-zdorov-ya--dlya-rotovoyi-porozhnyny` — `3bbab18c-735c-4ed8-81d8-d3c74011270e` · 0 прямих оголошень
+    - Для нігтів — `market-fashion--krasa-zdorov-ya--dlya-nihtiv` — `f50f258e-ba6b-4379-9d17-10b4e40e7306` · 0 прямих оголошень
+    - Для гоління — `market-fashion--krasa-zdorov-ya--dlya-holinnya` — `0a58f393-f81a-4465-870e-04329e26929d` · 0 прямих оголошень
+    - Гігієнічні засоби — `market-fashion--krasa-zdorov-ya--hihiyenichni-zasoby` — `f543c892-b309-4e22-b0b7-06581cb57300` · 0 прямих оголошень
+    - Ортопедичні товари — `market-fashion--krasa-zdorov-ya--ortopedychni-tovary` — `884d9502-cdf4-4821-b18b-17a21710b349` · 0 прямих оголошень
+    - Медичне приладдя — `market-fashion--krasa-zdorov-ya--medychne-pryladdya` — `42f659be-720e-4286-a16a-1d29f3e2b740` · 0 прямих оголошень
+    - Косметичні інструменти та аксесуари — `market-fashion--krasa-zdorov-ya--kosmetychni-instrumenty-ta-aksesuary` — `8b1b0287-16d9-48e2-b818-17abb5310082` · 0 прямих оголошень
+    - Інші товари для краси і здоров'я — `market-fashion--krasa-zdorov-ya--inshi-tovary-dlya-krasy-i-zdorov-ya` — `2816ad0e-d51f-46e6-8b87-70320811b4a8` · 0 прямих оголошень
+  - Подарунки — `market-fashion--podarunky` — `5d60488c-98b6-415c-b0d2-73806cd38523` · 0 прямих оголошень
+    - Подарунки для чоловіків — `market-fashion--podarunky--podarunky-dlya-cholovikiv` — `19c9d272-4fee-4461-96b8-ea21379de450` · 0 прямих оголошень
+    - Подарунки для жінок — `market-fashion--podarunky--podarunky-dlya-zhinok` — `373e91d8-2e70-44df-b704-6ce6c591294d` · 0 прямих оголошень
+    - Подарунки для дітей — `market-fashion--podarunky--podarunky-dlya-ditey` — `8a0231a6-32c9-44c5-928e-97a3fc42499d` · 0 прямих оголошень
+    - Подарунки на день народження — `market-fashion--podarunky--podarunky-na-den-narodzhennya` — `0dfe64d1-67f2-40e2-9740-2835af4b1900` · 0 прямих оголошень
+    - Подарунки на весілля — `market-fashion--podarunky--podarunky-na-vesillya` — `82955f02-e603-432a-ac5a-51e52a36d2c6` · 0 прямих оголошень
+    - Подарунки на 8 березня — `market-fashion--podarunky--podarunky-na-8-bereznya` — `90c36cc1-11f3-420d-a155-17c403ec04b5` · 0 прямих оголошень
+    - Подарунки на Новий рік — `market-fashion--podarunky--podarunky-na-novyy-rik` — `eec02d1d-9b3a-470b-9458-5a7fa72db508` · 0 прямих оголошень
+    - Подарунки колегам — `market-fashion--podarunky--podarunky-koleham` — `ac5327af-bc5b-4780-9bd2-dfe0d2b21008` · 0 прямих оголошень
+    - Смачні подарунки — `market-fashion--podarunky--smachni-podarunky` — `73dc0648-6cc3-41f6-b194-d76e92603b41` · 0 прямих оголошень
+    - Подарункові коробки та пакування — `market-fashion--podarunky--podarunkovi-korobky-ta-pakuvannya` — `78d58d6d-7db4-47da-aed6-b6327ebd4618` · 0 прямих оголошень
+    - Подарунки ручної роботи — `market-fashion--podarunky--podarunky-ruchnoyi-roboty` — `60b24e32-1147-4fd6-9dd9-b5a64b06da56` · 0 прямих оголошень
+    - Листівки та конверти — `market-fashion--podarunky--lystivky-ta-konverty` — `4edd28f8-4918-427a-a81b-d456eae11da0` · 0 прямих оголошень
+    - Букети — `market-fashion--podarunky--bukety` — `02f31f05-07e5-4867-b2a7-785009075c57` · 0 прямих оголошень
+    - Повітряні кульки та композиції з них — `market-fashion--podarunky--povitryani-kulky-ta-kompozytsiyi-z-nykh` — `347e178b-be53-4c85-aa2d-9733b6ff4c14` · 0 прямих оголошень
+    - Інші подарунки — `market-fashion--podarunky--inshi-podarunky` — `2ee019da-8a12-4270-95fe-c247eb99854a` · 0 прямих оголошень
+  - Спецодяг, спецвзуття та аксесуари — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary` — `c0ca2a58-ba24-4cd7-be00-d3d6e15c0b10` · 0 прямих оголошень
+    - Робочий спецодяг — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--robochyy-spetsodyah` — `d65ce705-6d55-48aa-9832-c37242d9460a`
+    - Медичний одяг — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah` — `9daf0411-8fc5-4521-b991-eb3d92b0b532` · 0 прямих оголошень
+    - Світловідбиваючі жилети — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--svitlovidbyvayuchi-zhylety` — `aaa2fd8d-ea03-449d-a4ac-74e371271d9f` · 0 прямих оголошень
+    - Одноразовий одяг — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--odnorazovyy-odyah` — `8ebf2648-8a89-4197-9576-7da1e22cb355` · 0 прямих оголошень
+    - Дощовики — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--doshchovyky` — `bc87d418-c1e5-437e-8764-f175d6bc0f87` · 0 прямих оголошень
+    - Засоби захисту органів дихання — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--zasoby-zakhystu-orhaniv-dykhannya` — `0b017888-4d0a-417f-b8e6-e0d48085026c` · 0 прямих оголошень
+    - Робоче взуття — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--roboche-vzuttya` — `24a98583-c32b-41e6-8dbf-4f39aee65eb8`
+    - Інше — `market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--inshe` — `d0982b43-817c-440a-b89e-588dac3e6f25` · 0 прямих оголошень
+  - Мода різне — `market-fashion--moda-rizne` — `7a9b6853-09fe-4b18-8482-882d0b7b2e82` · 0 прямих оголошень
+- Хобі, відпочинок і спорт — `market-hobbies` — `66787a90-5e4a-4cc9-9a20-db9c154bdd75` · 0 прямих оголошень
+  - Антикваріат / колекції — `market-hobbies--antykvariat-kolektsiyi` — `1e27dca5-8890-4011-b9b8-ab48f1a2a774` · 0 прямих оголошень
+    - Антикварні меблі — `market-hobbies--antykvariat-kolektsiyi--antykvarni-mebli` — `d235888a-1f6f-43b9-8537-0d232fe2e8aa` · 0 прямих оголошень
+    - Букіністика — `market-hobbies--antykvariat-kolektsiyi--bukinistyka` — `2228a66f-bfeb-4f65-88bc-b918e7030e16` · 0 прямих оголошень
+    - Живопис — `market-hobbies--antykvariat-kolektsiyi--zhyvopys` — `c8df6158-cf45-4a2c-bd67-8001ffbe8dbb` · 0 прямих оголошень
+    - Предмети мистецтва — `market-hobbies--antykvariat-kolektsiyi--predmety-mystetstva` — `30e06ede-56ff-444c-a61e-d22002dfc766` · 0 прямих оголошень
+    - Колекціонування — `market-hobbies--antykvariat-kolektsiyi--kolektsionuvannya` — `7f2ce4c4-8cf7-4e22-9203-54c8b0f76cb2` · 0 прямих оголошень
+    - Витвори майстрів / рукоділля — `market-hobbies--antykvariat-kolektsiyi--vytvory-maystriv-rukodillya` — `49fd6c74-8ad8-476c-9e39-ba1565f0ca9f` · 0 прямих оголошень
+  - Музичні інструменти — `market-hobbies--muzychni-instrumenty` — `838bf538-e907-4b2f-8723-19f039511f05` · 0 прямих оголошень
+    - Акустичні гітари — `market-hobbies--muzychni-instrumenty--akustychni-hitary` — `6a93999c-97f6-471d-9d7a-840a616fdfad`
+    - Бас-гітари — `market-hobbies--muzychni-instrumenty--bas-hitary` — `b5e3a182-ea34-41bf-afb0-1be34c33970b`
+    - Піаніно / фортепіано / роялі — `market-hobbies--muzychni-instrumenty--pianino-fortepiano-royali` — `ede83b6d-2dcf-42a7-92e3-491b65ccb8d5` · 0 прямих оголошень
+    - Електрогітари — `market-hobbies--muzychni-instrumenty--elektrohitary` — `300065f8-9ef3-4584-a82b-8e432fe2aa29`
+    - Духові інструменти — `market-hobbies--muzychni-instrumenty--dukhovi-instrumenty` — `c164e62b-4560-45a6-b516-9f95a8c14591` · 0 прямих оголошень
+    - Комбопідсилювачі — `market-hobbies--muzychni-instrumenty--kombopidsylyuvachi` — `bd414f7c-8001-4b4e-afda-d2d26b3c9dbd` · 0 прямих оголошень
+    - Синтезатори — `market-hobbies--muzychni-instrumenty--syntezatory` — `2e4b499d-9489-46a2-9a75-e7e1b4f1998a` · 0 прямих оголошень
+    - Ударні інструменти — `market-hobbies--muzychni-instrumenty--udarni-instrumenty` — `67bb603d-04a0-48c9-8a43-5d3e00c47d55` · 0 прямих оголошень
+    - Студійне обладнання — `market-hobbies--muzychni-instrumenty--studiyne-obladnannya` — `ffe5a7ec-681d-4a21-9a9d-cca881471d1b` · 0 прямих оголошень
+    - Аксесуари для музичних інструментів — `market-hobbies--muzychni-instrumenty--aksesuary-dlya-muzychnykh-instrumentiv` — `e029494c-dc41-49c9-87e9-dbaaf67b78ef` · 0 прямих оголошень
+    - Інше — `market-hobbies--muzychni-instrumenty--inshe` — `0ca3bf08-d81d-4ae8-9a26-d17c8e9f4b4d` · 0 прямих оголошень
+  - Спорт / відпочинок — `market-hobbies--sport-vidpochynok` — `def226bf-21f1-4819-bf82-29e5f627657b` · 0 прямих оголошень
+    - Лижі / сноуборди — `market-hobbies--sport-vidpochynok--lyzhi-snoubordy` — `b69fdd12-479b-4e8c-880b-d9d8534c9a85` · 0 прямих оголошень
+    - Ковзани — `market-hobbies--sport-vidpochynok--kovzany` — `6ea70d44-5ff3-45db-96a8-0992460d3396` · 0 прямих оголошень
+    - Роликові ковзани — `market-hobbies--sport-vidpochynok--rolykovi-kovzany` — `78962ecc-565f-491c-beb7-1e13d87d51a9`
+    - Атлетика / фітнес — `market-hobbies--sport-vidpochynok--atletyka-fitnes` — `88894b2e-44e3-4d76-b1e3-4dc030c38144` · 0 прямих оголошень
+    - Туризм — `market-hobbies--sport-vidpochynok--turyzm` — `52d191b4-316c-490c-8246-737c7baf839a` · 0 прямих оголошень
+    - Полювання / риболовля — `market-hobbies--sport-vidpochynok--polyuvannya-rybolovlya` — `45ff995d-1191-40b1-b081-a0877fb036a9` · 0 прямих оголошень
+    - Ігри з ракеткою — `market-hobbies--sport-vidpochynok--ihry-z-raketkoyu` — `517bbee6-a79c-4890-8ad3-299ba167c685` · 0 прямих оголошень
+    - Водні види спорту — `market-hobbies--sport-vidpochynok--vodni-vydy-sportu` — `2a230d38-5697-4b1d-9a3b-55584b9090fd` · 0 прямих оголошень
+    - Футбол — `market-hobbies--sport-vidpochynok--futbol` — `9cc75a61-a0c9-4dc2-8000-f2b1df585416` · 0 прямих оголошень
+    - Хокей — `market-hobbies--sport-vidpochynok--khokey` — `b78858b7-1ddb-4d5b-b2c8-af00dc52c633` · 0 прямих оголошень
+    - Єдиноборства / бокс — `market-hobbies--sport-vidpochynok--yedynoborstva-boks` — `2d497585-e49c-4b3b-b8e3-268c0d06d1ee` · 0 прямих оголошень
+    - Настільні ігри — `market-hobbies--sport-vidpochynok--nastilni-ihry` — `21de06a6-c708-45a0-8bea-954914201110` · 0 прямих оголошень
+    - Інші види спорту — `market-hobbies--sport-vidpochynok--inshi-vydy-sportu` — `999a0c49-3746-4abd-8607-517d2c123e6a` · 0 прямих оголошень
+  - Вело — `market-hobbies--velo` — `13dceb77-ca25-4c37-b13c-f550cb7bb0e4` · 0 прямих оголошень
+    - Велосипеди — `market-hobbies--velo--velosypedy` — `d02b667a-9b59-42e5-a95f-a450ee543a8b`
+    - Велозахист — `market-hobbies--velo--velozakhyst` — `8f7cc7eb-9e18-408b-b785-acf60e46a05c` · 0 прямих оголошень
+    - Велоаксесуари — `market-hobbies--velo--veloaksesuary` — `70e19b1e-836e-479b-b45d-cd0562834be6` · 0 прямих оголошень
+    - Велозапчастини — `market-hobbies--velo--velozapchastyny` — `689fa07b-0180-427d-87d2-ab55ffc57c31` · 0 прямих оголошень
+    - Електровелосипеди — `market-hobbies--velo--elektrovelosypedy` — `4f237a6c-eaa3-4723-91d6-fbfe1edb857f`
+  - Мілітарія — `market-hobbies--militariya` — `46c37b45-15ad-40e0-aae6-7560281e86de` · 0 прямих оголошень
+    - Військовий одяг — `market-hobbies--militariya--viyskovyy-odyah` — `48893f47-b118-4ddd-bfd3-a69196e13adc`
+    - Військове взуття — `market-hobbies--militariya--viyskove-vzuttya` — `e74c7113-7cb7-4ff7-adda-d4b1ab2004b1`
+    - Рюкзаки та сумки — `market-hobbies--militariya--ryukzaky-ta-sumky` — `b161d82c-6772-4c12-bf06-201a53801145` · 0 прямих оголошень
+    - Розвантажувальні системи — `market-hobbies--militariya--rozvantazhuvalni-systemy` — `35fa46de-040d-4799-b62e-9637291836b6` · 0 прямих оголошень
+    - Підсумки — `market-hobbies--militariya--pidsumky` — `c55026a4-f205-4352-8874-a2fae40d6d96` · 0 прямих оголошень
+    - Спорядження — `market-hobbies--militariya--sporyadzhennya` — `6649b699-6cf6-4816-aeca-ca706850da1e` · 0 прямих оголошень
+    - Збройові аксесуари — `market-hobbies--militariya--zbroyovi-aksesuary` — `d93fe401-28c2-4165-97bb-5e1a5b5a8f96` · 0 прямих оголошень
+    - Медицина — `market-hobbies--militariya--medytsyna` — `0d5b3693-9855-4084-ad8e-c3042254867a` · 0 прямих оголошень
+    - Захист — `market-hobbies--militariya--zakhyst` — `d2213104-e27e-497b-a09c-44198a90672d` · 0 прямих оголошень
+  - Квадрокоптери та аксесуари — `market-hobbies--kvadrokoptery-ta-aksesuary` — `c324f581-72c6-4801-825d-c8b32d050800` · 0 прямих оголошень
+    - Квадрокоптери — `market-hobbies--kvadrokoptery-ta-aksesuary--kvadrokoptery` — `199cd2f8-b7ae-433b-9281-72791f8c1045` · 0 прямих оголошень
+    - Аксесуари для квадрокоптерів — `market-hobbies--kvadrokoptery-ta-aksesuary--aksesuary-dlya-kvadrokopteriv` — `4e3365f2-4444-4a03-8ce7-88ea873aefc7` · 0 прямих оголошень
+  - Книги / журнали — `market-hobbies--knyhy-zhurnaly` — `00d96618-1b16-452a-ae48-1844e0f1835c`
+  - CD / DVD / Платівки — `market-hobbies--cd-dvd-plativky` — `9dbce2ad-f00b-4758-9fba-157fabaf9e01` · 0 прямих оголошень
+  - Квитки — `market-hobbies--kvytky` — `8f7ed5cb-5db4-4cf3-9f99-3dedbb73a002` · 0 прямих оголошень
+  - Пошук попутників — `market-hobbies--poshuk-poputnykiv` — `ab55a1da-87ce-49ad-a03a-05e0b0a9986e` · 0 прямих оголошень
+  - Пошук гуртів / музикантів — `market-hobbies--poshuk-hurtiv-muzykantiv` — `7718d962-3840-4396-be09-094b299781b1` · 0 прямих оголошень
+  - Інше — `market-hobbies--inshe` — `8a62d74d-ad8b-475d-a94b-a8629682cb81` · 0 прямих оголошень
+- Віддам безкоштовно — `market-free` — `764d0e60-a487-4017-849b-e0b0fd28ea83`
+- Обмін — `market-exchange` — `1243749b-4b34-4b48-812d-841f16a9b1f6`
+- До речі, відомі речі — `market-collectibles` — `856d168f-efe5-4eec-b8cf-af3bbc2f8bfb`
+- Товари для геймерів — `market-gaming` — `24621820-40f9-40be-9aaa-6523135cf165` · 0 прямих оголошень
+  - Ігрові приставки — `market-gaming--ihrovi-prystavky` — `69505f04-fb71-4b60-b318-6a084197c646`
+  - Ігрові комп’ютери та ноутбуки — `market-gaming--ihrovi-komp-yutery-ta-noutbuky` — `15883b99-70b3-4633-89d4-8c440bb6b835`
+  - Ігри — `market-gaming--ihry` — `40bba11e-87f5-4474-a8ff-b80a00da5251` · 0 прямих оголошень
+  - Геймпади та аксесуари — `market-gaming--heympady-ta-aksesuary` — `ccd9f948-c5db-4cf8-823b-feac5c57d8b0` · 0 прямих оголошень
+  - Ігрові меблі — `market-gaming--ihrovi-mebli` — `f1612dc1-f057-4ed8-8722-ea70fdff7fe0` · 0 прямих оголошень
+- Продукти та господарство — `market-agriculture` — `2caec342-8260-4598-8206-6804caed1234`
+  - Бобові — `legumes` — `ed82e681-cd34-49c1-9efd-ad61af394f87` · 0 прямих оголошень
+    - Горох — `peas` — `02c53647-1e9d-4b3a-9fd5-2af3ccf52143` · 0 прямих оголошень
+    - Квасоля — `beans` — `f7ba7c68-1d3a-4746-b00e-17fdcee3cb9e` · 0 прямих оголошень
+    - Люпин — `lupin` — `6387212e-5c30-47e8-ba17-ed4dbf09ee2c` · 0 прямих оголошень
+    - Нут — `chickpeas` — `b4857aad-26bc-4818-a4ba-0c9ccf155827` · 0 прямих оголошень
+    - Сочевиця — `lentils` — `5873e3df-d6ed-430f-8b8d-e100d1def1e3` · 0 прямих оголошень
+    - Соя — `soybean` — `8d507109-10d1-41ff-a296-4566674686f8` · 0 прямих оголошень
+  - Горіхи — `nuts` — `8cec05a3-1866-4515-aeb0-9f8312b19ab6` · 0 прямих оголошень
+    - Волоські горіхи — `walnuts` — `f04bc7dc-d32a-4950-a0e9-037dd5b8d1b7` · 0 прямих оголошень
+    - Мигдаль — `almonds` — `effdef45-7402-486e-bba0-915d01fc7d89` · 0 прямих оголошень
+    - Фундук — `hazelnuts` — `4f503b53-4eac-48f1-a19c-cab038e00ec8` · 0 прямих оголошень
+  - Зелень і трави — `herbs` — `dca7622e-eef4-407a-bd11-d7d659d1384e`
+    - Базилік — `basil` — `d226a84b-3c28-431f-a0b6-07d57e5c0032` · 0 прямих оголошень
+    - Кріп — `dill` — `3db644de-9a07-4f3e-8922-9b491d6f1b08` · 0 прямих оголошень
+    - Петрушка — `parsley` — `a5d42cf0-94c1-4098-a515-e59c762b9632` · 0 прямих оголошень
+    - Салат — `lettuce` — `b5858363-e5e5-4ebd-9575-ca1cd98ad411` · 0 прямих оголошень
+    - Шпинат — `spinach` — `d4c0ba32-1b8f-40c4-8625-40ce5d6f6fe8` · 0 прямих оголошень
+  - Зернові — `grains` — `983c2f6c-fe74-4d2a-9156-3936c6515880`
+    - Гречка — `buckwheat` — `26bffeb0-0e0b-4422-bb84-448341ce278b` · 0 прямих оголошень
+    - Жито — `rye` — `c823c35a-814d-43c6-b024-586af9d3e7be` · 0 прямих оголошень
+    - Кукурудза — `corn` — `9782868c-2320-490b-9c07-bd45f42596ba` · 0 прямих оголошень
+    - Овес — `oats` — `b56f74f4-e715-4ef5-84fc-bcf862f80f1e` · 0 прямих оголошень
+    - Просо — `millet` — `b61f4e3e-4b09-4679-ae44-5b2aee3bbed9` · 0 прямих оголошень
+    - Пшениця — `wheat` — `14d88dda-ceff-4c25-9455-1d9eaca6ebf5`
+    - Рис — `rice` — `adea5562-4f2f-4ee6-83da-acddb54b6b06` · 0 прямих оголошень
+    - Сорго — `sorghum` — `2add3a73-2121-4671-95ee-a33f89374dda` · 0 прямих оголошень
+    - Тритикале — `triticale` — `50d4b9cb-452c-45d6-8a36-28c72250be3c` · 0 прямих оголошень
+    - Ячмінь — `barley` — `5a2b9cb8-ae57-4876-a17a-6949e54373ea` · 0 прямих оголошень
+  - Інше — `other_agro` — `395c47b8-8465-4838-a671-e251e725f448` · 0 прямих оголошень
+  - Корми — `feed` — `aa27d0ab-8bcb-446c-aef8-c0907d19aecf` · 0 прямих оголошень
+    - Комбікорм — `feed_mixes` — `7ab32454-db45-400c-8d58-e1c059ed0d2e` · 0 прямих оголошень
+    - Силос — `silage` — `758f917e-0106-4772-bc3d-5a56d77075f1` · 0 прямих оголошень
+    - Сінаж — `haylage` — `b750d7b1-a00b-451a-82ea-dace3f1b9c1e` · 0 прямих оголошень
+    - Сіно — `hay` — `447e19c8-f46c-4c16-ab66-761330e2df19` · 0 прямих оголошень
+    - Фуражне зерно — `feed_grain` — `810a0e35-7828-429c-be5b-702506043371` · 0 прямих оголошень
+  - Мед і продукти бджільництва — `honey` — `9076a5af-99da-40f7-98b8-9dbd69d39236`
+  - Молочні продукти — `dairy` — `4564215b-b038-45de-908b-224e5160fd53` · 0 прямих оголошень
+    - Йогурт та кисломолочні продукти — `yogurt` — `bcb9bfa1-4f59-44ac-b40f-41d9368252d7` · 0 прямих оголошень
+    - Масло вершкове — `butter` — `10693d19-b762-4f0b-873b-514887b8ab57` · 0 прямих оголошень
+    - Молоко — `milk` — `d7ece28e-58b6-4b1f-9e80-1a53f849bac9` · 0 прямих оголошень
+    - Сири — `cheese` — `b0f662fa-6646-4d8d-bb9c-9daaf0b6511d` · 0 прямих оголошень
+    - Сир кисломолочний — `cottage_cheese` — `577b9c06-73d1-4f2c-985f-77f17cb93e05` · 0 прямих оголошень
+    - Сметана — `sour_cream` — `67624ae1-a654-4c73-ae6c-5ce650b058aa` · 0 прямих оголошень
+  - М’ясо — `meat` — `a56797ba-4d52-460d-937f-1edd85fbd943` · 0 прямих оголошень
+    - Баранина — `lamb` — `0096f649-c02b-4e24-9e1a-09f8424db762` · 0 прямих оголошень
+    - Козлятина — `goat_meat` — `b34e072a-48f2-4c74-ace4-4f9303bf9992` · 0 прямих оголошень
+    - Кролятина — `rabbit_meat` — `be2cff7f-6075-4d35-bad5-fdf5c2679b05` · 0 прямих оголошень
+    - М’ясо птиці — `poultry_meat` — `3e482a0c-9419-4a13-ac9b-fe10efbf8f17` · 0 прямих оголошень
+    - Свинина — `pork` — `89fb12c4-96ad-4231-b501-1b49286148ba` · 0 прямих оголошень
+    - Яловичина — `beef` — `b788683f-73d9-4736-8ea9-aac2bdd6d8d4` · 0 прямих оголошень
+  - Насіння та посадковий матеріал — `planting_material` — `21ad4bd0-0def-4ee2-af66-5770170813b5` · 0 прямих оголошень
+    - Насіння — `seeds` — `8f1f41eb-bceb-408b-a284-b3b41d5cf632` · 0 прямих оголошень
+    - Саджанці та розсада — `seedlings` — `d452c0c0-1d90-473b-9988-9a1c3d377646`
+  - Овочі — `vegetables` — `43f894b0-a259-4eae-b6f0-c5603f3d3aa4`
+    - Баклажани — `eggplant` — `5851a489-7e92-411d-9ad4-1cbe189a0ff5` · 0 прямих оголошень
+    - Броколі — `broccoli` — `d93ae030-8b40-4688-8d90-b3cdee2d1e75` · 0 прямих оголошень
+    - Гарбузи — `pumpkin` — `90abead1-f523-4d6f-9c4d-efcd19b3f805` · 0 прямих оголошень
+    - Дині — `melon` — `b3bc3bcf-1148-4c31-8be1-0d812ad19315` · 0 прямих оголошень
+    - Кабачки — `squash` — `20e53a1c-d95c-42b3-a114-a45aa1faeea0` · 0 прямих оголошень
+    - Кавуни — `watermelon` — `b7a24336-bb61-4673-87f8-c86836ffb983` · 0 прямих оголошень
+    - Капуста — `cabbage` — `0dc80f46-64a5-4962-a825-316f5e399512` · 0 прямих оголошень
+    - Картопля — `potatoes` — `6d36e198-b071-4fd4-a9cd-96f84e84c578`
+    - Морква — `carrots` — `3b7172af-c88a-434f-afc0-37bdc597780d` · 0 прямих оголошень
+    - Огірки — `cucumber` — `262f4314-8a8e-4542-8278-79bce8123aad` · 0 прямих оголошень
+    - Перець — `pepper` — `a2d4a5c9-20ed-4120-80b1-a0998a8de90b` · 0 прямих оголошень
+    - Помідори — `tomato` — `e941f221-35e2-4484-b91e-28068e2c2bba` · 0 прямих оголошень
+    - Редис — `radish` — `ea3a0fb1-61ce-486b-82fb-f0a31418b876` · 0 прямих оголошень
+    - Столовий буряк — `beetroot` — `497ee40b-774f-4cf2-832e-9f34e5842b5a` · 0 прямих оголошень
+    - Цвітна капуста — `cauliflower` — `f9ba88f1-fff9-4a5a-b3dd-0c2338c30d02` · 0 прямих оголошень
+    - Цибуля — `onion` — `b12ea32b-f049-43cc-893a-0d206cac9715` · 0 прямих оголошень
+    - Часник — `garlic` — `be3950a7-e3eb-4334-b433-7826548dc743` · 0 прямих оголошень
+  - Олійні культури — `oilseeds` — `138051e2-1fde-4d83-a31e-90d060b82697` · 0 прямих оголошень
+    - Гірчиця — `mustard_seed` — `60b8aec1-b5ec-4bd6-921f-f265f6306892` · 0 прямих оголошень
+    - Канола — `canola` — `513e3a15-6cda-48d5-8133-1896ddab72ee` · 0 прямих оголошень
+    - Льон олійний — `flax_seed` — `31e46e18-2d63-4ef5-91e5-2db0168a5145` · 0 прямих оголошень
+    - Рижій — `camelina` — `0ed731fb-1ff0-47b4-9109-c8de108f2539` · 0 прямих оголошень
+    - Ріпак — `rapeseed` — `8800bcf5-3032-4ede-bad8-ddf27e74543e` · 0 прямих оголошень
+    - Соняшник — `sunflower` — `c26922ce-48f0-4bd0-8420-75e7fd1dac17` · 0 прямих оголошень
+  - Продукти бджільництва — `apiculture` — `2d2308d0-9ca3-48ec-9941-633c821bf7e6`
+    - Бджолиний віск — `beeswax` — `cf1f4df0-1854-40b8-b4af-cc083c728a4d`
+    - Бджолині сім’ї та пакети — `bees` — `19e73144-9550-4534-b1d7-ce9d3f5bcee8` · 0 прямих оголошень
+    - Бджоломатки — `queen_bees` — `ef7a3022-72be-4b62-9692-9ee14fb1726f` · 0 прямих оголошень
+    - Бджолопакети — `bee_packages` — `a9107adf-133d-4a08-a26d-a21560f0d1ed`
+    - Маточне молочко — `royal_jelly` — `5e75f89c-8955-4dbb-a17a-082d628dd67f`
+    - Мед — `honey_raw` — `3710c600-94bd-42ea-9780-ede72b1244b2`
+    - Пилок та перга — `pollen` — `7bbd09a9-08e9-43d6-a7ce-ea6d6c531707`
+    - Прополіс — `propolis` — `e7d15022-a494-4701-8631-4f3b074a538a`
+  - Продукти тваринництва — `animal_products` — `83c3a3fc-2ec2-4125-a4e5-f90b401e826a` · 0 прямих оголошень
+    - Вовна — `wool` — `96513227-580f-46f9-9269-6e3f56cd73c7` · 0 прямих оголошень
+    - Гній та органічні добрива — `manure` — `49d34795-6e43-4164-869e-096ea76e1ee3` · 0 прямих оголошень
+    - Шкури та хутро — `hides` — `dcb0032c-f97b-4b40-b672-19c0c4df3b51` · 0 прямих оголошень
+  - Птахівництво — `poultry` — `6e51285b-b9a0-4134-9674-e25af4140353` · 0 прямих оголошень
+    - Гуси — `geese` — `e5cbed2e-9f9e-45ac-8d22-2d43dcf4dd96` · 0 прямих оголошень
+    - Індички — `turkeys` — `a1bc4c39-e3b8-48f5-b1d6-5be30817b181` · 0 прямих оголошень
+    - Качки — `ducks` — `35e82bf7-facf-4411-b0d0-4860f279d605` · 0 прямих оголошень
+    - Кури — `chickens` — `711d36ba-4456-4557-9151-36ade5f50b01` · 0 прямих оголошень
+    - Перепели — `quails` — `abe102aa-ab54-4ee1-a540-56a9c6439c63` · 0 прямих оголошень
+    - Страуси — `ostriches` — `3c1519ca-9075-44c0-a7e5-f0d656c9887d` · 0 прямих оголошень
+  - Риба та аквакультура — `aquaculture` — `6d861a35-6afe-46ab-a725-aea7cc70d640` · 0 прямих оголошень
+    - Жива риба та мальок — `fish_farming` — `4d395fe4-e81c-44d0-9d02-af602c6c07d4` · 0 прямих оголошень
+    - Раки — `crayfish` — `b7640d04-8cbf-4686-9899-8267dec5d873`
+  - Садівництво та ягоди — `horticulture` — `97f538af-1cdc-4deb-b084-fc3a8d84bac5` · 0 прямих оголошень
+    - Їстівні гриби — `mushrooms` — `78bf66ad-af5f-4eac-8d39-9d5dbdd97253` · 0 прямих оголошень
+    - Квіти та декоративні рослини — `flower_products` — `e5a7e8d0-fb3e-441c-a955-4f84b97c26df`
+  - Тваринництво — `livestock` — `7582240e-015d-4ab3-b31c-5d292ed2a17a` · 0 прямих оголошень
+    - Велика рогата худоба — `cattle` — `8533f42a-0e3c-4515-afb9-b08b91ec461a` · 0 прямих оголошень
+    - Вівці — `sheep` — `29d5e918-7e78-4823-9cc8-c775ada9ee38` · 0 прямих оголошень
+    - Кози — `goats` — `4f023b17-1cf9-4139-ae6d-57fc664a9fe7` · 0 прямих оголошень
+    - Коні — `horses` — `9474061a-52c2-4829-acec-19e7271cf247` · 0 прямих оголошень
+    - Кролі — `rabbits` — `4da20413-3e8c-4b40-90e2-5133efcf18f5` · 0 прямих оголошень
+    - Молочні корови — `dairy_cows` — `846480b0-ca8f-4598-9f31-caa2031a0ce4` · 0 прямих оголошень
+    - М’ясна худоба — `beef_cattle` — `80779ac4-23d5-486a-b087-68375e2e5f28` · 0 прямих оголошень
+    - Поросята — `piglets` — `d90959cd-1122-4bf4-8819-bda0153402f7` · 0 прямих оголошень
+    - Свині — `pigs` — `706bbe90-a846-4409-a4c7-16655f1edd22` · 0 прямих оголошень
+    - Телята — `calves` — `3380aceb-5cfb-47d6-bb55-2cc099d7c56d` · 0 прямих оголошень
+  - Технічні культури — `industrial_crops` — `366a4b12-5d2f-40e1-9a1e-5b5f5e6ca21a` · 0 прямих оголошень
+    - Бавовник — `cotton` — `65577588-56d6-48d0-a1c5-0b4c5818e536` · 0 прямих оголошень
+    - Кормовий буряк — `fodder_beet` — `63d8fd68-d79e-4db9-938c-d94ee31674be` · 0 прямих оголошень
+    - Промислові коноплі — `industrial_hemp` — `03412921-fd0d-428b-a003-3f291cdb65af` · 0 прямих оголошень
+    - Тютюн — `tobacco` — `558074cd-ce4a-4b96-b972-0461f4e07ca9` · 0 прямих оголошень
+    - Цукровий буряк — `sugar_beet` — `65e8f41d-933c-4014-833c-56fc0c0e680e` · 0 прямих оголошень
+  - Фермерська переробка — `processed_food` — `eb024c78-e165-4014-ba96-57f598f969e0` · 0 прямих оголошень
+    - Борошно — `flour` — `a22fb99c-b9f9-4949-9bd7-2515268305e8` · 0 прямих оголошень
+    - Варення та джеми — `jams` — `82513d77-5c64-418f-8c43-9becb805272b` · 0 прямих оголошень
+    - Виноматеріали та вино — `wine_materials` — `7e95db22-a608-42ab-adb3-84f8c803e26a` · 0 прямих оголошень
+    - Консервовані овочі — `canned_vegetables` — `aefdc22e-a275-4612-a943-24c958caa92c`
+    - Крупи — `groats` — `002bf109-2c15-48ec-a72b-546b46fcf80f` · 0 прямих оголошень
+    - Рослинні олії — `vegetable_oil` — `cb2a5eaf-6b30-421a-bc79-e4125772b637`
+    - Соління та квашені овочі — `pickles` — `74528a09-a7d7-4cc8-a36a-8e0bca781d65`
+    - Сухофрукти — `dried_fruits` — `0d6a45ef-cc2b-4381-ba12-781770d8e5db` · 0 прямих оголошень
+    - Фермерська випічка — `farm_bakery` — `999844eb-f8f0-4ee1-b31e-cbb5d428b052` · 0 прямих оголошень
+    - Шрот і макуха — `sunflower_meal` — `c8c61106-7b9a-469a-b41b-d5678edd51cc` · 0 прямих оголошень
+  - Фрукти — `fruits` — `a48a885a-1827-4d39-a62c-51c9e6599015` · 0 прямих оголошень
+    - Абрикоси — `apricots` — `899be82b-6df4-43cc-8671-0e451e480ab0` · 0 прямих оголошень
+    - Айва — `quince` — `3f94229d-608d-4bb0-8f34-a6b57a8b9449` · 0 прямих оголошень
+    - Виноград — `grapes` — `6849fc96-ac13-4332-a48a-83130bc6eb46` · 0 прямих оголошень
+    - Вишні — `cherries` — `26aa2246-b349-470e-bea4-9e7b923b2f44` · 0 прямих оголошень
+    - Груші — `pears` — `380d5e99-aef7-4c89-a642-38e503cf84ff` · 0 прямих оголошень
+    - Персики — `peaches` — `405a2b7e-3554-4b20-afe2-f3521d436af9` · 0 прямих оголошень
+    - Сливи — `plums` — `1c63de28-a0b7-4b36-862a-300e15dce495` · 0 прямих оголошень
+    - Черешні — `sweet_cherries` — `65bb2b40-6716-4384-b713-fd1cb2b9fe7a` · 0 прямих оголошень
+    - Яблука — `apples` — `9ae9444b-c70e-4dbf-8364-8623898aca9a`
+  - Ягоди — `berries` — `fdd4c5fa-ce50-4cb8-a523-e2c247e60a3c` · 0 прямих оголошень
+    - Аґрус — `gooseberries` — `c553bfa3-b84d-4697-bee0-ea262a38e9ba` · 0 прямих оголошень
+    - Журавлина — `cranberries` — `95f7c3c3-7c7d-472e-a436-6cb29d3caecd` · 0 прямих оголошень
+    - Лохина — `blueberries` — `8170bca2-a431-404e-a6df-97ee67bce4a5` · 0 прямих оголошень
+    - Малина — `raspberries` — `e3ed94ff-9458-4a92-9bf3-e08763968351` · 0 прямих оголошень
+    - Ожина — `blackberries` — `27249858-3b7a-464c-b041-c6e4f23b0e45` · 0 прямих оголошень
+    - Полуниця — `strawberries` — `12c64a79-b5ca-46fc-b197-25ecb5c2dc7e` · 0 прямих оголошень
+    - Смородина — `currants` — `78b4558c-035b-4f42-a12e-c9fb54b54e1f` · 0 прямих оголошень
+  - Яйця — `eggs` — `4c60cee3-ef8f-4b86-8b22-f2f53ab3b951` · 0 прямих оголошень
+    - Курячі яйця — `chicken_eggs` — `6e198c55-1108-4a25-95a1-b76fc44c73ab` · 0 прямих оголошень
+    - Перепелині яйця — `quail_eggs` — `f2e71f41-a0aa-44a4-9df0-6f6da6ab4020` · 0 прямих оголошень

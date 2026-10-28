@@ -4,7 +4,6 @@ import { assessCategory } from './category-recommendation.js';
 const rows = [
   ['market-agriculture', null, 'Сільське господарство'],
   ['apiculture', 'market-agriculture', 'Продукти бджільництва'],
-  ['honey_raw', 'apiculture', 'Мед'],
   ['processed_food', 'market-agriculture', 'Фермерська переробка'],
   ['fruits', 'market-agriculture', 'Фрукти'],
   ['apples', 'fruits', 'Яблука'],
@@ -33,7 +32,7 @@ const rows = [
 const queryable = { query: async () => ({ rows }) } as any;
 
 const groups = [
-  { category: 'honey_raw', wrong: 'market-auto', titles: ['Мед натуральний 3 л', 'Продам мед акацієвий', 'Мёд липовый свежий', 'Куплю мед у відрах', 'Мед гречаний від пасічника'] },
+  { category: 'apiculture', wrong: 'market-auto', titles: ['Мед натуральний 3 л', 'Продам мед акацієвий', 'Мёд липовый свежий', 'Куплю мед у відрах', 'Мед гречаний від пасічника'] },
   { category: 'market-hobbies--velo--velosypedy', wrong: 'dairy', titles: ['Велосипед дитячий Trek', 'Велосипед гірський Giant', 'Продам велосипед Scott', 'Куплю велосипед міський', 'Велосипеды горные новые'] },
   { category: 'market-auto--lehkovi-avtomobili', wrong: 'market-fashion', titles: ['Автомобіль Renault Megane', 'Автомобіль для пасіки', 'Автомобіль Toyota Corolla', 'Автомобиль Ford Focus', 'Автомобіль легковий Skoda'] },
   { category: 'processed_food', wrong: 'market-electronics', titles: ['Цукор білий мішок', 'Цукор фасований 1 кг', 'Куплю цукор оптом', 'Сахар белый мешок', 'Сахар фасованный свежий'] },
@@ -45,6 +44,13 @@ const groups = [
 const ambiguousTitles = ['Насос', 'Кабель', 'Зарядка', 'Батарея', 'Адаптер', 'Мотор', 'Насос для води', 'Кабель чорний', 'Зарядка універсальна', 'Батарея нова', 'Адаптер живлення', 'Мотор робочий', 'Насос великий', 'Кабель довгий', 'Зарядка швидка', 'Батарея потужна', 'Адаптер автомобільний', 'Мотор електричний', 'Насос промисловий', 'Кабель для дому'];
 
 describe('category control set', () => {
+  it('recommends the canonical category for beekeeping products', async () => {
+    for (const title of ['Пилок квітковий', 'Перга бджолина', 'Прополіс натуральний', 'Бджолиний віск', 'Маточне молочко']) {
+      const result = await assessCategory({ title, categoryId: 'apiculture' }, queryable);
+      expect(result.suggestions.some(item => item.id === 'apiculture'), title).toBe(true);
+      expect(result.level, title).toBe('allow');
+    }
+  });
   it('measures 100 distinct Ukrainian and Russian listings', async () => {
     const good = groups.flatMap(group => group.titles.map(title => ({ title, categoryId: group.category, expected: group.category })));
     const bad = groups.flatMap(group => group.titles.map(title => ({ title, categoryId: group.wrong, expected: group.category })));
@@ -72,16 +78,16 @@ describe('category control set', () => {
     const cases = [
       ['Медогонка електрична', 'market-auto', 'warn'],
       ['Автомобіль для перевезення вуликів', 'market-auto--lehkovi-avtomobili', 'allow'],
-      ['Медичний халат', 'honey_raw', 'warn'],
+      ['Медичний халат', 'apiculture', 'warn'],
       ['Мед натуральний', 'market-auto', 'warn'],
-      ['Автомобіль Renault', 'honey_raw', 'warn'],
+      ['Автомобіль Renault', 'apiculture', 'warn'],
     ] as const;
     for (const [title, categoryId, level] of cases) expect((await assessCategory({ title, categoryId }, queryable)).level, title).toBe(level);
-    expect((await assessCategory({ title: 'Автомобіль Renault', description: 'Насправді продається мед', categoryId: 'honey_raw' }, queryable)).level).toBe('warn');
+    expect((await assessCategory({ title: 'Автомобіль Renault', description: 'Насправді продається мед', categoryId: 'apiculture' }, queryable)).level).toBe('warn');
   });
   it('replays the 18 independent Sol review examples', async () => {
     const cases = [
-      ['Натуральний мед 3 л', 'market-auto--lehkovi-avtomobili', 'warn', 'honey_raw'],
+      ['Натуральний мед 3 л', 'market-auto--lehkovi-avtomobili', 'warn', 'apiculture'],
       ['Дитячий велосипед Trek', 'processed_food', 'warn', 'market-hobbies--velo--velosypedy'],
       ['Автомобіль медового кольору', 'market-auto--lehkovi-avtomobili', 'allow', 'market-auto--lehkovi-avtomobili'],
       ['Електрична медогонка', 'market-business-services--prodazh-obladnannya-dlya-biznesu', 'allow', 'market-business-services--prodazh-obladnannya-dlya-biznesu'],
@@ -94,9 +100,9 @@ describe('category control set', () => {
       ['Велосипедні рукавички Trek', 'market-fashion--aksesuary--sharfy-i-rukavychky', 'allow', 'market-fashion--aksesuary--sharfy-i-rukavychky'],
       ['Продаю яблука, дитячий велосипед Trek у подарунок', 'apples', 'allow', 'apples'],
       ['Яблука Гала 5 кг', 'market-auto--lehkovi-avtomobili', 'warn', 'apples'],
-      ['Смартфон Samsung Galaxy', 'honey_raw', 'warn', 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony'],
-      ['Диван кутовий новий', 'honey_raw', 'warn', 'market-home-garden--mebli--mebli-dlya-vitalni'],
-      ['Мёд липовый свежий', 'honey_raw', 'allow', 'honey_raw'],
+      ['Смартфон Samsung Galaxy', 'apiculture', 'warn', 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony'],
+      ['Диван кутовий новий', 'apiculture', 'warn', 'market-home-garden--mebli--mebli-dlya-vitalni'],
+      ['Мёд липовый свежий', 'apiculture', 'allow', 'apiculture'],
       ['Детский велосипед Giant', 'processed_food', 'warn', 'market-hobbies--velo--velosypedy'],
       ['Игрушечный автомобиль Toyota', 'market-children--ihrashky--ihrashkovyy-transport', 'allow', 'market-children--ihrashky--ihrashkovyy-transport'],
     ] as const;

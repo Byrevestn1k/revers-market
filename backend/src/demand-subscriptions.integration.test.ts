@@ -60,7 +60,7 @@ if (process.env.DATABASE_URL) {
         userIds.push(response.body.user.id);
       }
       const categories = (await seller.get('/api/categories')).body.categories;
-      const honey = categories.find((item: { code: string }) => item.code === 'honey');
+      const honey = categories.find((item: { code: string }) => item.code === 'apiculture');
       expect(honey?.parentId).toBeTruthy();
       categoryId = honey.id;
       parentId = honey.parentId;

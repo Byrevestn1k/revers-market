@@ -27,6 +27,7 @@
 .category-picker-flyout { position: absolute; top: 0; width: 256px; max-width: calc(100vw - 2rem); background: #fff; border: 1px solid #d6e4dc; border-radius: 8px; box-shadow: 0 8px 20px rgba(33, 71, 58, .16); }
 .category-picker-empty { margin: .6rem .75rem; color: #486357; font-size: .9rem; }
 .category-picker small { display: block; margin-top: .4rem; font-size: .75rem; color: #486357; }
+.category-picker .category-picker-selected-name { display: none; }
 .filter-row .category-picker { max-width: 420px; }
 .filter-row { align-items: flex-start; }
 .map-toolbar .category-picker { min-width: 180px; }
@@ -39,4 +40,5 @@
     .category-picker-desktop-tree { display: none; }
     .category-picker-mobile-tree { display: block; }
     .category-picker-back { display: block; }
+    .category-picker .category-picker-selected-name { display: block; overflow-wrap: anywhere; }
 }

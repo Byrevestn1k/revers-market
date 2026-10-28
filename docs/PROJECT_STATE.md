@@ -1,10 +1,10 @@
 # Project state
 
-**Current step:** `STEP 19 — UX polish implementation in progress`.
+**Current step:** `STEP 20 — category taxonomy cleanup in progress`.
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-27
 
-Step 19 work is on `codex/step-19-ux-polish`. Scope: location labels, delivery explanations and destination, FLEXIBLE selector display, and Product/Buy Request favorite placement. See [STEP_19_UX_POLISH.md](STEP_19_UX_POLISH.md). Independent review and merge are pending.
+Step 20 work is on `codex/step-20-category-cleanup`. Scope: one canonical beekeeping products category, guarded category-link migrations, paused narrow honey subscription, and taxonomy audit. See [STEP_20_CATEGORY_AUDIT.md](STEP_20_CATEGORY_AUDIT.md) and [STEP_20_CATEGORY_CLEANUP.md](STEP_20_CATEGORY_CLEANUP.md). Merge and push require separate user authorization; pre-existing [mobile map group overlap](BACKLOG_MAP_GROUP_OVERLAP.md) and listed unverified scenarios remain. The final committed state requires independent Sol re-review.
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 

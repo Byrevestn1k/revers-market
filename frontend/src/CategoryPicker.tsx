@@ -22,6 +22,7 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
     const selectedId = value ?? localValue
     const labels = useMemo(() => categoryLabels(categories), [categories])
     const selectedLabel = labels.get(selectedId) ?? ''
+    const selectedName = categories.find((item) => item.id === selectedId)?.name
     const normalized = query.trim().toLocaleLowerCase('uk-UA')
     const rootCategories = useMemo(() => categoryChildren(categories, null), [categories])
     const matchingCategories = useMemo(() => normalized ? categories.filter((item) => labels.get(item.id)?.toLocaleLowerCase('uk-UA').includes(normalized)) : inlineTree ? categories : rootCategories, [categories, labels, normalized, rootCategories, inlineTree])
@@ -58,6 +59,7 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
             <input ref={input} id={`${id}-search`} type="text" role="combobox" autoComplete="off" value={open ? query : selectedLabel} onFocus={showMenu} onChange={(event) => { setQuery(event.target.value); setOpen(true); setHoveredIds([]) }} onKeyDown={(event) => { if (event.key === 'Escape') { close(); input.current?.blur() }; if (event.key === 'ArrowDown') showMenu(); if (event.key === 'Enter' && normalized && matchingCategories.length === 1) { event.preventDefault(); choose(matchingCategories[0].id) } }} placeholder="Введіть або оберіть категорію" aria-label="Пошук або вибір категорії" aria-expanded={open} aria-controls={`${id}-menu`} required={required} disabled={disabled || !categories.length} />
             <button type="button" className={`category-picker-toggle ${open ? 'is-open' : ''}`} onClick={() => open ? close() : (showMenu(), input.current?.focus())} aria-label={open ? 'Закрити список категорій' : 'Відкрити список категорій'} aria-expanded={open} disabled={disabled || !categories.length}><span aria-hidden="true" /></button>
         </div>
+        {!open && selectedName && <small className="category-picker-selected-name" aria-hidden="true">{selectedName}</small>}
         {open && <div id={`${id}-menu`} className="category-picker-menu">
             {mobilePath.length > 0 && !normalized && <button type="button" className="category-picker-back" onClick={() => setMobilePath(path => path.slice(0, -1))}>← Назад</button>}
             <div className="category-picker-desktop-tree">{matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}{!inlineTree && submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}</div>

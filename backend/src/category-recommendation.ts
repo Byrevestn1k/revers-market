@@ -17,7 +17,7 @@ const subjects = [
   { pattern: /(?:^|\s)(?:малюнок|рисунок|картина)\s+(?:автомобіл\S*|автомобил\S*|машин\S*)(?=\s|$)/u, codes: ['market-hobbies'], family: 'art' },
   { pattern: /(?:^|\s)(?:чох(?:ол|л)\S*|чех(?:ол|л)\S*)\s+автомоб\S*(?=\s|$)/u, codes: ['market-auto-parts--aksesuary-dlya-avto--chokhly-tenty-ta-nakydky'], family: 'accessory' },
   { pattern: /(?:^|\s)(?:обладнанн\S*|оборудован\S*|насос\S*)\s+для\s+(?:(?:фасуванн\S*|фасовк\S*)\s+)?(?:меду|меда|бджільництв\S*|пчеловодств\S*)(?=\s|$)/u, codes: ['market-business-services--prodazh-obladnannya-dlya-biznesu--promyslove-obladnannya', 'market-business-services--prodazh-obladnannya-dlya-biznesu'], family: 'equipment' },
-  { pattern: /(?:^|\s)(?:медогонк\S*|медогон\S*|honey\s+extractor)(?=\s|$)/u, codes: ['market-business-services--prodazh-obladnannya-dlya-biznesu', 'apiculture'], family: 'equipment' },
+  { pattern: /(?:^|\s)(?:медогонк\S*|медогон\S*|honey\s+extractor)(?=\s|$)/u, codes: ['market-business-services--prodazh-obladnannya-dlya-biznesu'], family: 'equipment' },
   { pattern: /(?:^|\s)(?:медичн\S*|медицинск\S*)\s+халат\S*(?=\s|$)/u, codes: ['market-fashion--spetsodyah-spetsvzuttya-ta-aksesuary--medychnyy-odyah'], family: 'clothes' },
   { pattern: /(?:^|\s)(?:причеп\S*|причіп\S*|прицеп\S*)(?=\s|$)/u, codes: ['market-auto--prychepy-budynky-na-kolesakh'], family: 'vehicle' },
   { pattern: /(?:^|\s)(?:автомобіл\S*|автомобил\S*|легков\S*\s+авто|renault\s+megane)(?=\s|$)/u, codes: ['market-auto--lehkovi-avtomobili'], family: 'vehicle' },
@@ -25,15 +25,17 @@ const subjects = [
   { pattern: /(?:^|\s)(?:яблук\S*|яблок\S*)(?=\s|$)/u, codes: ['apples'], family: 'apple' },
   { pattern: /(?:^|\s)(?:смартфон\S*|smartphone\S*|мобільн\S*\s+телефон\S*|мобильн\S*\s+телефон\S*)(?=\s|$)/u, codes: ['market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony'], family: 'smartphone' },
   { pattern: /(?:^|\s)(?:диван\S*|софа\S*)(?=\s|$)/u, codes: ['market-home-garden--mebli--mebli-dlya-vitalni'], family: 'sofa' },
-  { pattern: /(?:^|\s)(?:мед|меду|мёд|меда|мёда)(?=\s|$)/u, codes: ['honey_raw'], family: 'food' },
+  { pattern: /(?:^|\s)(?:мед|меду|мёд|меда|мёда)(?=\s|$)/u, codes: ['apiculture'], family: 'food' },
+  { pattern: /(?:^|\s)(?:пилок|пилку|перг\S*|прополіс\S*|прополис\S*|(?:бджолин\S*|пчелин\S*)\s+(?:віск\S*|воск\S*)|маточн\S*\s+молоч\S*)(?=\s|$)/u, codes: ['apiculture'], family: 'bee_products' },
   { pattern: /(?:^|\s)(?:цукор\S*|сахар\S*)(?=\s|$)/u, codes: ['processed_food'], family: 'food' },
   { pattern: /(?:^|\s)(?:молок\S*|молочн\S*)(?=\s|$)/u, codes: ['milk'], family: 'food' },
   { pattern: /(?:^|\s)(?:косметик\S*|помад\S*)(?=\s|$)/u, codes: ['market-fashion--krasa-zdorov-ya'], family: 'cosmetics' },
-  { pattern: /(?:^|\s)(?:вулик\S*|вуликів|уль\S*|бджолин\S*\s+рамк\S*|пчелин\S*\s+рамк\S*)(?=\s|$)/u, codes: ['apiculture'], family: 'beekeeping' },
+  { pattern: /(?:^|\s)(?:вулик\S*|вуликів|уль\S*|бджолин\S*\s+рамк\S*|пчелин\S*\s+рамк\S*)(?=\s|$)/u, codes: ['market-business-services--prodazh-obladnannya-dlya-biznesu'], family: 'beekeeping' },
 ] as const;
 
 const confirmingContext: Record<string, RegExp> = {
   food: /(?:натурал\S*|акаці\S*|липов\S*|гречан\S*|пасік\S*|відр\S*|ведр\S*|білий|белый|мішок|мешок|фасован\S*|свіж\S*|свеж\S*|коров\S*|фермер\S*|домашн\S*|оптом|куплю|продам|\d+\s*(?:л|кг))/u,
+  bee_products: /(?:пилок|пилку|перг\S*|прополіс\S*|прополис\S*|бджолин\S*|пчелин\S*|маточн\S*)/u,
   bike: /(?:trek|giant|scott|гірськ\S*|горн\S*|дитяч\S*|детск\S*|міськ\S*|городск\S*|електро\S*)/u,
   vehicle: /(?:renault|toyota|ford|skoda|megane|легков\S*|двовіс\S*|двухос\S*|бортов\S*|вантажн\S*|перевез\S*|перевоз\S*|пасік\S*)/u,
   clothes: /(?:медичн\S*\s+халат\S*|медицинск\S*\s+халат\S*)/u,
@@ -71,7 +73,7 @@ const relationalSubjects: { head: RegExp; target: RegExp; codes: readonly string
   { head: /(?:зарядн\S*|зарядк\S*|зарядочн\S*)/u, target: carTarget, codes: ['market-auto-parts--aksesuary-dlya-avto--puskovi-ta-zaryadni-prystroyi'], family: 'accessory' },
   { head: /(?:корм\S*|корма\S*)/u, target: /(?:собак\S*|пес\S*|пс\S*)/u, codes: ['market-animals--zootovary--tovary-dlya-sobak'], family: 'animal_supply' },
   { head: /(?:кабел\S*|кабель\S*|провод\S*)/u, target: /(?:сонячн\S*|солнечн\S*|solar)/u, codes: ['market-electronics--aksesuary-y-komplektuyuchi'], family: 'accessory' },
-  { head: /рамк\S*/u, target: /(?:вулик\S*|вуликів|уль\S*)/u, codes: ['apiculture'], family: 'beekeeping' },
+  { head: /рамк\S*/u, target: /(?:вулик\S*|вуликів|уль\S*)/u, codes: ['market-business-services--prodazh-obladnannya-dlya-biznesu'], family: 'beekeeping' },
 ];
 
 const giftMarker = /\s+(?:у|в)\s+(?:подарунок|подарок)(?:\s|$)/u;
@@ -158,7 +160,7 @@ export async function assessCategory(input: { title: string; description?: strin
   const acceptable = detected.codes.some(code => {
     const target = byCode.get(code);
     if (!target) return false;
-    if (detected.family === 'equipment' && chosen.code === 'honey_raw') return false;
+    if ((detected.family === 'equipment' || detected.family === 'beekeeping') && chosen.code === 'apiculture') return false;
     let current: Category | undefined = chosen;
     while (current) { if (current.id === target.id) return true; current = current.parent_id ? byId.get(current.parent_id) : undefined; }
     current = target;

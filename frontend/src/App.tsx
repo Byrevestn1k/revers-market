@@ -31,7 +31,7 @@ import { addressFields, emptyAddress, validCoordinates } from './address-model'
 import type { AddressValue } from './address-model'
 import { unitLabel, DELIVERY_LABELS, requestBudget, listingPrice } from './listing-options'
 import CategoryPicker, { CategoryImage } from './CategoryPicker'
-import { categoryTrail } from './categories'
+import { canonicalCategoryId, categoryTrail } from './categories'
 import type { Category } from './categories'
 import { groupMapSellers } from './map-sellers'
 import type { SellerProductPoint } from './map-sellers'
@@ -193,6 +193,12 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
     const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod | ''>(() => restored?.deliveryMethod ?? '')
     const categoryId = sharedCategoryId ?? localCategoryId
     const setCategoryId = (id: string) => { setLocalCategoryId(id); onCategoryChange?.(id) }
+    useEffect(() => {
+        if (categoryId && categories.length) {
+            const canonicalId = canonicalCategoryId(categories, categoryId)
+            if (canonicalId !== categoryId) setCategoryId(canonicalId)
+        }
+    }, [categories, categoryId])
     const [showProducts, setShowProducts] = useState(() => subscriptionId ? false : restored?.showProducts ?? true)
     const [showBuyRequests, setShowBuyRequests] = useState(() => subscriptionId ? true : restored?.showBuyRequests ?? true)
     const [markers, setMarkers] = useState<MapMarker[]>([])

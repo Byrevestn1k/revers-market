@@ -22,7 +22,7 @@ describe.skipIf(!enabled)('live subscription suburbs (no provider stubs)', () =>
       const rivne = getSettlement('UA56060470010041018')!;
       const kyiv = searchSettlements('Київ').settlements.find(item=>item.name==='Київ')!;
       const barmaky = searchSettlements('Бармаки').settlements.find(item=>item.name==='Бармаки')!;
-      const categoryId = (await seller.get('/api/categories')).body.categories.find((c:{code:string})=>c.code==='honey').id;
+      const categoryId = (await seller.get('/api/categories')).body.categories.find((c:{code:string})=>c.code==='apiculture').id;
       const saved = await seller.post('/api/demand-subscriptions').send({categoryId,settlementCodes:[rivne.code],cityOutsideKm:10,minPrice:170,maxPrice:190,unit:'kg',currency:'UAH'});
       expect(saved.status,JSON.stringify(saved.body)).toBe(201);
       expect(saved.body.subscription).toMatchObject({cityOutsideKm:10,matchCount:0});

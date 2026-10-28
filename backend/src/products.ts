@@ -2,7 +2,7 @@ import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
-import { categoryFilterSql } from './category-filter.js'
+import { categoryFilterSql, retiredCategoryCodesSql } from './category-filter.js'
 import { textSearchConditions } from './text-search.js'
 import { listingSearchColumns, smartSearchSql } from './smart-search.js'
 import { approximatePoint, regionCondition, settlementCondition } from './map-service.js'
@@ -93,7 +93,11 @@ const writePhotos = async (queryable: Queryable, productId: string, photos: Prod
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані товару', fields } })
 
 export const listCategories = async () => {
-    const result = await pool.query('SELECT id, parent_id AS "parentId", code, name, path, image_index AS "imageIndex", sort_order AS "sortOrder" FROM categories WHERE is_active ORDER BY sort_order, name, id')
+    const result = await pool.query(`SELECT c.id, c.parent_id AS "parentId", c.code, c.name, c.path,
+        c.image_index AS "imageIndex", c.sort_order AS "sortOrder",
+        ARRAY(SELECT old.id FROM categories old WHERE old.parent_id = c.id AND NOT old.is_active
+            AND old.code IN (${retiredCategoryCodesSql}) ORDER BY old.code) AS "legacyIds"
+        FROM categories c WHERE c.is_active ORDER BY c.sort_order, c.name, c.id`)
     return { status: 200, body: { categories: result.rows } }
 }
 
