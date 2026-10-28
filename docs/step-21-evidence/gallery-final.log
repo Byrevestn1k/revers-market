@@ -1,0 +1,44 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-gallery-regression.spec.ts:7:5 › Step 21: saved ordering and gallery after thumbnail loading change
+  1) [chromium] › e2e\step-21-gallery-regression.spec.ts:7:5 › Step 21: saved ordering and gallery after thumbnail loading change
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('.request-gallery').locator('.request-gallery-main')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" locator('.request-gallery').locator('.request-gallery-main') with timeout 10000ms
+      - waiting for locator('.request-gallery').locator('.request-gallery-main')
+
+
+      57 |       await page.goto(path, { waitUntil: 'domcontentloaded' })
+      58 |       const gallery = page.locator('.request-gallery')
+    > 59 |       await expect(gallery.locator('.request-gallery-main')).toBeVisible()
+         |                                                              ^
+      60 |       await expect(gallery.locator('.request-gallery-thumbs button')).toHaveCount(3)
+      61 |       await gallery.getByRole('button', { name: 'Наступне фото' }).first().click()
+      62 |       await expect(gallery.locator('.gallery-controls').first()).toContainText('2 / 3')
+        at C:\Users\PC\Documents\D\різне\marketplace-navpaky\e2e\step-21-gallery-regression.spec.ts:59:62
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\step-21-gallery-regression-2c6b9-er-thumbnail-loading-change-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\step-21-gallery-regression-2c6b9-er-thumbnail-loading-change-chromium\error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\step-21-gallery-regression-2c6b9-er-thumbnail-loading-change-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\step-21-gallery-regression-2c6b9-er-thumbnail-loading-change-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  1 failed
+    [chromium] › e2e\step-21-gallery-regression.spec.ts:7:5 › Step 21: saved ordering and gallery after thumbnail loading change

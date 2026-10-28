@@ -1,0 +1,198 @@
+
+ RUN  v2.1.9 C:/Users/PC/Documents/D/різне/marketplace-navpaky/backend
+
+(node:13224) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/demand-subscriptions.integration.test.ts (32 tests) 59266ms
+   ✓ basic seller demand subscriptions (real DB) > creates, lists, reads, edits, disables, enables and deletes only owned subscriptions 5012ms
+   ✓ basic seller demand subscriptions (real DB) > denies anonymous API access and rejects invalid taxonomy, region, status and ownership injection 1204ms
+   ✓ basic seller demand subscriptions (real DB) > matches a leaf and its parent with an optional public region and canonical destination, without private location 1728ms
+   ✓ basic seller demand subscriptions (real DB) > alerts once only for confirmed geographic delivery, never for flexibility or unknown legacy terms 1678ms
+   ✓ basic seller demand subscriptions (real DB) > limits seller delivery to the stated radius and fails closed without a buyer point 1234ms
+   ✓ basic seller demand subscriptions (real DB) > does not match a different category, region, or an unknown legacy area 1458ms
+   ✓ basic seller demand subscriptions (real DB) > counts existing public legacy places and notifies future requests using the same directory identity 1733ms
+   ✓ basic seller demand subscriptions (real DB) > never guesses a legacy place from an ambiguous name, foreign country, conflicting qualifier or private address 2006ms
+   ✓ basic seller demand subscriptions (real DB) > does not match a disabled or deleted subscription and enabling applies to future requests 1911ms
+   ✓ basic seller demand subscriptions (real DB) > uses edited criteria for future requests without replaying old requests 1451ms
+   ✓ basic seller demand subscriptions (real DB) > suppresses concurrent retries per subscription/request at the DB boundary and preserves delivered history on delete 893ms
+   ✓ basic seller demand subscriptions (real DB) > does not notify the author of a matching own request 674ms
+   ✓ basic seller demand subscriptions (real DB) > requires category and country/region/cities only, rejecting contradictory and unsafe criteria 2833ms
+   ✓ basic seller demand subscriptions (real DB) > does not infer postal compatibility for a foreign location without a supported region 2350ms
+   ✓ basic seller demand subscriptions (real DB) > matches one or multiple canonical cities, including disambiguated names 1529ms
+   ✓ basic seller demand subscriptions (real DB) > checks quantity bounds, units and kg/ton conversion 1015ms
+   ✓ basic seller demand subscriptions (real DB) > checks budget overlap, per-unit conversion, currency and missing price policy 2226ms
+   ✓ basic seller demand subscriptions (real DB) > matches an unknown buyer budget to a minimum or price range, including another nominal currency 1401ms
+   ✓ basic seller demand subscriptions (real DB) > returns public notification details, survives subscription deletion and reflects only public request fields 764ms
+   ✓ basic seller demand subscriptions (real DB) > uses explicit SELF_PICKUP/SELLER_DELIVERY and fails closed on ambiguous legacy receipt 1615ms
+   ✓ basic seller demand subscriptions (real DB) > uses only the public rounded point for suburbs, preserving privacy 1924ms
+   ✓ basic seller demand subscriptions (real DB) > shows a private address approximately and a consented public address exactly 1446ms
+   ✓ basic seller demand subscriptions (real DB) > requires reliable boundaries only for enabled suburbs, rejecting injected geometry 348ms
+   ✓ basic seller demand subscriptions (real DB) > stores a country without redundant criteria and matches settlements across regions 628ms
+   ✓ basic seller demand subscriptions (real DB) > unions a region with cities in other regions and drops cities already included 916ms
+   ✓ basic seller demand subscriptions (real DB) > notifies on exact converted quantity and price boundaries without false positives 1790ms
+   ✓ basic seller demand subscriptions (real DB) > matches preferred delivery with either method, preserving strict delivery 1252ms
+   ✓ basic seller demand subscriptions (real DB) > preserves old radius during status-only changes until explicitly replaced 914ms
+   ✓ basic seller demand subscriptions (real DB) > rolls back both the new request and notification if their transaction is rolled back 397ms
+   ✓ basic seller demand subscriptions (real DB) > persists multiple territories as a union, removes redundant selections and retains legacy clients 1011ms
+   ✓ basic seller demand subscriptions (real DB) > counts existing matches and returns the same public results, including unlocated requests, only to the owner 2656ms
+   ✓ basic seller demand subscriptions (real DB) > enforces the 20 km suburb limit in API and database 317ms
+(node:3984) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/buy-requests.integration.test.ts (5 tests) 80211ms
+   ✓ buy requests and offers HTTP integration > creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection 19520ms
+   ✓ buy requests and offers HTTP integration > locks fulfillment mode after offer or deal creation without blocking unrelated edits 20193ms
+   ✓ buy requests and offers HTTP integration > keeps product terms unchanged and supports several partial deals 23057ms
+   ✓ buy requests and offers HTTP integration > keeps seller offer history scoped after requests complete, cancel or expire 10895ms
+   ✓ buy requests and offers HTTP integration > edits submitted offers without revalidating an unchanged unavailable product link 6527ms
+(node:14032) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/deal-workflow.integration.test.ts (13 tests) 40493ms
+   ✓ buyer and seller agreement lifecycle > keeps one conversation through bargaining, selection and partial completion; snapshots agreed terms 4121ms
+   ✓ buyer and seller agreement lifecycle > starts one ordinary chat per product or request before an offer exists 1525ms
+   ✓ buyer and seller agreement lifecycle > keeps chat roles, activity, read state and personal saved/archive state isolated per participant 4446ms
+   ✓ buyer and seller agreement lifecycle > publishes double-blind 12-point reviews only after both parties and never leaks rating aggregates 1856ms
+   ✓ buyer and seller agreement lifecycle > derives review recipients from the completed Deal and rejects invalid, premature, terminal and duplicate submissions 4123ms
+   ✓ buyer and seller agreement lifecycle > allows only one concurrent review row per Deal and reviewer 1160ms
+   ✓ buyer and seller agreement lifecycle > publishes a single review after the configured deadline exactly once 1405ms
+   ✓ buyer and seller agreement lifecycle > serializes simultaneous selections and replays the same selection key without a second order 1797ms
+   ✓ buyer and seller agreement lifecycle > releases reservations once on cancellation and seller rejection, including SINGLE_SELLER 2393ms
+   ✓ buyer and seller agreement lifecycle > cannot bypass bilateral completion using the old status endpoint; preserves conflicting answers 1832ms
+   ✓ buyer and seller agreement lifecycle > validates actual quantity, blocks strangers, expires negotiations on closed requests and keeps active orders 3269ms
+   ✓ buyer and seller agreement lifecycle > keeps agreed terms during a later pending round, includes delivery and protects contacts and blocked interactions 2467ms
+   ✓ buyer and seller agreement lifecycle > reserves only the active remainder across independent sellers and completes in parallel without overcounting 2833ms
+(node:15172) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/delivery-geography.integration.test.ts (5 tests) 13524ms
+   ✓ delivery geography at API and matching boundaries (real PostgreSQL) > rejects foreign points, preserves edits, and never notifies from corrupt legacy coordinates 1308ms
+   ✓ delivery geography at API and matching boundaries (real PostgreSQL) > rejects new zero-radius rules and never alerts from legacy zero-radius geography 1398ms
+   ✓ delivery geography at API and matching boundaries (real PostgreSQL) > rejects invalid Product, Offer and region points while retaining valid postal and flexible terms 1182ms
+   ✓ delivery geography at API and matching boundaries (real PostgreSQL) > enforces radius limits and ignores a corrupted historical subscription center 861ms
+   ✓ delivery geography at API and matching boundaries (real PostgreSQL) > applies the 1 km minimum through Product, Request, Offer and Subscription APIs 3983ms
+ ✓ src/category-relations.integration.test.ts (3 tests) 2350ms
+   ✓ Step 16 subject relations on the active PostgreSQL category tree > recognizes a cover named directly before the car it fits 587ms
+   ✓ Step 16 subject relations on the active PostgreSQL category tree > checks a new 70-case mix of products, compatibility, gifts and uncertainty 1517ms
+(node:10804) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/external-auth.integration.test.ts (10 tests) 25210ms
+   ✓ external auth HTTP and database > registers, logs in, and prevents the last unlink for google 1366ms
+   ✓ external auth HTTP and database > registers, logs in, and prevents the last unlink for facebook 645ms
+   ✓ external auth HTTP and database > registers, logs in, and prevents the last unlink for telegram 568ms
+   ✓ external auth HTTP and database > preserves a password user across link and external login, and denies identity stealing 6580ms
+   ✓ external auth HTTP and database > rejects email collision, replay, wrong provider and an external return URL 2483ms
+   ✓ external auth HTTP and database > allows only one user when two first signups finish concurrently for the same identity 602ms
+   ✓ external auth HTTP and database > binds link callback to the original authenticated session and supports another provider 4480ms
+   ✓ external auth HTTP and database > requires a fresh session for link start and callback, and consumes the link flow once 7746ms
+(node:4264) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/category-taxonomy.integration.test.ts (5 tests) 2238ms
+   ✓ Step 20 category taxonomy > shows only the canonical beekeeping products category and keeps old filters useful 837ms
+   ✓ Step 20 category taxonomy > protects subscriptions and safely replays migration 053 on old listings 989ms
+(node:21412) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/map.integration.test.ts (1 test) 29644ms
+   ✓ map points and privacy HTTP integration > returns relevant points by radius and filters without exposing exact address 29622ms
+ ✓ src/category-recommendation.test.ts (4 tests) 276ms
+(node:14020) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/buy-requests-photo-retention.integration.test.ts (1 test) 16320ms
+   ✓ Offer photo retention across Deals > keeps cancelled and completed snapshots while removing only unreferenced files 16303ms
+(node:17200) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/smart-search.integration.test.ts (1 test) 70760ms
+   ✓ smart search with PostgreSQL > ranks complete matches, preserves filters and updates on edit for both listing types and the map 70746ms
+(node:11208) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/category-validation.integration.test.ts (1 test) 15464ms
+   ✓ safe category flow through real PostgreSQL and API > publishes Product and Buy Request with suggestions, warnings and real validation 15453ms
+ ✓ src/category-correction-control.integration.test.ts (1 test) 1817ms
+   ✓ independent Step 16 correction control set with real category tree > measures 100 new Ukrainian and Russian listings 1808ms
+(node:5204) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/products.integration.test.ts (2 tests) 16567ms
+   ✓ products HTTP integration > supports CRUD, pagination, photos, and owner-only edits 10675ms
+   ✓ products HTTP integration > returns exact private editor data only to the owner, including paused and sold products 5880ms
+(node:11592) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/auth.integration.test.ts (4 tests) 20923ms
+   ✓ auth HTTP integration > protects private profile routes and does not allow phone disclosure without consent 2877ms
+   ✓ auth HTTP integration > registers, protects, logs in, rejects duplicates, and logs out 17659ms
+(node:14516) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/notifications.integration.test.ts (4 tests) 8201ms
+   ✓ notification context and read integration > persists structured context and references without classifying legacy history 365ms
+   ✓ notification context and read integration > marks one notification and only the selected context as read 309ms
+   ✓ notification context and read integration > keeps acceptance, cancellation and completion messages alongside their public Request preview 2067ms
+ ✓ src/demand-matching.test.ts (21 tests) 37ms
+ ✓ src/external-auth-providers.test.ts (26 tests) 7595ms
+   ✓ external provider security > verifies cryptographic signature, issuer, audience, expiry and nonce 1871ms
+(node:7596) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/step-17.integration.test.ts (1 test) 19241ms
+   ✓ Step 17 currencies and seller modes > keeps USD amounts and enforces one or several sellers under concurrent selection 19231ms
+(node:17652) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/region-filter.integration.test.ts (1 test) 11695ms
+   ✓ region filtering HTTP integration > keeps products, buy requests, and map markers inside the selected oblast 11686ms
+(node:23340) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/delivery-options.integration.test.ts (1 test) 9686ms
+   ✓ structured delivery through Product, Request, Offer and Deal (real DB) > keeps exact postal terms, rejects an unsupported Product method and locks agreed Request geography 9674ms
+(node:18108) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/buy-requests-legacy-photos.integration.test.ts (1 test) 12228ms
+   ✓ legacy Offer photo snapshots > copies Product photos into a selected legacy Offer and respects a later explicit removal 12209ms
+ ✓ src/city-boundaries.test.ts (17 tests) 488ms
+(node:16076) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/categories.integration.test.ts (1 test) 20280ms
+   ✓ shared category hierarchy > preserves legacy categories and filters products, requests and map by ancestors 20269ms
+ ✓ src/delivery-compatibility.test.ts (8 tests) 55ms
+(node:21900) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/profile-map.integration.test.ts (1 test) 7346ms
+   ✓ seller public map location > requires consent, moves all products, preserves private addresses and revokes sharing 7339ms
+(node:23056) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/external-auth-choice.integration.test.ts (2 tests) 3211ms
+   ✓ explicit external account choice > requires explicit proof before linking same-email Facebook or no-email Telegram to a Google user 2881ms
+ ↓ src/demand-suburbs.live.integration.test.ts (1 test | 1 skipped)
+(node:5092) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/settlements.integration.test.ts (1 test) 8166ms
+   ✓ settlement identity through address and map workflows > persists codes, separates namesakes, preserves private address coordinates and clears old points 8156ms
+(node:20208) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/listing-workflow.integration.test.ts (1 test) 16886ms
+   ✓ unified listing search and location > keeps title search, map results and private editable addresses consistent 16867ms
+ ✓ src/buy-request-validation.test.ts (12 tests) 79ms
+(node:18320) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/city-search.integration.test.ts (1 test) 5409ms
+   ✓ city and nationwide map search > limits a city search by city and radius, while an empty city searches all Ukraine 5400ms
+(node:7444) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/buy-requests-photo-locking.integration.test.ts (1 test) 6289ms
+   ✓ Offer photo lock ordering > does not hold a Product lock while waiting to create or accept photo references 6280ms
+(node:13868) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/photo-storage.test.ts (6 tests) 300ms
+ ✓ src/settlements.test.ts (5 tests) 146ms
+(node:22940) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/favorites.integration.test.ts (1 test) 14379ms
+   ✓ favorites HTTP integration > keeps product, request and profile favorites private, unique and account-bound 14369ms
+ ✓ src/map-service.test.ts (7 tests) 88ms
+ ✓ src/product-validation.test.ts (8 tests) 63ms
+ ✓ src/profiles.test.ts (4 tests) 69ms
+ ✓ src/community-service.test.ts (14 tests) 207ms
+ ✓ src/order-service.test.ts (16 tests) 53ms
+ ✓ src/order-service.message.test.ts (1 test) 48ms
+ ✓ src/smart-search.test.ts (2 tests) 58ms
+ ✓ src/email-verification.test.ts (2 tests) 48ms
+ ✓ src/validation.test.ts (2 tests) 34ms
+ ✓ src/search-rate-limit.test.ts (1 test) 310ms
+
+ Test Files  45 passed | 1 skipped (46)
+      Tests  257 passed | 1 skipped (258)
+   Start at  12:50:06
+   Duration  969.65s (transform 31.69s, setup 0ms, collect 312.96s, tests 547.76s, environment 92ms, prepare 52.07s)

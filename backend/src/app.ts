@@ -1,6 +1,9 @@
 import cors from 'cors'
 import express from 'express'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import sharp from 'sharp'
+import { PhotoValidationError } from './photo-storage.js'
 import { checkDatabase } from './db/client.js'
 import { confirmEmail, login, logout, optionalAuth, register, resendVerification, requireAuth } from './auth.js'
 import { confirmEmailCode, sendEmailCode } from './email-verification.js'
@@ -27,6 +30,25 @@ import { assessCategory, createCategoryRecommendationRateLimit } from './categor
 import { createCategoryAppeal, listCategoryAppeals, updateCategoryAppeal } from './category-appeals.js'
 
 const mapService = new MapService()
+const thumbnailCache = new Map<string, { data: Buffer; expiresAt: number }>()
+const thumbnailPending = new Map<string, Promise<Buffer>>()
+const thumbnailCacheLimit = 100
+const thumbnailConcurrencyLimit = 8
+const thumbnailPendingLimit = 64
+let thumbnailsActive = 0
+const thumbnailWaiters: (() => void)[] = []
+
+const renderThumbnail = async (file: string): Promise<Buffer> => {
+    if (thumbnailsActive < thumbnailConcurrencyLimit) thumbnailsActive++
+    else await new Promise<void>(resolve => thumbnailWaiters.push(resolve))
+    try {
+        return await sharp(file, { failOn: 'warning' }).rotate().resize(320, 320, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 75 }).toBuffer()
+    } finally {
+        const next = thumbnailWaiters.shift()
+        if (next) next()
+        else thumbnailsActive--
+    }
+}
 
 type HandlerResult = { status: number; body?: unknown }
 type RequestHandler = (request: express.Request, response: express.Response) => Promise<HandlerResult>
@@ -46,8 +68,29 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     const allowedFrontendUrls = [...new Set([frontendUrl, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174', 'http://127.0.0.1:5174'])]
 
     app.use(cors({ origin: allowedFrontendUrls, credentials: true }))
-    app.use('/api/buy-requests', express.json({ limit: '56mb' }))
+    app.use(['/api/buy-requests', '/api/products'], express.json({ limit: '56mb' }))
     app.use(express.json({ limit: '8mb' }))
+    app.get('/api/photo-thumbnail', async (request, response) => {
+        const path = typeof request.query.path === 'string' ? request.query.path : ''
+        const match = path.match(/^\/uploads\/(products|buy-requests)\/([0-9a-f-]{36}(?:\/[0-9a-f-]{36})?)\/(\d+)\.(jpg|png|webp|gif)$/i)
+        if (!match) { response.status(404).end(); return }
+        try {
+            const file = join(fileURLToPath(new URL('../uploads', import.meta.url)), match[1], match[2], `${match[3]}.${match[4]}`)
+            const cached = thumbnailCache.get(path)
+            if (cached && cached.expiresAt > Date.now()) { response.set('Cache-Control', 'public, max-age=3600').type('image/webp').send(cached.data); return }
+            let pending = thumbnailPending.get(path)
+            if (!pending) {
+                if (thumbnailPending.size >= thumbnailPendingLimit) { response.status(503).set('Retry-After', '1').end(); return }
+                pending = renderThumbnail(file)
+                thumbnailPending.set(path, pending)
+            }
+            let thumbnail: Buffer
+            try { thumbnail = await pending } finally { if (thumbnailPending.get(path) === pending) thumbnailPending.delete(path) }
+            if (thumbnailCache.size >= thumbnailCacheLimit) thumbnailCache.delete(thumbnailCache.keys().next().value!)
+            thumbnailCache.set(path, { data: thumbnail, expiresAt: Date.now() + 3600_000 })
+            response.set('Cache-Control', 'public, max-age=3600').type('image/webp').send(thumbnail)
+        } catch { response.status(404).end() }
+    })
     app.use('/uploads', express.static(fileURLToPath(new URL('../uploads', import.meta.url))))
     app.use('/api/auth/external', externalAuthRouter(options.providerExchange))
     app.get(['/api/products', '/api/buy-requests', '/api/map/markers'], createSearchRateLimiter())
@@ -287,6 +330,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.get('/api/users/:id/block', requireAuth, withResult((request) => getBlockStatus(request.authUser!, String(request.params.id))))
 
     app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+        if (error instanceof PhotoValidationError) { response.status(400).json({ error: 'VALIDATION_ERROR', message: error.message, fields: ['photos'] }); return }
         console.error('[app] unhandled error:', error)
         response.status(500).json({ error: 'INTERNAL_ERROR', message: 'Внутрішня помилка сервера' })
     })

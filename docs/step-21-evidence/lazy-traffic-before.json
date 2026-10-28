@@ -1,0 +1,97 @@
+{
+  "originalFileBytes": 609349,
+  "beforeScroll": [
+    {
+      "path": "/uploads/products/975ea948-b9c4-4ff8-ad57-d79e4dbe4e82/0.jpg",
+      "status": 200,
+      "bytes": 609349
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    }
+  ],
+  "afterScroll": [
+    {
+      "path": "/uploads/products/975ea948-b9c4-4ff8-ad57-d79e4dbe4e82/0.jpg",
+      "status": 200,
+      "bytes": 609349
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    }
+  ]
+}

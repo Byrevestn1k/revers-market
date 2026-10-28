@@ -1,0 +1,77 @@
+{
+  "originalFileBytes": 609349,
+  "beforeScroll": [
+    {
+      "path": "/uploads/products/ca96595c-51db-48e5-aead-ffaabb5550ee/0.jpg",
+      "status": 200,
+      "bytes": 609349
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    }
+  ],
+  "afterScroll": [
+    {
+      "path": "/uploads/products/ca96595c-51db-48e5-aead-ffaabb5550ee/0.jpg",
+      "status": 200,
+      "bytes": 609349
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    },
+    {
+      "path": "/api/photo-thumbnail",
+      "status": 200,
+      "bytes": 18992
+    }
+  ]
+}

@@ -2,6 +2,9 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
+import sharp from 'sharp'
+
+export class PhotoValidationError extends Error {}
 
 export type StoredPhoto = { storageKey: string; url: string }
 export type PhotoUpload = { url?: string; dataUrl?: string; alt?: string }
@@ -16,7 +19,7 @@ export class ExternalUrlPhotoStorage implements PhotoStorage {
 
     async copyProductPhoto(offerId: string, url: string): Promise<StoredPhoto> {
         const copyKey = `${offerId}/${randomUUID()}`
-        const match = url.match(/^\/uploads\/products\/([0-9a-f-]{36})\/(\d+)\.(jpg|png|webp|gif)$/i)
+        const match = url.match(/^\/uploads\/products\/([0-9a-f-]{36}(?:\/[0-9a-f-]{36})?)\/(\d+)\.(jpg|png|webp|gif)$/i)
         if (!match) return this.store(copyKey, { url }, 0)
         const source = join(dirname(fileURLToPath(import.meta.url)), '../uploads/products', match[1], `${match[2]}.${match[3]}`)
         const bytes = await readFile(source).catch((error: NodeJS.ErrnoException) => {
@@ -33,10 +36,20 @@ export class ExternalUrlPhotoStorage implements PhotoStorage {
             const match = photo.dataUrl.match(/^data:image\/(jpeg|png|webp|gif);base64,(.+)$/i)
             if (!match) throw new Error('Unsupported image format')
             const extension = match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase()
+            const bytes = Buffer.from(match[2], 'base64')
+            if (this.kind !== 'offers') {
+                try {
+                    const image = sharp(bytes, { failOn: 'warning', animated: false })
+                    const metadata = await image.metadata()
+                    const expected = extension === 'jpg' ? 'jpeg' : extension
+                    if (metadata.format !== expected || bytes.length > 5 * 1024 * 1024) throw new Error('Invalid image')
+                    await image.resize({ width: 1, height: 1, fit: 'inside' }).png().toBuffer()
+                } catch { throw new PhotoValidationError('Пошкоджене фото або непідтримуваний формат.') }
+            }
             const storageKey = `${productId}/${index}.${extension}`
             const filePath = join(dirname(fileURLToPath(import.meta.url)), `../uploads/${this.kind}`, storageKey)
             await mkdir(dirname(filePath), { recursive: true })
-            await writeFile(filePath, Buffer.from(match[2], 'base64'))
+            await writeFile(filePath, bytes)
             return { storageKey, url: `/uploads/${this.kind}/${storageKey}` }
         }
         if (!photo.url) throw new Error('Photo URL is required')

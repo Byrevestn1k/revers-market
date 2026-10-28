@@ -1,0 +1,50 @@
+[
+  {
+    "listing": "product",
+    "path": "/api/photo-thumbnail",
+    "status": 200,
+    "bytes": 134
+  },
+  {
+    "listing": "product",
+    "path": "/api/photo-thumbnail",
+    "status": 200,
+    "bytes": 136
+  },
+  {
+    "listing": "product",
+    "path": "/api/photo-thumbnail",
+    "status": 200,
+    "bytes": 130
+  },
+  {
+    "listing": "request",
+    "path": "/api/photo-thumbnail",
+    "status": 200,
+    "bytes": 134
+  },
+  {
+    "listing": "request",
+    "path": "/api/photo-thumbnail",
+    "status": 200,
+    "bytes": 136
+  },
+  {
+    "listing": "request",
+    "path": "/api/photo-thumbnail",
+    "status": 200,
+    "bytes": 130
+  },
+  {
+    "listing": "request",
+    "path": "/uploads/buy-requests/17bc172e-14c1-4406-944e-dcbd94a6621f/42cd19a4-f82f-42f7-8d26-01ab13acafed/0.png",
+    "status": 200,
+    "bytes": 746
+  },
+  {
+    "listing": "request",
+    "path": "/uploads/buy-requests/17bc172e-14c1-4406-944e-dcbd94a6621f/9951e608-c695-4fa2-b204-8187918f177f/2.png",
+    "status": 200,
+    "bytes": 745
+  }
+]

@@ -17,7 +17,7 @@ if (process.env.DATABASE_URL) {
             const productStorage = new ExternalUrlPhotoStorage('products')
             const offerKeys = new Set<string>()
             const productKeys = new Set<string>()
-            const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', 'base64')
+            const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVR4nGNYtfvMqt1nGCAUADziCMU05NnQAAAAAElFTkSuQmCC', 'base64')
             const photo = (marker: string) => `data:image/png;base64,${Buffer.concat([png, Buffer.from(`photo-${marker}-${suffix}`)]).toString('base64')}`
             const key = (url: string) => url.replace('/uploads/offers/', '')
             const path = (url: string) => fileURLToPath(new URL(`../uploads/offers/${key(url)}`, import.meta.url))

@@ -2,7 +2,7 @@
 
 ## Передумови
 
-- Node.js 20+
+- Node.js 20.9+ (рекомендовано LTS 20 або 22+; `sharp` потребує щонайменше 20.9)
 - npm 10+
 - Docker Desktop with Linux containers
 

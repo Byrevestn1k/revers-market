@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
@@ -77,8 +78,7 @@ const categoryExists = async (queryable: Queryable, categoryId: string) => {
     return Boolean(result.rowCount)
 }
 
-const writePhotos = async (queryable: Queryable, productId: string, photos: ProductInput['photos'] = []): Promise<StoredPhoto[]> => {
-    const storedPhotos: StoredPhoto[] = []
+const writePhotos = async (queryable: Queryable, productId: string, photos: ProductInput['photos'] = [], storedPhotos: StoredPhoto[]): Promise<void> => {
     for (const [index, photo] of photos.entries()) {
         const stored = await photoStorage.store(productId, photo, index)
         storedPhotos.push(stored)
@@ -87,7 +87,6 @@ const writePhotos = async (queryable: Queryable, productId: string, photos: Prod
             [productId, stored.storageKey, stored.url, photo.alt ?? '', index],
         )
     }
-    return storedPhotos
 }
 
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані товару', fields } })
@@ -129,7 +128,7 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
     const assessment = await assessCategory({ title: String(input.title), description: String(input.description ?? ''), categoryId: String(input.categoryId), unit: String(input.unit) })
     const product = input as unknown as ProductInput
     const client = await pool.connect()
-    let storedPhotos: StoredPhoto[] = []
+    const storedPhotos: StoredPhoto[] = []
     try {
         await client.query('BEGIN')
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.id])
@@ -140,7 +139,7 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
             [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null, product.settlementCode ?? null, product.addressVisibility ?? 'private', product.mapLocationMode ?? 'profile', product.deliveryOptions === undefined ? null : JSON.stringify(product.deliveryOptions)],
         )
-        storedPhotos = await writePhotos(client, result.rows[0].id, product.photos)
+        await writePhotos(client, result.rows[0].id, product.photos, storedPhotos)
         if (assessment.level === 'warn') await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_warning', 'product', result.rows[0].id, JSON.stringify({ suggestions: assessment.suggestions })])
         if (duplicates?.notice) await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_duplicate', 'product', result.rows[0].id, JSON.stringify(duplicates.notice)])
         const created = await getProductRow(client, result.rows[0].id, user.id)
@@ -208,7 +207,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
     const entries = Object.entries(input).filter(([key]) => key in allowed)
     if (!entries.length && !('photos' in input)) return invalid(['product'])
     const client = await pool.connect()
-    let storedPhotos: StoredPhoto[] = []
+    const storedPhotos: StoredPhoto[] = []
     let categoryWarning: Awaited<ReturnType<typeof assessCategory>> | null = null
     try {
         await client.query('BEGIN')
@@ -247,10 +246,24 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
         if (duplicates?.notice) await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_duplicate', 'product', id, JSON.stringify(duplicates.notice)])
         if (categoryWarning) await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_warning', 'product', id, JSON.stringify({ suggestions: categoryWarning.suggestions })])
         if ('photos' in input) {
-            const oldPhotos = await client.query<PhotoRow>('SELECT storage_key FROM product_photos WHERE product_id = $1', [id])
-            await client.query('DELETE FROM product_photos WHERE product_id = $1 AND EXISTS (SELECT 1 FROM products WHERE id = $1 AND owner_id = $2)', [id, user.id])
-            for (const photo of oldPhotos.rows) await photoStorage.remove(photo.storage_key)
-            storedPhotos = await writePhotos(client, id, input.photos as ProductInput['photos'])
+            const oldPhotos = await client.query<PhotoRow>('SELECT id, storage_key, url, alt, sort_order FROM product_photos WHERE product_id = $1 ORDER BY sort_order, id', [id])
+            const photos = input.photos as NonNullable<ProductInput['photos']>
+            if (photos.some(photo => photo.url && !oldPhotos.rows.some(old => old.url === photo.url))) {
+                await client.query('ROLLBACK')
+                return invalid(['photos'])
+            }
+            const rows: { storageKey: string; url: string; alt: string }[] = []
+            for (const [index, photo] of photos.entries()) {
+                const old = photo.url ? oldPhotos.rows.find(item => item.url === photo.url) : undefined
+                if (old) rows.push({ storageKey: old.storage_key, url: old.url, alt: photo.alt ?? old.alt })
+                else {
+                    const saved = await photoStorage.store(`${id}/${randomUUID()}`, photo, index)
+                    storedPhotos.push(saved)
+                    rows.push({ ...saved, alt: photo.alt ?? '' })
+                }
+            }
+            await client.query('DELETE FROM product_photos WHERE product_id = $1', [id])
+            for (const [index, photo] of rows.entries()) await client.query('INSERT INTO product_photos (product_id, storage_key, url, alt, sort_order) VALUES ($1, $2, $3, $4, $5)', [id, photo.storageKey, photo.url, photo.alt, index])
         }
         const updated = await getProductRow(client, id, user.id)
         await client.query('COMMIT')

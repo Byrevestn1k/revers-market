@@ -1,0 +1,11 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-traffic-qa.spec.ts:7:5 › Step 21: observe thumbnail and original network requests
+[chromium] › e2e\step-21-traffic-qa.spec.ts:7:5 › Step 21: observe thumbnail and original network requests
+{"originalFileBytes":609349,"thumbnailsBefore":4,"thumbnailsAfter":8,"originalsBefore":1,"originalsAfter":1}
+
+(node:1516) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  1 passed (1.7m)

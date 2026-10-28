@@ -62,14 +62,14 @@ export const validateProductInput = (input: Record<string, unknown>, partial = f
     if (input.status !== undefined && !PRODUCT_STATUSES.includes(input.status as ProductStatus)) errors.push('status')
     if (input.expiresAt !== undefined && input.expiresAt !== null && (typeof input.expiresAt !== 'string' || Number.isNaN(Date.parse(input.expiresAt)))) errors.push('expiresAt')
     if (input.photos !== undefined) {
-        if (!Array.isArray(input.photos) || input.photos.length > 20) errors.push('photos')
+        if (!Array.isArray(input.photos) || input.photos.length > 8) errors.push('photos')
         else input.photos.forEach((photo) => {
             if (!photo || typeof photo !== 'object') { errors.push('photos'); return }
             const photoInput = photo as ProductPhotoInput
             const hasRemoteUrl = typeof photoInput.url === 'string'
             const hasDataUrl = typeof photoInput.dataUrl === 'string'
             if (!hasRemoteUrl && !hasDataUrl) { errors.push('photos'); return }
-            if (hasRemoteUrl) {
+            if (hasRemoteUrl && !(partial && photoInput.url!.startsWith('/uploads/products/'))) {
                 try {
                     const url = new URL(photoInput.url!)
                     if (!supportedPhotoProtocols.has(url.protocol) || photoInput.url!.length > 2048) errors.push('photos')

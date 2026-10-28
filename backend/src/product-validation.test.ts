@@ -26,6 +26,12 @@ describe('product validation', () => {
         expect(validateProductInput({ ...validProduct, mapLocationMode: 'pin' })).toContain('mapLocationMode')
         expect(validateProductInput({ ...validProduct, mapLocationMode: 'pin', latitude: 50.45, longitude: 30.52 })).toEqual([])
     })
+    it('allows up to eight photos and rejects nine', () => {
+        const photo = { url: 'https://cdn.example.com/photo.jpg' }
+        for (const count of [0, 1, 8]) expect(validateProductInput({ ...validProduct, photos: Array(count).fill(photo) })).toEqual([])
+        expect(validateProductInput({ ...validProduct, photos: Array(9).fill(photo) })).toContain('photos')
+        expect(validateProductInput({ photos: [{ url: '/uploads/products/existing/0.jpg' }] }, true)).toEqual([])
+    })
     it('accepts a browser image data URL and rejects oversized or non-image data', () => {
         expect(validateProductInput({ ...validProduct, photos: [{ dataUrl: 'data:image/png;base64,aGVsbG8=' }] })).toEqual([])
         expect(validateProductInput({ ...validProduct, photos: [{ dataUrl: 'data:text/plain;base64,aGVsbG8=' }] })).toEqual(['photos'])

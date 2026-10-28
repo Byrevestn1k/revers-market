@@ -1,0 +1,60 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-photo-gallery.spec.ts:9:5 › Step 21: real Product and Buy Request photos
+[chromium] › e2e\step-21-photo-gallery.spec.ts:9:5 › Step 21: real Product and Buy Request photos
+product originals requested before navigation: 1
+
+(node:15380) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+product thumbnail requests: 3
+
+request originals requested before navigation: 1
+
+request thumbnail requests: 3
+
+  1) [chromium] › e2e\step-21-photo-gallery.spec.ts:9:5 › Step 21: real Product and Buy Request photos
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('.map-listing-result').filter({ hasText: 'Step21 request 1793190701468' })
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" locator('.map-listing-result').filter({ hasText: 'Step21 request 1793190701468' }) with timeout 10000ms
+      - waiting for locator('.map-listing-result').filter({ hasText: 'Step21 request 1793190701468' })
+
+
+      188 |       await guestPage.getByRole('button', { name: 'Знайти', exact: true }).click()
+      189 |       const mapRequest = guestPage.locator('.map-listing-result').filter({ hasText: titleRequest })
+    > 190 |       await expect(mapRequest).toBeVisible()
+          |                                ^
+      191 |       await expect.poll(async () => (await mapRequest.locator('img').last().getAttribute('src'))?.endsWith(createdRequest.photos[1].url)).toBe(true)
+      192 |       await guestPage.screenshot({ path: `${evidence}/map-1440.png`, fullPage: true })
+      193 |       await guestPage.locator('.map-profile-result .map-result').first().click()
+        at C:\Users\PC\Documents\D\різне\marketplace-navpaky\e2e\step-21-photo-gallery.spec.ts:190:32
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\step-21-photo-gallery-Step-778b6-duct-and-Buy-Request-photos-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\step-21-photo-gallery-Step-778b6-duct-and-Buy-Request-photos-chromium\test-failed-2.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\step-21-photo-gallery-Step-778b6-duct-and-Buy-Request-photos-chromium\error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\step-21-photo-gallery-Step-778b6-duct-and-Buy-Request-photos-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\step-21-photo-gallery-Step-778b6-duct-and-Buy-Request-photos-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  1 failed
+    [chromium] › e2e\step-21-photo-gallery.spec.ts:9:5 › Step 21: real Product and Buy Request photos

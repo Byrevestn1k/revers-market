@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { ExternalUrlPhotoStorage } from './photo-storage.js'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import sharp from 'sharp'
 import { fileURLToPath } from 'node:url'
+
+const validPng = async () => `data:image/png;base64,${(await sharp({ create: { width: 2, height: 2, channels: 3, background: '#aabbcc' } }).png().toBuffer()).toString('base64')}`
 
 describe('photo storage abstraction', () => {
     it('keeps external image storage replaceable behind a stable contract', async () => {
@@ -15,9 +18,15 @@ describe('photo storage abstraction', () => {
 
     it('stores and removes browser-uploaded image data', async () => {
         const storage = new ExternalUrlPhotoStorage()
-        const stored = await storage.store('storage-test-product', { dataUrl: 'data:image/png;base64,aGVsbG8=' }, 0)
+        const stored = await storage.store('storage-test-product', { dataUrl: await validPng() }, 0)
         expect(stored).toEqual({ storageKey: 'storage-test-product/0.png', url: '/uploads/products/storage-test-product/0.png' })
         await expect(storage.remove(stored.storageKey)).resolves.toBeUndefined()
+    })
+
+    it('rejects corrupt or mislabeled images', async () => {
+        const storage = new ExternalUrlPhotoStorage()
+        await expect(storage.store('invalid-test', { dataUrl: 'data:image/png;base64,aGVsbG8=' }, 0)).rejects.toThrow('Пошкоджене фото')
+        await expect(storage.store('invalid-test', { dataUrl: (await validPng()).replace('image/png', 'image/jpeg') }, 0)).rejects.toThrow('Пошкоджене фото')
     })
 
     it('gives every copied product photo a distinct immutable file', async () => {
@@ -25,7 +34,7 @@ describe('photo storage abstraction', () => {
         const offer = new ExternalUrlPhotoStorage('offers')
         const productId = randomUUID()
         const offerId = randomUUID()
-        const source = await product.store(productId, { dataUrl: `data:image/png;base64,${Buffer.from('first-image').toString('base64')}` }, 0)
+        const source = await product.store(productId, { dataUrl: await validPng() }, 0)
         const copied: string[] = []
         const bytes = (key: string) => readFile(fileURLToPath(new URL(`../uploads/offers/${key}`, import.meta.url)))
         try {
@@ -44,6 +53,19 @@ describe('photo storage abstraction', () => {
             for (const key of copied) await offer.remove(key)
             await product.remove(source.storageKey)
         }
+    })
+
+    it('copies a product photo stored in a unique directory', async () => {
+        const product = new ExternalUrlPhotoStorage('products')
+        const offer = new ExternalUrlPhotoStorage('offers')
+        const source = await product.store(`${randomUUID()}/${randomUUID()}`, { dataUrl: await validPng() }, 0)
+        let copyKey = ''
+        try {
+            const copied = await offer.copyProductPhoto(randomUUID(), source.url)
+            copyKey = copied.storageKey
+            expect(copied.url).toMatch(/^\/uploads\/offers\//)
+            expect(await readFile(fileURLToPath(new URL(`../uploads/offers/${copyKey}`, import.meta.url)))).toEqual(await readFile(fileURLToPath(new URL(`../uploads/products/${source.storageKey}`, import.meta.url))))
+        } finally { if (copyKey) await offer.remove(copyKey); await product.remove(source.storageKey) }
     })
 
     it('keeps a missing legacy Product URL as a replaceable broken image', async () => {

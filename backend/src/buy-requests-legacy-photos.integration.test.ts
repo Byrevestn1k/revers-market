@@ -18,7 +18,7 @@ if (process.env.DATABASE_URL) {
             const productStorage = new ExternalUrlPhotoStorage('products')
             const offerKeys = new Set<string>()
             let productKey = ''
-            const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='
+            const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVR4nGNYtfvMqt1nGCAUADziCMU05NnQAAAAAElFTkSuQmCC'
             const path = (key: string) => fileURLToPath(new URL(`../uploads/offers/${key}`, import.meta.url))
             try {
                 for (const [index, agent] of [buyer, seller].entries()) {

@@ -1,0 +1,5 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-gallery-regression.spec.ts:7:5 › Step 21: saved ordering and gallery after thumbnail loading change
+  1 passed (1.9m)

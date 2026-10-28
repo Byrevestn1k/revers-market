@@ -686,15 +686,6 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
     const [busy, setBusy] = useState(false)
     const [locationBusy, setLocationBusy] = useState(false)
     const setImages = (next: string[]) => { setPhotos(next); setPhotoChanged(true); setErrors((current) => ({ ...current, photos: '' })) }
-    const addImage = (next: string) => setImages([...photos, next])
-    const readFile = (file?: File) => {
-        if (!file) return
-        if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) || file.size > 5 * 1024 * 1024) { setErrors((current) => ({ ...current, photos: listingErrorMessages.photos })); return }
-        const reader = new FileReader()
-        reader.onload = () => addImage(String(reader.result))
-        reader.onerror = () => setErrors((current) => ({ ...current, photos: 'Не вдалося прочитати файл' }))
-        reader.readAsDataURL(file)
-    }
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (busy || locationBusy) return
@@ -702,7 +693,6 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
         if (!categoryId) { setErrors({ categoryId: listingErrorMessages.categoryId }); return }
         if (!location.city.trim()) { setErrors({ location: 'Оберіть населений пункт.' }); return }
         if (!product && !deliveryOptions.length) { setErrors({ deliveryOptions: 'Оберіть хоча б один спосіб отримання.' }); return }
-        if (photoChanged && photos.some((photo) => photo && !/^(https?:\/\/|data:image\/)/i.test(photo))) { setErrors({ photos: 'Вкажіть URL https:// або завантажте зображення.' }); return }
         const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
         const next = {
             categoryId, title: title.trim(), description: data.description, quantity: Number(data.quantity), unit: data.unit,
@@ -735,13 +725,7 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
     return <section className="form-view"><div className="view-header"><div><span className="eyebrow">Пропозиція продавця</span><h1>{product ? 'Редагувати товар' : 'Додати товар'}</h1></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Закрити форму">×</button></div>
         <form className="product-form listing-form" onSubmit={submit}>
             <ListingBasics categories={categories} categoryId={categoryId} onCategoryChange={setCategoryId} title={title} onTitleChange={setTitle} description={product?.description} errors={errors} />
-            <fieldset className="listing-section"><legend>Фото товару</legend><div className="photo-drop">
-                {photos.map((photo, index) => <div key={`${photo}-${index}`}><img className="photo-preview" src={photo.startsWith('/') ? imageUrl(photo) : photo} alt={`Фото товару ${index + 1}`} /><label>Посилання на фото {index + 1}<input type="url" value={photo.startsWith('data:') || photo.startsWith('/') ? '' : photo} onChange={(event) => setImages(photos.map((current, currentIndex) => currentIndex === index ? event.target.value : current))} placeholder="https://…" /></label><button type="button" className="text-button" onClick={() => setImages(photos.filter((_, currentIndex) => currentIndex !== index))}>Прибрати фото</button></div>)}
-                <label>Завантажити фото<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => readFile(event.target.files?.[0])} /></label>
-                <label>Або додати посилання на фото<input type="url" onBlur={(event) => { if (event.target.value) { addImage(event.target.value); event.target.value = '' } }} placeholder="https://…" /></label>
-                <small>PNG, JPG, WEBP або GIF · до 5 МБ · до 20 фото</small>
-                <FieldError message={errors.photos} />
-            </div></fieldset>
+            <fieldset className="listing-section"><legend>Фото товару</legend><PhotoPicker photos={photos} onChange={setImages} max={8} error={errors.photos} /></fieldset>
             <fieldset className="listing-section"><legend>Кількість і ціна</legend><QuantityFields quantity={product?.quantity} unit={product?.unit ?? 'piece'} errors={errors} />
                 <div className="field-row"><label>Ціна за одиницю<input name="price" type="number" min="0" step=".01" defaultValue={product?.price.amount ?? 0} required /><FieldError message={errors.price} /></label><CurrencyField currency={product?.price.currency} error={errors.currency} /></div>
             </fieldset>
@@ -917,7 +901,7 @@ function ProductPage({ id, user, onEdit, onAccount, onCreate, onChat, favoriteKe
         removeIntent()
         onChat(product)
     }, [product, user?.id])
-    return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate} favoriteKeys={favoriteKeys} onFavorite={onFavorite}>{error ? <p className="form-error">{error}</p> : !product ? <p>Завантажуємо товар…</p> : <div className="listing-page-layout"><article className="listing-detail-page"><ListingPicture product={product} className="detail-image" /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h1>{product.title}</h1><strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {unitLabel(product.unit)}</small></strong><div className="detail-facts"><span>⌖ <b>{product.publicAddress || product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {unitLabel(product.unit)}</b><small>В наявності</small></span><span>♧ <b>{product.deliveryOptions?.length ? deliveryOptionsLabel(product.deliveryOptions) : DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode}</b><small>Отримання</small></span></div><section className="listing-description"><h2>Опис товару</h2><p>{product.description || 'Продавець ще не додав опис.'}</p></section>{user?.id === product.owner.id ? <button className="primary-button" onClick={() => onEdit(product)}>Редагувати товар</button> : <button className="primary-button" onClick={() => user ? onChat(product) : onAccount(pathWithIntent('message'))}>♧ Написати продавцю</button>}{user?.id !== product.owner.id && <CategoryReportButton targetType="product" targetId={product.id} user={user} onAccount={onAccount} />}</div></article><CompactPersonCard profile={seller} role="Продавець" favorite={Boolean(seller && favoriteKeys.has(favoriteKey('profile', seller.id)))} onFavorite={user ? onFavorite : undefined} /></div>}</PublicPage>
+    return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate} favoriteKeys={favoriteKeys} onFavorite={onFavorite}>{error ? <p className="form-error">{error}</p> : !product ? <p>Завантажуємо товар…</p> : <div className="listing-page-layout"><article className="listing-detail-page"><RequestGallery photos={product.photos ?? []} category={{ ...product.category, parentId: null }} title={product.title} /><div className="detail-body"><span className={`status status-${product.status}`}>{STATUS[product.status]}</span><span className="eyebrow">{product.category.name}</span><h1>{product.title}</h1><strong className="detail-price">{formatPrice(product.price.amount, product.price.currency)} <small>/ {unitLabel(product.unit)}</small></strong><div className="detail-facts"><span>⌖ <b>{product.publicAddress || product.geoZone}</b><small>Місце</small></span><span>▧ <b>{product.quantity} {unitLabel(product.unit)}</b><small>В наявності</small></span><span>♧ <b>{product.deliveryOptions?.length ? deliveryOptionsLabel(product.deliveryOptions) : DELIVERY_LABELS[product.deliveryMode] ?? product.deliveryMode}</b><small>Отримання</small></span></div><section className="listing-description"><h2>Опис товару</h2><p>{product.description || 'Продавець ще не додав опис.'}</p></section>{user?.id === product.owner.id ? <button className="primary-button" onClick={() => onEdit(product)}>Редагувати товар</button> : <button className="primary-button" onClick={() => user ? onChat(product) : onAccount(pathWithIntent('message'))}>♧ Написати продавцю</button>}{user?.id !== product.owner.id && <CategoryReportButton targetType="product" targetId={product.id} user={user} onAccount={onAccount} />}</div></article><CompactPersonCard profile={seller} role="Продавець" favorite={Boolean(seller && favoriteKeys.has(favoriteKey('profile', seller.id)))} onFavorite={user ? onFavorite : undefined} /></div>}</PublicPage>
 }
 
 function BuyRequestPage({ id, user, mine, notify, onAccount, onCreate, onChat, favoriteKeys, onFavorite }: { id: string; user: User | null; mine: Product[]; notify: (message: string) => void; onAccount: (returnPath?: string) => void; onCreate: () => void; onChat: (item: BuyRequest) => void; favoriteKeys: Set<string>; onFavorite: (targetType: 'product' | 'buy_request' | 'profile', targetId: string) => Promise<void> }) {

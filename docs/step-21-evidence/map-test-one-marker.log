@@ -1,0 +1,11 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-map-qa.spec.ts:7:5 › Step 21: map cards, markers and Favorites with ordered photos
+[chromium] › e2e\step-21-map-qa.spec.ts:7:5 › Step 21: map cards, markers and Favorites with ordered photos
+Map marker switching: UNVERIFIED (only one visible marker)
+
+
+(node:13360) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  1 passed (2.1m)

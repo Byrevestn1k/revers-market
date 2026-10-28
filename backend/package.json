@@ -19,7 +19,8 @@
         "express": "^4.21.2",
         "jose": "^6.2.12",
         "nodemailer": "^10.0.10",
-        "pg": "^8.13.1"
+        "pg": "^8.13.1",
+        "sharp": "^0.35.5"
     },
     "devDependencies": {
         "@types/cors": "^2.8.17",

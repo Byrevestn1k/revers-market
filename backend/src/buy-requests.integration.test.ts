@@ -16,7 +16,7 @@ if (hasDatabase) {
             const roles = ['buyer', 'seller_a', 'seller_b', 'seller_c']
             const agents = roles.map(() => request.agent(createApp()))
             const usernames = roles.map(role => `step13_${role}_${suffix}`)
-            const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='
+            const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVR4nGNYtfvMqt1nGCAUADziCMU05NnQAAAAAElFTkSuQmCC'
             const otherPhoto = `data:image/png;base64,${Buffer.concat([Buffer.from(photo.split(',')[1], 'base64'), Buffer.from('second-photo')]).toString('base64')}`
             const offerFile = (url: string) => fileURLToPath(new URL(`../uploads/offers/${url.replace('/uploads/offers/', '')}`, import.meta.url))
             const offerStorage = new ExternalUrlPhotoStorage('offers')
@@ -174,7 +174,7 @@ if (hasDatabase) {
         }, 30000)
 
         it('keeps product terms unchanged and supports several partial deals', async () => {
-            const uploadedPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='
+            const uploadedPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVR4nGNYtfvMqt1nGCAUADziCMU05NnQAAAAAElFTkSuQmCC'
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const buyerPayload = { username: `buyer_${suffix}`, email: `buyer_${suffix}@example.com`, countryCode: 'UA', phone: `+38050${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }
             const sellerOnePayload = { username: `seller_one_${suffix}`, email: `seller_one_${suffix}@example.com`, countryCode: 'PL', phone: `+4850${suffix.slice(-7)}`, password: 'AnotherPassword2', passwordConfirmation: 'AnotherPassword2' }
