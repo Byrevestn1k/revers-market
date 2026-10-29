@@ -43,8 +43,8 @@
 .listing-owner { margin-top: 10px; }
 .listing-card .card-meta { flex-wrap: wrap; gap: 7px; }
 .listing-card-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 14px; }
-.listing-card-actions label { display: grid; flex-basis: 100%; gap: 5px; font-size: 12px; }
-.listing-card-actions select { padding: 8px; border: 1px solid #d5e3d8; border-radius: 6px; background: white; }
+.listing-card-actions label { display: grid; flex-basis: 100%; min-width: 0; gap: 5px; font-size: 12px; }
+.listing-card-actions select { width: 100%; min-width: 0; padding: 8px; border: 1px solid #d5e3d8; border-radius: 6px; background: white; }
 .product-form .listing-section { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 18px; border: 1px solid #dce7df; border-radius: 12px; }
 .listing-section legend { padding: 0 6px; color: #24423a; font-size: 15px; font-weight: 800; }
 .listing-field { display: grid; gap: 7px; font-size: 13px; }
@@ -87,3 +87,9 @@
 .gallery-thumb-fallback{display:none;font-size:.7rem}.request-gallery-thumbs img[hidden]+.gallery-thumb-fallback{display:block}
 .gallery-thumb-pending{display:block;width:100%;height:100%;background:#e7eee7}
 .photo-picker-item.is-dragging{outline:3px solid #17825a;outline-offset:-3px;opacity:.65;box-shadow:0 0 0 3px #17825a55}
+
+.status-active { color: #237343; background: #e8f7e9; }
+.status-inactive, .product-image .status-inactive { color: #66746d; background: #edf1ed; }
+.product-image .status-draft { color: #66746d; background: #edf1ed; }
+
+.unavailable-favorite { padding: 1rem; background: #fff; border: 1px solid var(--line); border-radius: 12px; }

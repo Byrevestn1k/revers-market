@@ -164,3 +164,7 @@ Step 8 follow-up: one repeated territory input reuses SettlementPicker, multiple
 
 ## Step 21
 Step 21: READY FOR INDEPENDENT REVIEW; виправлення Seller Offer перевірено, потрібен незалежний огляд нового HEAD. Деталі: STEP_21_PHOTO_GALLERY.md.
+
+## Step 22 — підготовлено до незалежного огляду
+
+Спрощення статусів розпочато в гілці `codex/step-22-simplified-statuses`. Основні перевірки виконано; обмеження та неперевірені сценарії наведені в [STEP_22_SIMPLIFIED_STATUSES.md](STEP_22_SIMPLIFIED_STATUSES.md).

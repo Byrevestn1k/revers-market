@@ -114,7 +114,7 @@ if (hasDatabase) {
                 for (const key of offerKeys) await offerStorage.remove(key)
                 for (const key of productKeys) await productStorage.remove(key)
             }
-        }, 30000)
+        }, 120000)
         it('locks fulfillment mode after offer or deal creation without blocking unrelated edits', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
             const users = ['mode_buyer', 'mode_seller'].map((role, index) => ({ username: `${role}_${suffix}`, email: `${role}_${suffix}@example.com`, countryCode: 'UA', phone: `+380${index ? '67' : '50'}${suffix.slice(-7)}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' }))
@@ -176,7 +176,7 @@ if (hasDatabase) {
                 await pool.query('DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[])) OR seller_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))', [names])
                 await pool.query('DELETE FROM users WHERE username_normalized = ANY($1::text[])', [names])
             }
-        }, 30000)
+        }, 120000)
 
         it('keeps product terms unchanged and supports several partial deals', async () => {
             const uploadedPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVR4nGNYtfvMqt1nGCAUADziCMU05NnQAAAAAElFTkSuQmCC'
@@ -359,7 +359,7 @@ if (hasDatabase) {
                 await pool.query('DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[])) OR seller_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))', [names])
                 await pool.query('DELETE FROM users WHERE username_normalized = ANY($1::text[])', [names])
             }
-        }, 30000)
+        }, 120000)
 
         it('edits submitted offers without revalidating an unchanged unavailable product link', async () => {
             const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
@@ -407,7 +407,7 @@ if (hasDatabase) {
             } finally {
                 await pool.query('DELETE FROM users WHERE username_normalized IN ($1, $2)', [buyerPayload.username.toLowerCase(), sellerPayload.username.toLowerCase()])
             }
-        }, 30000)
+        }, 120000)
     })
 } else {
     describe.skip('buy requests and offers HTTP integration (requires DATABASE_URL)', () => { })

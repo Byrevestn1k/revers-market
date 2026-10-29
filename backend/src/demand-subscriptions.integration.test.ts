@@ -122,6 +122,22 @@ if (process.env.DATABASE_URL) {
       }
     });
 
+    it('does not create extra demand notifications when listing statuses change', async () => {
+      await subscribe();
+      const requestId = await createRequest();
+      const initial = (await notifications()).notifications;
+      expect(initial).toHaveLength(1);
+      expect(initial[0].buyRequestId).toBe(requestId);
+      expect((await buyer.patch(`/api/buy-requests/${requestId}`).send({ status: 'cancelled' })).status).toBe(200);
+      expect((await buyer.patch(`/api/buy-requests/${requestId}`).send({ status: 'open' })).status).toBe(409);
+      const product = await buyer.post('/api/products').send({ categoryId, title: 'Step22 status notification product', quantity: 1, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: rivne.name, status: 'draft' });
+      expect(product.status).toBe(201);
+      for (const status of ['active', 'paused', 'sold', 'active']) {
+        expect((await buyer.patch(`/api/products/${product.body.product.id}`).send({ status })).status).toBe(200);
+      }
+      expect((await notifications()).notifications.map((item: { id: string }) => item.id)).toEqual(initial.map((item: { id: string }) => item.id));
+    }, 120000);
+
     it('alerts once only for confirmed geographic delivery, never for flexibility or unknown legacy terms', async () => {
       const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
       await subscribe(seller, { deliveryOptions: [

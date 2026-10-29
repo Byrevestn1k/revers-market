@@ -26,10 +26,10 @@ if (hasDatabase) {
             await pool.query('DELETE FROM orders WHERE buyer_id = ANY($1::uuid[]) OR seller_id = ANY($1::uuid[])', [ids])
             await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [ids])
         })
-        const setup = async (quantity = 100, mode = 'multiple_sellers', stock = false) => {
+        const setup = async (quantity = 100, mode = 'multiple_sellers', stock = false, withPhoto = false) => {
             let productId: string | undefined
             if (stock) {
-                const product = await seller.post('/api/products').send({ categoryId, title: 'Мед для перевірки', description: '', quantity: 100, unit: 'kg', price: 145, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active' })
+                const product = await seller.post('/api/products').send({ categoryId, title: 'Мед для перевірки', description: '', quantity: 100, unit: 'kg', price: 145, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active', photos: withPhoto ? [{ url: 'https://example.com/step22-product.jpg' }] : [] })
                 expect(product.status).toBe(201); productId = product.body.product.id
             }
             const created = await buyer.post('/api/buy-requests').send({ categoryId, title: 'Потрібен мед', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity, unit: 'kg', currency: 'UAH', geoArea: 'Київська область', fulfillmentMode: mode })
@@ -49,6 +49,26 @@ if (hasDatabase) {
             expect((await buyer.post(`/api/orders/${id}/complete`).send(quantity ? { actualQuantity: quantity } : {})).status).toBe(200)
             expect((await seller.post(`/api/orders/${id}/complete`)).status).toBe(200)
         }
+        it('keeps completed deals, reviews and offers unchanged when a sold product is reactivated', async () => {
+            const { rid, oid, productId } = await setup(100, 'multiple_sellers', true, true)
+            const id = await select(oid, 100)
+            await complete(id, 100)
+            expect((await seller.get(`/api/products/${productId}`)).body.product.status).toBe('sold')
+            expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating: 12 })).status).toBe(201)
+            expect((await seller.post(`/api/orders/${id}/reviews`).send({ rating: 10 })).status).toBe(201)
+            const snapshot = async () => ({
+                order: (await pool.query('SELECT * FROM orders WHERE id=$1', [id])).rows,
+                items: (await pool.query('SELECT * FROM order_items WHERE order_id=$1 ORDER BY id', [id])).rows,
+                reviews: (await pool.query('SELECT * FROM reviews WHERE order_id=$1 ORDER BY id', [id])).rows,
+                offers: (await pool.query('SELECT * FROM offers WHERE buy_request_id=$1 ORDER BY id', [rid])).rows,
+                request: (await pool.query('SELECT * FROM buy_requests WHERE id=$1', [rid])).rows,
+            })
+            const before = await snapshot()
+            expect(before.order[0].conditions_snapshot.photos).toHaveLength(1)
+            expect((await seller.patch(`/api/products/${productId}`).send({ status: 'active' })).status).toBe(200)
+            expect(await snapshot()).toEqual(before)
+            expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating: 1 })).status).toBe(409)
+        }, 120000)
         it('keeps one conversation through bargaining, selection and partial completion; snapshots agreed terms', async () => {
             const { rid, oid, productId } = await setup(100, 'multiple_sellers', true)
             const chats = await Promise.all([buyer.post(`/api/offers/${oid}/conversation`), seller.post(`/api/offers/${oid}/conversation`)])

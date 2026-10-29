@@ -34,15 +34,17 @@ export const removeFavorite = async (user: AuthUser, typeValue: string, targetId
 
 export const listFavorites = async (user: AuthUser) => {
     const result = await pool.query<{ targetType: FavoriteType; targetId: string; username: string | null }>(`
-        SELECT f.target_type AS "targetType", f.target_id AS "targetId", u.username
+        SELECT f.target_type AS "targetType", f.target_id AS "targetId", u.username,
+               CASE WHEN f.target_type = 'product' AND p.status <> 'active' THEN p.title
+                    WHEN f.target_type = 'buy_request' AND r.status NOT IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled') THEN r.title END AS "inactiveTitle"
         FROM favorites f
         LEFT JOIN users u ON f.target_type = 'profile' AND u.id = f.target_id
         LEFT JOIN products p ON f.target_type = 'product' AND p.id = f.target_id
         LEFT JOIN buy_requests r ON f.target_type = 'buy_request' AND r.id = f.target_id
         WHERE f.user_id = $1
           AND ((f.target_type = 'profile' AND u.id IS NOT NULL)
-            OR (f.target_type = 'product' AND p.status = 'active')
-            OR (f.target_type = 'buy_request' AND r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')))
+            OR (f.target_type = 'product' AND p.status <> 'draft')
+            OR (f.target_type = 'buy_request' AND r.id IS NOT NULL))
         ORDER BY f.created_at DESC`, [user.id])
     return { status: 200, body: { favorites: result.rows } }
 }

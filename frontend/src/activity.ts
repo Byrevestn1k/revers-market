@@ -1,7 +1,13 @@
-export type ActivityGroup = 'attention' | 'active' | 'completed' | 'closed' | 'inactive' | 'all'
+export type ActivityGroup = 'attention' | 'active' | 'completed' | 'closed' | 'inactive' | 'draft' | 'all'
 export type ActivityKind = 'product' | 'request' | 'offer' | 'deal'
 
 type ActivityItem = { id: string; status: string; createdAt?: string; updatedAt?: string; buyer?: { id: string }; seller?: { id: string }; dispute?: { status: string } | null; buyerResult?: unknown; sellerResult?: unknown; pendingNegotiation?: boolean; waitingConfirmation?: boolean; requestStatus?: string; acceptedQuantity?: number }
+
+export function listingState(kind: 'product' | 'request', status: string): 'active' | 'inactive' | 'draft' {
+    if (kind === 'product') return status === 'draft' ? 'draft' : status === 'active' ? 'active' : 'inactive'
+    return isActiveRequest(status) ? 'active' : 'inactive'
+}
+export const listingStateLabel = (kind: 'product' | 'request', status: string) => ({ active: 'Активне', inactive: 'Неактивне', draft: 'Чернетка' })[listingState(kind, status)]
 
 export const activeRequestStatuses = ['open', 'partially_selected', 'partially_completed', 'partially_fulfilled']
 export const isActiveRequest = (status?: string) => Boolean(status && activeRequestStatuses.includes(status))
@@ -12,14 +18,12 @@ export const activityGroups: Record<ActivityKind, { id: ActivityGroup; label: st
     product: [
         { id: 'active', label: 'Активні', empty: 'Активних товарів немає' },
         { id: 'inactive', label: 'Неактивні', empty: 'Неактивних товарів немає' },
-        { id: 'completed', label: 'Продані', empty: 'Проданих товарів немає' },
+        { id: 'draft', label: 'Чернетки', empty: 'Чернеток товарів немає' },
         { id: 'all', label: 'Усі', empty: 'Товарів немає' },
     ],
     request: [
         { id: 'active', label: 'Активні', empty: 'Активних запитів немає' },
-        { id: 'completed', label: 'Виконані', empty: 'Виконаних запитів немає' },
-        { id: 'closed', label: 'Скасовані', empty: 'Скасованих запитів немає' },
-        { id: 'inactive', label: 'Прострочені', empty: 'Прострочених запитів немає' },
+        { id: 'inactive', label: 'Неактивні', empty: 'Неактивних запитів немає' },
         { id: 'all', label: 'Усі', empty: 'Запитів немає' },
     ],
     offer: [
@@ -40,8 +44,8 @@ export const activityGroups: Record<ActivityKind, { id: ActivityGroup; label: st
 }
 
 export function activityGroup(kind: ActivityKind, item: ActivityItem, viewerId = ''): ActivityGroup {
-    if (kind === 'product') return item.status === 'active' ? 'active' : item.status === 'sold' ? 'completed' : 'inactive'
-    if (kind === 'request') return ['completed', 'fulfilled'].includes(item.status) ? 'completed' : item.status === 'cancelled' ? 'closed' : item.status === 'expired' ? 'inactive' : 'active'
+    if (kind === 'product') return listingState('product', item.status)
+    if (kind === 'request') return listingState('request', item.status)
     if (kind === 'offer') {
         if (['rejected', 'withdrawn'].includes(item.status)) return 'closed'
         if (['draft', 'expired'].includes(item.status)) return 'inactive'

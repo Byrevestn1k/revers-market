@@ -52,12 +52,11 @@ test('activity groups update after product, request and deal changes for a hybri
   await page.goto('/my/products', { waitUntil: 'domcontentloaded' });
   const productTabs = page.getByRole('navigation', { name: 'Стан активності' });
   await expect(productTabs.getByRole('button', { name: 'Активні 1', exact: true })).toBeVisible();
-  await productTabs.getByRole('button', { name: 'Неактивні 1', exact: true }).click();
-  await expect(page.locator('.product-card')).toHaveCount(1);
-  await expect(page.locator('.product-card')).toContainText('Призупинений мед');
-  await page.locator('.product-card').getByRole('combobox', { name: 'Статус' }).selectOption('active');
+  await productTabs.getByRole('button', { name: 'Неактивні 2', exact: true }).click();
+  await expect(page.locator('.product-card')).toHaveCount(2);
+  await page.locator('.product-card').filter({ hasText: 'Призупинений мед' }).getByRole('button', { name: 'Активувати' }).click();
   await expect(productTabs.getByRole('button', { name: 'Активні 2', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Неактивних товарів немає' })).toBeVisible();
+  await expect(productTabs.getByRole('button', { name: 'Неактивні 1', exact: true })).toBeVisible();
   await page.reload();
   await expect(productTabs.getByRole('button', { name: 'Активні 2', exact: true })).toBeVisible();
   await productTabs.getByRole('button', { name: 'Усі 3', exact: true }).click();
@@ -69,8 +68,8 @@ test('activity groups update after product, request and deal changes for a hybri
   await page.locator('.request-card').filter({ hasText: 'Потрібна пшениця' }).getByRole('button', { name: 'Закрити запит' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Закрити запит' }).click();
   await expect(requestTabs.getByRole('button', { name: 'Активні 0', exact: true })).toBeVisible();
-  await requestTabs.getByRole('button', { name: 'Скасовані 2', exact: true }).click();
-  await expect(page.locator('.request-card')).toHaveCount(2);
+  await requestTabs.getByRole('button', { name: 'Неактивні 3', exact: true }).click();
+  await expect(page.locator('.request-card')).toHaveCount(3);
   await expect(page.locator('.request-card').filter({ hasText: 'Потрібна пшениця' })).toHaveCount(1);
   await requestTabs.getByRole('button', { name: 'Усі 3', exact: true }).click();
   await expect(page.locator('.request-card')).toHaveCount(3);

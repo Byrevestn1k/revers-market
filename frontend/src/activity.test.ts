@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { activityGroup, activityGroups, activityItems, canEditSellerOffer, canWithdrawSellerOffer } from './activity'
+import { activityGroup, activityGroups, activityItems, listingStateLabel, canEditSellerOffer, canWithdrawSellerOffer } from './activity'
 
 describe('activity organisation', () => {
     it('places each product and historical request in exactly one visible group', () => {
         const products = ['draft', 'active', 'paused', 'sold', 'expired'].map((status, index) => ({ id: String(index), status }))
         expect(activityGroups.product.map(group => activityItems('product', products, group.id).length)).toEqual([1, 3, 1, 5])
         const requests = ['open', 'partially_selected', 'partially_completed', 'partially_fulfilled', 'completed', 'fulfilled', 'cancelled', 'expired'].map((status, index) => ({ id: String(index), status }))
-        expect(activityGroups.request.map(group => activityItems('request', requests, group.id).length)).toEqual([4, 2, 1, 1, 8])
+        expect(activityGroups.request.map(group => activityItems('request', requests, group.id).length)).toEqual([4, 4, 8])
+    })
+
+    it('shows the simplified label for each listing status', () => {
+        for (const status of ['paused', 'sold', 'expired']) expect(listingStateLabel('product', status)).toBe('Неактивне')
+        expect(listingStateLabel('product', 'draft')).toBe('Чернетка')
+        expect(listingStateLabel('product', 'active')).toBe('Активне')
+        for (const status of ['open', 'partially_selected', 'partially_completed', 'partially_fulfilled']) expect(listingStateLabel('request', status)).toBe('Активне')
+        for (const status of ['completed', 'fulfilled', 'cancelled', 'expired']) expect(listingStateLabel('request', status)).toBe('Неактивне')
     })
 
     it('keeps seller offers with the request and distinguishes pending action from accepted history', () => {
