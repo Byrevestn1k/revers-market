@@ -1,0 +1,32 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-publish-qa.spec.ts:7:5 › Step 21: publish Product and Buy Request with zero and eight photos
+  1) [chromium] › e2e\step-21-publish-qa.spec.ts:7:5 › Step 21: publish Product and Buy Request with zero and eight photos
+
+    Error: expect(received).toBeTruthy()
+
+    Received: undefined
+
+      17 |     expect((await context.request.post('/api/auth/login', { data: { username, password } })).status()).toBe(200)
+      18 |     const category = (await (await context.request.get('/api/categories')).json()).categories.find((item: { code: string }) => item.code === 'honey_raw')
+    > 19 |     expect(category).toBeTruthy()
+         |                      ^
+      20 |     const files = await Promise.all(Array.from({ length: 8 }, async (_, i) => ({ name: `publish-${i}.png`, mimeType: 'image/png', buffer: await sharp({ create: { width: 180, height: 120, channels: 3, background: { r: 20 + i * 25, g: 80, b: 180 - i * 15 } } }).png().toBuffer() })))
+      21 |     const page = await context.newPage()
+      22 |     page.setDefaultTimeout(40_000)
+        at C:\Users\PC\Documents\D\різне\marketplace-navpaky\e2e\step-21-publish-qa.spec.ts:19:22
+
+    Error Context: test-results\step-21-publish-qa-Step-21-72a9b--with-zero-and-eight-photos-chromium\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\step-21-publish-qa-Step-21-72a9b--with-zero-and-eight-photos-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\step-21-publish-qa-Step-21-72a9b--with-zero-and-eight-photos-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  1 failed
+    [chromium] › e2e\step-21-publish-qa.spec.ts:7:5 › Step 21: publish Product and Buy Request with zero and eight photos

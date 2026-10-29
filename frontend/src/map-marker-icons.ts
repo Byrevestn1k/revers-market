@@ -1,5 +1,6 @@
 import { avatarInitials, type MapNode } from './map-clusters'
 import { unitLabel, listingPrice } from './listing-options'
+import { photoThumbnailUrl } from './photo-thumbnail'
 
 export function mapMarkerLabel(node: MapNode): string {
     const item = node.items[0], count = node.items.length
@@ -41,7 +42,7 @@ export function mapMarkerElement(node: MapNode, resolveUrl: (url: string) => str
         const url = node.preview === 'avatar' ? item.owner?.avatarUrl : node.preview === 'photo' ? item.photoUrl : null
         if (url) {
             const image = document.createElement('img')
-            image.src = resolveUrl(url); image.alt = ''; image.decoding = 'async'
+            image.src = resolveUrl(node.preview === 'photo' ? photoThumbnailUrl(url) : url); image.alt = ''; image.decoding = 'async'
             image.addEventListener('error', () => image.replaceWith(node.preview === 'avatar' ? avatarFallback() : categoryImage()), { once: true })
             media.append(image)
         } else media.append(node.preview === 'avatar' ? avatarFallback() : categoryImage())

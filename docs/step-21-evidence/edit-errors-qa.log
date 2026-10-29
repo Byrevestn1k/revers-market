@@ -1,0 +1,45 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-edit-errors-qa.spec.ts:7:5 › Step 21: mixed photos survive failed save and retry
+[chromium] › e2e\step-21-edit-errors-qa.spec.ts:7:5 › Step 21: mixed photos survive failed save and retry
+product mixed photos, failed save, retry and double click: PASS
+
+(node:11580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+  1) [chromium] › e2e\step-21-edit-errors-qa.spec.ts:7:5 › Step 21: mixed photos survive failed save and retry
+
+    Error: {"error":"VALIDATION_ERROR","message":"Перевірте дані запиту","fields":["description"]}
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 201
+    Received: 400
+
+      24 |       const endpoint = type === 'product' ? '/api/products' : '/api/buy-requests'
+      25 |       const data = type === 'product' ? { ...common, title, quantity: 2, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status: 'active' } : { ...common, title, quantity: 2, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', receiptMethod: 'SELF_PICKUP', fulfillmentMode: 'single_seller' }
+    > 26 |       const response = await context.request.post(endpoint, { data }); expect(response.status(), await response.text()).toBe(201)
+         |                                                                                                                         ^
+      27 |       const body = await response.json(), listing = type === 'product' ? body.product : body.buyRequest
+      28 |       const item = { type, id: listing.id as string, urls: listing.photos.map((photo: { url: string }) => photo.url) as string[] }; created.push(item)
+      29 |       if (type === 'product') await page.goto(`/my/products/${item.id}/edit`, { waitUntil: 'domcontentloaded' })
+        at C:\Users\PC\Documents\D\різне\marketplace-navpaky\e2e\step-21-edit-errors-qa.spec.ts:26:121
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\step-21-edit-errors-qa-Ste-993c9-rvive-failed-save-and-retry-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\step-21-edit-errors-qa-Ste-993c9-rvive-failed-save-and-retry-chromium\error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\step-21-edit-errors-qa-Ste-993c9-rvive-failed-save-and-retry-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\step-21-edit-errors-qa-Ste-993c9-rvive-failed-save-and-retry-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  1 failed
+    [chromium] › e2e\step-21-edit-errors-qa.spec.ts:7:5 › Step 21: mixed photos survive failed save and retry

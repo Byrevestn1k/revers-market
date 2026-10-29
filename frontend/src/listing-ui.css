@@ -86,3 +86,4 @@
 
 .gallery-thumb-fallback{display:none;font-size:.7rem}.request-gallery-thumbs img[hidden]+.gallery-thumb-fallback{display:block}
 .gallery-thumb-pending{display:block;width:100%;height:100%;background:#e7eee7}
+.photo-picker-item.is-dragging{outline:3px solid #17825a;outline-offset:-3px;opacity:.65;box-shadow:0 0 0 3px #17825a55}

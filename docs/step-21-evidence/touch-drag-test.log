@@ -1,0 +1,21 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-touch-drag.spec.ts:5:5 › Step 21: touch dragging in both listing forms
+[chromium] › e2e\step-21-touch-drag.spec.ts:5:5 › Step 21: touch dragging in both listing forms
+{"label":"product","source":[118,424.65625],"target":[118,262.65625],"hit":"2","viewport":[390,850,462]}
+
+
+(node:3768) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TOUCH-DEBUG {"type":"pointerdown","x":118,"y":424.65625,"target":"2","hit":"2"}
+
+TOUCH-DEBUG {"type":"pointerup","x":118,"y":262.65625,"target":"2","hit":"0"}
+
+{"label":"request","source":[118,424.65625],"target":[118,262.65625],"hit":"2","viewport":[390,850,506]}
+
+TOUCH-DEBUG {"type":"pointerdown","x":118,"y":424.65625,"target":"2","hit":"2"}
+
+TOUCH-DEBUG {"type":"pointerup","x":118,"y":262.65625,"target":"2","hit":"0"}
+
+  1 passed (1.2m)

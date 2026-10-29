@@ -4,6 +4,12 @@ import { join } from 'node:path'
 import { Client } from 'pg'
 import sharp from 'sharp'
 
+const isThumbnailOf = (src: string | null, original: string) => {
+  if (!src) return false
+  const url = new URL(src, 'http://localhost')
+  return url.pathname === '/api/photo-thumbnail' && url.searchParams.get('path') === original
+}
+
 test('Step 21: map cards, markers and Favorites with ordered photos', async ({ browser, baseURL }) => {
   test.setTimeout(300_000)
   const text = (await readFile('docs/TEST_ACCOUNTS.local.md', 'utf8')).replaceAll('\r\n', '\n')
@@ -38,11 +44,17 @@ test('Step 21: map cards, markers and Favorites with ordered photos', async ({ b
       expect((await owner.request.patch(path, { data: { photos: [{ url: photos[1].url }, { url: photos[0].url }] } })).status()).toBe(200)
     }
     const page = await viewer.newPage()
+    const imageRequests: string[] = []
+    page.on('request', request => {
+      const url = new URL(request.url())
+      if (url.pathname === '/api/photo-thumbnail' || url.pathname.startsWith(`/uploads/products/${productId}/`) || url.pathname.startsWith(`/uploads/buy-requests/${requestId}/`)) imageRequests.push(url.pathname)
+    })
     page.setDefaultTimeout(30_000)
     await page.goto(`/profiles/${encodeURIComponent(ownerCredentials.username)}`, { waitUntil: 'domcontentloaded' })
     const productCard = page.locator('.product-card').filter({ hasText: productTitle })
     await expect(productCard).toBeVisible()
-    await expect.poll(async () => (await productCard.locator('.product-image img').last().getAttribute('src'))?.endsWith(product.photos[1].url)).toBe(true)
+    await expect.poll(async () => isThumbnailOf(await productCard.locator('.product-image img').last().getAttribute('src'), product.photos[1].url)).toBe(true)
+    await expect(productCard.locator('.product-image img').last()).toBeVisible()
     const url = page.url()
     await productCard.getByRole('button', { name: 'Додати в обране' }).click()
     await expect(productCard.getByRole('button', { name: 'Прибрати з обраного' })).toBeVisible()
@@ -50,7 +62,8 @@ test('Step 21: map cards, markers and Favorites with ordered photos', async ({ b
     await page.getByRole('tab', { name: /Запити на покупку/ }).click()
     const requestCard = page.locator('.buy-request-card').filter({ hasText: requestTitle })
     await expect(requestCard).toBeVisible()
-    await expect.poll(async () => (await requestCard.locator('.buy-request-card-image img').last().getAttribute('src'))?.endsWith(buyRequest.photos[1].url)).toBe(true)
+    await expect.poll(async () => isThumbnailOf(await requestCard.locator('.buy-request-card-image img').last().getAttribute('src'), buyRequest.photos[1].url)).toBe(true)
+    await expect(requestCard.locator('.buy-request-card-image img').last()).toBeVisible()
     await requestCard.getByRole('button', { name: 'Додати в обране' }).click()
     await expect(requestCard.getByRole('button', { name: 'Прибрати з обраного' })).toBeVisible()
     expect(page.url()).toBe(url)
@@ -75,13 +88,15 @@ test('Step 21: map cards, markers and Favorites with ordered photos', async ({ b
       await expect.poll(async () => await mapRequest.isVisible() || (await groups.allTextContents()).join('|') !== before, { timeout: 30_000 }).toBe(true)
     }
     await expect(mapRequest).toBeVisible()
-    await expect.poll(async () => (await mapRequest.locator('img').last().getAttribute('src'))?.endsWith(buyRequest.photos[1].url)).toBe(true)
+    await expect.poll(async () => isThumbnailOf(await mapRequest.locator('img').last().getAttribute('src'), buyRequest.photos[1].url)).toBe(true)
+    await expect(mapRequest.locator('img').last()).toBeVisible()
     await mapRequest.screenshot({ path: 'docs/step-21-evidence/map-request-card.png' })
     const pins = page.locator('.map-pin')
     await expect.poll(() => pins.count()).toBeGreaterThan(1)
     await page.locator('.map-pin:not(.map-pin-request)').first().click()
     await expect(page.locator('.map-summary')).toContainText(productTitle)
-    await expect.poll(async () => (await page.locator('.map-listing-preview img').getAttribute('src'))?.endsWith(product.photos[1].url)).toBe(true)
+    await expect.poll(async () => isThumbnailOf(await page.locator('.map-listing-preview img').getAttribute('src'), product.photos[1].url)).toBe(true)
+    await expect(page.locator('.map-listing-preview img')).toBeVisible()
     await page.screenshot({ path: 'docs/step-21-evidence/map-product-selected.png', fullPage: true })
     await page.getByRole('button', { name: '← Усі результати' }).click()
     for (let zoom = 0; zoom < 7 && !await page.locator('.map-pin-request').count(); zoom++) {
@@ -91,7 +106,11 @@ test('Step 21: map cards, markers and Favorites with ordered photos', async ({ b
     await expect(page.locator('.map-pin-request').first()).toBeVisible()
     await page.locator('.map-pin-request').first().click()
     await expect(page.locator('.map-summary')).toContainText(requestTitle)
-    await expect.poll(async () => (await page.locator('.map-listing-preview img').getAttribute('src'))?.endsWith(buyRequest.photos[1].url)).toBe(true)
+    await expect.poll(async () => isThumbnailOf(await page.locator('.map-listing-preview img').getAttribute('src'), buyRequest.photos[1].url)).toBe(true)
+    await expect(page.locator('.map-listing-preview img')).toBeVisible()
+    expect(imageRequests.filter(path => path.startsWith('/uploads/'))).toEqual([])
+    expect(imageRequests.filter(path => path === '/api/photo-thumbnail').length).toBeGreaterThan(0)
+    console.log(`Card/map image traffic: ${imageRequests.filter(path => path === '/api/photo-thumbnail').length} thumbnail requests, 0 full-size requests`)
     console.log('Map marker switching: PASS')
     const back = page.getByRole('button', { name: '← Усі результати' })
     if (await back.isVisible()) await back.click()

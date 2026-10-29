@@ -19,6 +19,7 @@ import { resolveSettlement, type Settlement } from './settlement-model'
 import Card, { ListingPicture } from './ProductCard'
 import BuyRequestCard from './BuyRequestCard'
 import PhotoPicker from './PhotoPicker'
+import { photoThumbnailUrl } from './photo-thumbnail'
 import RequestGallery from './RequestGallery'
 import FavoriteButton, { type FavoriteTargetType } from './FavoriteButton'
 import FavoriteProfileCard from './FavoriteProfileCard'
@@ -647,7 +648,7 @@ function MapView({ categories, openProduct, openRequest, openProfile, notify, ci
                     const category = categoryById.get(item.category.id)
                     return <div className={'map-listing-result ' + (markerKey(item) === activeMarkerKey ? 'map-listing-active' : '')} key={item.kind + '-' + item.id}>
                         <button type="button" className="map-result" aria-pressed={markerKey(item) === activeMarkerKey} onClick={() => showMarkerPreview(item, true)} onMouseEnter={() => highlight([item.id], true)} onMouseLeave={() => highlight([item.id], false)} onFocus={() => highlight([item.id], true)} onBlur={() => highlight([item.id], false)}>
-                            <span className="map-result-picture">{category && <CategoryImage category={category} />}{item.photoUrl && <img src={imageUrl(item.photoUrl)} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true }} />}</span>
+                            <span className="map-result-picture">{category && <CategoryImage category={category} />}{item.photoUrl && <img src={imageUrl(photoThumbnailUrl(item.photoUrl))} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true }} />}</span>
                             <span><strong>{item.kind === 'buyRequest' ? 'Шукає: ' : ''}{item.title}</strong>{item.price && <b className="map-listing-price">{formatPrice(item.price.amount, item.price.currency)}{item.unit ? ' / ' + unitLabel(item.unit) : ''}</b>}<small>{item.category.name}</small>{item.quantity !== undefined && <small>{item.quantity} {unitLabel(item.unit)}</small>}<small>{!subscriptionId && <>{item.distanceBand} · </>}{item.publicAddress || item.geoZone}</small>{item.approximate === false && <small>{item.kind === 'buyRequest' ? 'Публічне місце покупця' : 'Публічне місце продавця'}</small>}</span>
                         </button>
                         <div className="map-listing-actions"><button type="button" onClick={() => openMarker(item)}>{item.kind === 'product' ? 'Відкрити товар' : 'Відкрити запит'} →</button>{item.owner && <button type="button" onClick={() => openProfile(item.owner.username)}>Профіль {item.kind === 'product' ? 'продавця' : 'покупця'} →</button>}</div>

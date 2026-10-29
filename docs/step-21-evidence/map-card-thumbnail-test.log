@@ -1,0 +1,13 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-map-qa.spec.ts:13:5 › Step 21: map cards, markers and Favorites with ordered photos
+[chromium] › e2e\step-21-map-qa.spec.ts:13:5 › Step 21: map cards, markers and Favorites with ordered photos
+Card/map image traffic: 5 thumbnail requests, 0 full-size requests
+
+Map marker switching: PASS
+
+
+(node:17556) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  1 passed (2.9m)

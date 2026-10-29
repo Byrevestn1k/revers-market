@@ -163,4 +163,4 @@ Implementer and Reviewer assess work independently. A Reviewer does not assume t
 Step 8 follow-up: one repeated territory input reuses SettlementPicker, multiple region/country arrays in migration 043, suburbs capped at 20 km. Owned existing match count and /discover subscription-filtered map/list reuse notification matcher and public map projection. Legacy public place labels now resolve only through an exact unambiguous Ukrainian directory match, fixing existing Mlyniv Requests without rewriting records. Current final validation is recorded in DEMAND_SUBSCRIPTIONS.md, including the real authenticated browser flow and Rivne 10 km boundary/privacy checks; buyer-to-seller/product subscriptions remain a separate task under the user’s conditional scope. Independent final re-review passed; Step 9 has not been started.
 
 ## Step 21
-Step 21: READY FOR INDEPENDENT REVIEW. Результати, неперевірені сценарії та залишкові ризики: STEP_21_PHOTO_GALLERY.md.
+Step 21: READY FOR INDEPENDENT REVIEW; виправлення попереднього огляду перевірено, потрібен підсумковий огляд нового HEAD. Деталі: STEP_21_PHOTO_GALLERY.md.

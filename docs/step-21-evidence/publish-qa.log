@@ -1,0 +1,17 @@
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e\step-21-publish-qa.spec.ts:7:5 › Step 21: publish Product and Buy Request with zero and eight photos
+[chromium] › e2e\step-21-publish-qa.spec.ts:7:5 › Step 21: publish Product and Buy Request with zero and eight photos
+product publication with 0 photos: PASS
+
+
+(node:4304) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+product publication with 8 photos: PASS
+
+request publication with 0 photos: PASS
+
+request publication with 8 photos: PASS
+
+  1 passed (2.2m)

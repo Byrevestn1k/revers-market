@@ -3,6 +3,7 @@ import { CategoryImage } from './CategoryPicker'
 import { DELIVERY_LABELS, LISTING_STATUS, listingPrice, unitLabel } from './listing-options'
 import FavoriteButton from './FavoriteButton'
 import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
+import { photoThumbnailUrl } from './photo-thumbnail'
 import './listing-ui.css'
 
 export type ProductCardData = {
@@ -15,9 +16,10 @@ export type ProductCardData = {
 }
 export function ListingPicture({ product, className = '' }: { product: ProductCardData; className?: string }) {
     const url = product.photos?.[0]?.url || product.photoUrl
+    const displayUrl = url ? photoThumbnailUrl(url) : null
     const [failed, setFailed] = useState(false)
     useEffect(() => setFailed(false), [url])
-    return <span className={'listing-picture ' + className}>{url && !failed ? <img src={url.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${url}` : url} alt={product.photos?.[0]?.alt || product.title} loading="lazy" onError={() => setFailed(true)} /> : <CategoryImage category={{ ...product.category, parentId: null }} />}</span>
+    return <span className={'listing-picture ' + className}>{displayUrl && !failed ? <img src={displayUrl.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${displayUrl}` : displayUrl} alt={product.photos?.[0]?.alt || product.title} loading="lazy" onError={() => setFailed(true)} /> : <CategoryImage category={{ ...product.category, parentId: null }} />}</span>
 }
 export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatus, onChat, favorite = false, onFavorite, showFavorite = true }: {
     product: ProductCardData; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: string) => void; onChat?: () => void; favorite?: boolean; onFavorite?: () => void; showFavorite?: boolean

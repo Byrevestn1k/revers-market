@@ -16,6 +16,7 @@ export default function PhotoPicker({ photos, onChange, max, error, allowLinks =
     const [localError, setLocalError] = useState('')
     const [link, setLink] = useState('')
     const [reading, setReading] = useState(false)
+    const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
     const dragging = useRef<number | null>(null)
     const container = useRef<HTMLDivElement>(null)
     const readingRef = useRef(false)
@@ -64,13 +65,15 @@ export default function PhotoPicker({ photos, onChange, max, error, allowLinks =
     }
     return <div className="photo-picker" ref={container}>
         <small>Фото: {photos.length} із {max}</small>
-        <div className="photo-picker-grid">{photos.map((photo, index) => <div className="photo-picker-item" key={`${photo}-${index}`} onPointerUp={event => {
-            if (reading || dragging.current === null) return
-            const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-photo-index]')
-            if (target) moveTo(dragging.current, Number(target.getAttribute('data-photo-index')))
+        <div className="photo-picker-grid">{photos.map((photo, index) => <div className={`photo-picker-item${draggingIndex === index ? ' is-dragging' : ''}`} key={`${photo}-${index}`} onPointerUp={event => {
+            const from = dragging.current
             dragging.current = null
+            setDraggingIndex(null)
+            if (reading || from === null) return
+            const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-photo-index]')
+            if (target) moveTo(from, Number(target.getAttribute('data-photo-index')))
         }} data-photo-index={index}>
-            <div className="photo-picker-drag" title="Перетягніть фото" onPointerDown={event => { if (reading) return; dragging.current = index; event.currentTarget.setPointerCapture(event.pointerId) }} onPointerCancel={() => { dragging.current = null }}><PhotoPreview photo={photo} index={index} /><span aria-hidden="true">↕</span></div>
+            <div className="photo-picker-drag" title="Перетягніть фото" onPointerDown={event => { if (reading) return; dragging.current = index; setDraggingIndex(index); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerCancel={() => { dragging.current = null; setDraggingIndex(null) }}><PhotoPreview photo={photo} index={index} /><span aria-hidden="true">↕</span></div>
             {index === 0 && <span className="photo-picker-main">Головне</span>}
             <div className="photo-picker-actions"><button type="button" aria-label={`Перемістити фото ${index + 1} ліворуч`} disabled={reading || index === 0} onClick={() => move(index, -1)}>←</button><button type="button" aria-label={`Перемістити фото ${index + 1} праворуч`} disabled={reading || index === photos.length - 1} onClick={() => move(index, 1)}>→</button><button type="button" aria-label={`Видалити фото ${index + 1}`} disabled={reading} onClick={() => onChange(photos.filter((_, position) => position !== index))}>×</button></div>
         </div>)}</div>

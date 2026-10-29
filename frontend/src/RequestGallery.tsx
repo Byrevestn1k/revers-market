@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CategoryImage } from './CategoryPicker'
 import type { Category } from './categories'
+import { photoThumbnailUrl } from './photo-thumbnail'
 import './listing-ui.css'
 
 const source = (url: string) => url.startsWith('/') ? `${import.meta.env.VITE_API_URL ?? ''}${url}` : url
@@ -17,8 +18,7 @@ function GalleryThumbnail({ url, position, selected, onSelect }: { url: string; 
         observer.observe(element)
         return () => observer.disconnect()
     }, [url])
-    const thumbnail = /^\/uploads\/(products|buy-requests)\/[0-9a-f-]{36}(?:\/[0-9a-f-]{36})?\/\d+\.(jpg|png|webp|gif)$/i.test(url)
-        ? source('/api/photo-thumbnail?path=' + encodeURIComponent(url)) : source(url)
+    const thumbnail = source(photoThumbnailUrl(url))
     return <button ref={button} type="button" aria-label={`Показати фото ${position + 1}`} aria-current={selected} onClick={onSelect}>
         {visible ? <img src={thumbnail} alt="" loading="lazy" onError={event => { event.currentTarget.hidden = true }} /> : <span className="gallery-thumb-pending" />}
         <span className="gallery-thumb-fallback">Фото недоступне</span>

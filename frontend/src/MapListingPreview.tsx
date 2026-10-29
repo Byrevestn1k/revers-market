@@ -1,6 +1,7 @@
 import type { SellerProductPoint } from './map-sellers'
 import { DELIVERY_LABELS, unitLabel, listingPrice } from './listing-options'
 import { deliveryOptionsLabel } from './DeliveryOptionsFields'
+import { photoThumbnailUrl } from './photo-thumbnail'
 
 export default function MapListingPreview({ item, description, loading, error, onOpen, onOwner, onMap, imageUrl, hideDistance = false }: {
     item: SellerProductPoint; hideDistance?: boolean; description?: string; loading: boolean; error?: string
@@ -8,7 +9,7 @@ export default function MapListingPreview({ item, description, loading, error, o
 }) {
     const price = item.price ? listingPrice(item.price.amount, item.price.currency) : ''
     return <section className="map-listing-preview" aria-label="Коротка інформація про оголошення" aria-live="polite">
-        <div className="map-preview-media"><span aria-hidden="true">{item.kind === 'buyRequest' ? 'Шукає' : item.category.name}</span>{item.photoUrl && <img src={imageUrl(item.photoUrl)} alt={item.title} onError={event => { event.currentTarget.hidden = true }} />}</div>
+        <div className="map-preview-media"><span aria-hidden="true">{item.kind === 'buyRequest' ? 'Шукає' : item.category.name}</span>{item.photoUrl && <img src={imageUrl(photoThumbnailUrl(item.photoUrl))} alt={item.title} onError={event => { event.currentTarget.hidden = true }} />}</div>
         <span className="eyebrow">{item.kind === 'buyRequest' ? 'Запит покупця' : item.category.name}</span>
         <h3>{item.title}</h3>
         {price && <strong className="map-preview-price">{price}{item.unit && <small> / {unitLabel(item.unit)}</small>}</strong>}
