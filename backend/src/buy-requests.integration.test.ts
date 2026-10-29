@@ -40,12 +40,17 @@ if (hasDatabase) {
                 const requestId = createdRequest.body.buyRequest.id as string
                 const endpoint = `/api/buy-requests/${requestId}/offers`
                 const base = { quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' }
-                const linked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId, photos: [{ url: productPhoto }], note: 'Для запиту' })
+                const editedProduct = await sellerA.patch(`/api/products/${productId}`).send({ photos: [...productResponse.body.product.photos.map((item: { url: string }) => ({ url: item.url })), { dataUrl: photo }] })
+                expect(editedProduct.status).toBe(200)
+                const editedPhoto = editedProduct.body.product.photos[2].url as string
+                productKeys.push(...(await pool.query('SELECT storage_key FROM product_photos WHERE product_id=$1', [productId])).rows.map(row => row.storage_key))
+                const linked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId, photos: [{ url: editedPhoto }], note: 'Для запиту' })
                 expect(linked.status).toBe(201)
                 expect(linked.body.offer).toMatchObject({ title: `Власний товар ${suffix}`, description: 'Первинний опис', creationMode: 'product', photos: [{ url: expect.stringContaining('/uploads/offers/') }] })
-                expect(linked.body.offer.photos[0].url).not.toBe(productPhoto)
+                expect(linked.body.offer.photos[0].url).not.toBe(editedPhoto)
                 const retainedUrl = linked.body.offer.photos[0].url as string
                 const retainedBytes = await readFile(offerFile(retainedUrl))
+                expect(retainedBytes).toEqual(Buffer.from(photo.split(',')[1], 'base64'))
                 const inserted = await sellerA.patch(`/api/offers/${linked.body.offer.id}`).send({ photos: [{ url: productResponse.body.product.photos[0].url }, { url: retainedUrl }] })
                 expect(inserted.status).toBe(200)
                 const insertedUrl = inserted.body.offer.photos[0].url as string

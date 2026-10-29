@@ -36,7 +36,7 @@ export const validOfferPhotos = (value: unknown): boolean => Array.isArray(value
     if (!photo || typeof photo !== 'object') return false
     const item = photo as Record<string, unknown>
     if (item.alt !== undefined && (typeof item.alt !== 'string' || item.alt.length > 200)) return false
-    if (typeof item.url === 'string') return item.url.length <= 2048 && (/^\/uploads\/offers\/[0-9a-f-]+\/[0-9a-z-]+\/\d+\.(jpg|png|webp|gif)$/i.test(item.url) || /^\/uploads\/products\/[0-9a-f-]+\/\d+\.(jpg|png|webp|gif)$/i.test(item.url) || /^https:\/\//i.test(item.url)) && item.dataUrl === undefined
+    if (typeof item.url === 'string') return item.url.length <= 2048 && (/^\/uploads\/offers\/[0-9a-f-]+\/[0-9a-z-]+\/\d+\.(jpg|png|webp|gif)$/i.test(item.url) || /^\/uploads\/products\/[0-9a-f-]+(?:\/[0-9a-f-]+)?\/\d+\.(jpg|png|webp|gif)$/i.test(item.url) || /^https:\/\//i.test(item.url)) && item.dataUrl === undefined
     return typeof item.dataUrl === 'string' && item.dataUrl.length <= 7_000_000 && validImageBytes(item.dataUrl) && item.url === undefined
 })
 

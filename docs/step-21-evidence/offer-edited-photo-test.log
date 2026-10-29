@@ -1,0 +1,157 @@
+
+ RUN  v2.1.9 C:/Users/PC/Documents/D/різне/marketplace-navpaky
+
+ ✓ backend/src/buy-request-validation.test.ts (12 tests) 180ms
+(node:17112) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > locks fulfillment mode after offer or deal creation without blocking unrelated edits
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > locks fulfillment mode after offer or deal creation without blocking unrelated edits
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > keeps product terms unchanged and supports several partial deals
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > keeps product terms unchanged and supports several partial deals
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > keeps product terms unchanged and supports several partial deals
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > keeps seller offer history scoped after requests complete, cancel or expire
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > keeps seller offer history scoped after requests complete, cancel or expire
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > keeps seller offer history scoped after requests complete, cancel or expire
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > edits submitted offers without revalidating an unchanged unavailable product link
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+stdout | backend/src/buy-requests.integration.test.ts > buy requests and offers HTTP integration > edits submitted offers without revalidating an unchanged unavailable product link
+[DEV email] -> [test-email]
+Subject: Підтвердіть електронну пошту — Навпаки
+Вітаємо!
+
+Підтвердіть свою електронну пошту, перейшовши за посиланням (дійсне 24 години):
+http://localhost:5173/verify-email?token=[REDACTED]
+
+Якщо ви не реєструвалися — просто проігноруйте цей лист.
+
+ ✓ backend/src/buy-requests.integration.test.ts (5 tests) 110756ms
+   ✓ buy requests and offers HTTP integration > creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection 20968ms
+   ✓ buy requests and offers HTTP integration > locks fulfillment mode after offer or deal creation without blocking unrelated edits 22519ms
+   ✓ buy requests and offers HTTP integration > keeps product terms unchanged and supports several partial deals 35806ms
+   ✓ buy requests and offers HTTP integration > keeps seller offer history scoped after requests complete, cancel or expire 24738ms
+   ✓ buy requests and offers HTTP integration > edits submitted offers without revalidating an unchanged unavailable product link 6710ms
+
+ Test Files  2 passed (2)
+      Tests  17 passed (17)
+   Start at  09:42:03
+   Duration  182.88s (transform 52.17s, setup 0ms, collect 85.56s, tests 110.94s, environment 7ms, prepare 14.98s)
