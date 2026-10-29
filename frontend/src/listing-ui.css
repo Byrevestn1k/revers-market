@@ -45,6 +45,8 @@
 .listing-card-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 14px; }
 .listing-card-actions label { display: grid; flex-basis: 100%; min-width: 0; gap: 5px; font-size: 12px; }
 .listing-card-actions select { width: 100%; min-width: 0; padding: 8px; border: 1px solid #d5e3d8; border-radius: 6px; background: white; }
+.listing-card-actions .stock-message { flex-basis: 100%; min-width: 0; }
+.listing-card-actions .stock-message p { color: #344c42; font-size: .78rem; line-height: 1.4; }
 .product-form .listing-section { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 18px; border: 1px solid #dce7df; border-radius: 12px; }
 .listing-section legend { padding: 0 6px; color: #24423a; font-size: 15px; font-weight: 800; }
 .listing-field { display: grid; gap: 7px; font-size: 13px; }

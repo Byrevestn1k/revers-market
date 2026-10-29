@@ -26,6 +26,9 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
     product: ProductCardData; onOpen: () => void; onEdit?: () => void; onDelete?: () => void; onStatus?: (status: string) => void; onChat?: () => void; favorite?: boolean; onFavorite?: () => void; showFavorite?: boolean
 }) {
     const status = product.status ?? 'active'
+    const [needsQuantity, setNeedsQuantity] = useState(false)
+    const availableQuantity = product.availableQuantity ?? product.quantity
+    useEffect(() => setNeedsQuantity(false), [availableQuantity, status])
     const primaryStatus = status === 'active' ? 'paused' : 'active'
     const actions: Record<string, string> = { draft: 'Зберегти як чернетку', active: 'Активувати', paused: 'Зробити неактивним', sold: 'Позначити проданим', expired: 'Завершити' }
     return <article className="product-card listing-card">
@@ -43,7 +46,7 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
             {onChat && <button type="button" className="primary-button compact" onClick={onChat}>♧ Написати продавцю</button>}
             {onEdit && <button type="button" className="outline-button compact" onClick={onEdit}>Редагувати</button>}
             {onDelete && <button type="button" className="outline-button compact" onClick={onDelete}>Видалити</button>}
-            {onStatus && <><button type="button" className="outline-button compact" onClick={() => onStatus(primaryStatus)}>{actions[primaryStatus]}</button><label>Інші дії<select value="" onChange={(event) => { if (event.target.value) onStatus(event.target.value) }}><option value="">Оберіть дію</option>{Object.entries(actions).filter(([value]) => value !== status && value !== primaryStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></>}
+            {onStatus && <><button type="button" className="outline-button compact" onClick={() => { if (primaryStatus === 'active' && availableQuantity !== undefined && availableQuantity <= 0) setNeedsQuantity(true); else onStatus(primaryStatus) }}>{actions[primaryStatus]}</button>{needsQuantity && <div className="stock-message" role="status"><p>Щоб знову продавати товар, спочатку вкажіть доступну кількість</p>{product.quantity !== undefined && availableQuantity !== undefined && product.quantity > availableQuantity && <p>Зарезервовано: {product.quantity - availableQuantity} {unitLabel(product.unit)}. У формі вкажіть загальну кількість з урахуванням резерву.</p>}{onEdit && <button type="button" className="outline-button compact" onClick={onEdit}>Вказати кількість</button>}</div>}<label>Інші дії<select value="" onChange={(event) => { if (event.target.value) onStatus(event.target.value) }}><option value="">Оберіть дію</option>{Object.entries(actions).filter(([value]) => value !== status && value !== primaryStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></>}
         </div>}
     </article>
 }

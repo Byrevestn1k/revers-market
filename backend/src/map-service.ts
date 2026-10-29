@@ -175,7 +175,7 @@ export class MapService {
     private async products(center: MapPoint, filters: MapFilterState, aggregate = false): Promise<MapMarker[] | GeoBucket[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
         const distancePoint = filters.exactDistance ? 'p' : 'public_point'
-        const conditions = [`p.status = 'active'`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        const conditions = [`p.status = 'active'`, 'p.quantity > p.reserved_quantity', filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
         if (aggregate && (filters.nationwide || filters.includeOwnerListings)) conditions.push('$1::numeric IS NOT NULL', '$2::numeric IS NOT NULL')
         if (filters.cityName && !filters.cityBoundary) {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_zone', filters, parameters)

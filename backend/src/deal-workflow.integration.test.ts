@@ -26,10 +26,10 @@ if (hasDatabase) {
             await pool.query('DELETE FROM orders WHERE buyer_id = ANY($1::uuid[]) OR seller_id = ANY($1::uuid[])', [ids])
             await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [ids])
         })
-        const setup = async (quantity = 100, mode = 'multiple_sellers', stock = false, withPhoto = false) => {
+        const setup = async (quantity = 100, mode = 'multiple_sellers', stock = false, withPhoto = false, stockQuantity = 100) => {
             let productId: string | undefined
             if (stock) {
-                const product = await seller.post('/api/products').send({ categoryId, title: 'Мед для перевірки', description: '', quantity: 100, unit: 'kg', price: 145, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active', photos: withPhoto ? [{ url: 'https://example.com/step22-product.jpg' }] : [] })
+                const product = await seller.post('/api/products').send({ categoryId, title: 'Мед для перевірки', description: '', quantity: stockQuantity, unit: 'kg', price: 145, currency: 'UAH', deliveryMode: 'pickup', geoZone: withPhoto ? 'Київ' : 'Київська область', ...(withPhoto ? { latitude: 50.45, longitude: 30.52 } : {}), status: 'active', photos: withPhoto ? [{ url: 'https://example.com/step22-product.jpg' }] : [] })
                 expect(product.status).toBe(201); productId = product.body.product.id
             }
             const created = await buyer.post('/api/buy-requests').send({ categoryId, title: 'Потрібен мед', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity, unit: 'kg', currency: 'UAH', geoArea: 'Київська область', fulfillmentMode: mode })
@@ -50,10 +50,10 @@ if (hasDatabase) {
             expect((await seller.post(`/api/orders/${id}/complete`)).status).toBe(200)
         }
         it('keeps completed deals, reviews and offers unchanged when a sold product is reactivated', async () => {
-            const { rid, oid, productId } = await setup(100, 'multiple_sellers', true, true)
-            const id = await select(oid, 100)
-            await complete(id, 100)
-            expect((await seller.get(`/api/products/${productId}`)).body.product.status).toBe('sold')
+            const { rid, oid, productId } = await setup(5, 'multiple_sellers', true, true, 5)
+            const id = await select(oid, 5)
+            await complete(id, 5)
+            expect((await seller.get(`/api/products/${productId}`)).body.product).toMatchObject({ status: 'sold', quantity: 0, availableQuantity: 0 })
             expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating: 12 })).status).toBe(201)
             expect((await seller.post(`/api/orders/${id}/reviews`).send({ rating: 10 })).status).toBe(201)
             const snapshot = async () => ({
@@ -65,9 +65,37 @@ if (hasDatabase) {
             })
             const before = await snapshot()
             expect(before.order[0].conditions_snapshot.photos).toHaveLength(1)
-            expect((await seller.patch(`/api/products/${productId}`).send({ status: 'active' })).status).toBe(200)
+            const rejected = await seller.patch(`/api/products/${productId}`).send({ status: 'active' })
+            expect(rejected.status).toBe(409)
+            expect(rejected.body).toMatchObject({ error: 'PRODUCT_NO_AVAILABLE_QUANTITY', message: 'Щоб знову продавати товар, спочатку вкажіть доступну кількість' })
+            expect((await buyer.get('/api/products')).body.products.some((product: { id: string }) => product.id === productId)).toBe(false)
+            // Existing databases may already contain an active product with no stock.
+            await pool.query("UPDATE products SET status = 'active' WHERE id = $1", [productId])
+            expect((await buyer.get('/api/products').query({ q: 'Мед для перевірки' })).body.products.some((product: { id: string }) => product.id === productId)).toBe(false)
+            expect((await buyer.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 20, q: 'Мед для перевірки' })).body.markers.some((marker: { id: string }) => marker.id === productId)).toBe(false)
+            await pool.query("UPDATE products SET status = 'sold' WHERE id = $1", [productId])
+            expect((await seller.patch(`/api/products/${productId}`).send({ quantity: 5 })).body.product).toMatchObject({ status: 'sold', quantity: 5, availableQuantity: 5 })
+            expect((await seller.patch(`/api/products/${productId}`).send({ status: 'active' })).body.product).toMatchObject({ status: 'active', availableQuantity: 5 })
+            const search = await buyer.get('/api/products').query({ q: 'Мед для перевірки' })
+            expect(search.body.products.find((product: { id: string }) => product.id === productId)).toMatchObject({ availableQuantity: 5 })
+            const map = await buyer.get('/api/map/markers').query({ latitude: 50.45, longitude: 30.52, radiusKm: 20, q: 'Мед для перевірки' })
+            expect(map.body.markers.find((marker: { id: string }) => marker.id === productId)).toMatchObject({ quantity: 5 })
             expect(await snapshot()).toEqual(before)
             expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating: 1 })).status).toBe(409)
+            const nextRequest = await buyer.post('/api/buy-requests').send({ categoryId, title: 'Новий запит на мед', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Київська область', fulfillmentMode: 'multiple_sellers' })
+            expect(nextRequest.status).toBe(201)
+            expect((await seller.post(`/api/buy-requests/${nextRequest.body.buyRequest.id}/offers`).send({ productId, quantity: 5, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })).status).toBe(201)
+            expect(await snapshot()).toEqual(before)
+        }, 120000)
+        it('requires positive unreserved quantity for direct activation', async () => {
+            const { oid, productId } = await setup(5, 'multiple_sellers', true, false, 5)
+            await select(oid, 5)
+            expect((await buyer.get('/api/products').query({ q: 'Мед для перевірки' })).body.products.some((product: { id: string }) => product.id === productId)).toBe(false)
+            expect((await seller.patch(`/api/products/${productId}`).send({ status: 'paused' })).status).toBe(200)
+            expect((await seller.patch(`/api/products/${productId}`).send({ status: 'active' })).body.error).toBe('PRODUCT_NO_AVAILABLE_QUANTITY')
+            const updated = await seller.patch(`/api/products/${productId}`).send({ status: 'active', quantity: 10 })
+            expect(updated.status).toBe(200)
+            expect(updated.body.product).toMatchObject({ status: 'active', quantity: 10, availableQuantity: 5 })
         }, 120000)
         it('keeps one conversation through bargaining, selection and partial completion; snapshots agreed terms', async () => {
             const { rid, oid, productId } = await setup(100, 'multiple_sellers', true)
