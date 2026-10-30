@@ -20,12 +20,15 @@ if (hasDatabase) {
                 expect((await other.post('/api/auth/register').send(secondPayload)).status).toBe(201)
                 const category = (await seller.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains')
                 expect(category).toBeDefined()
+                const tinyProduct = { categoryId: category.id, title: 'Пшениця', quantity: 0.0004, unit: 'ton', price: 250, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active' }
+                expect((await seller.post('/api/products').send(tinyProduct)).status).toBe(400)
                 const created = await seller.post('/api/products').send({
                     categoryId: category.id, title: 'Пшениця', description: 'Сортова', quantity: 12.5, unit: 'ton', price: 250, currency: 'UAH',
                     deliveryMode: 'pickup', geoZone: 'Київська область', status: 'active', photos: [{ url: 'https://cdn.example.com/wheat.jpg', alt: 'Зерно' }, { url: 'https://cdn.example.com/wheat-2.jpg', alt: 'Інше зерно' }],
                 })
                 expect(created.status).toBe(201)
                 productId = created.body.product.id
+                expect((await seller.patch(`/api/products/${productId}`).send({ quantity: 0.0004 })).status).toBe(400)
                 expect(created.body.product.photos).toHaveLength(2)
                 const titleOnly = await seller.patch(`/api/products/${productId}`).send({ title: 'Назва без втрати даних' })
                 expect(titleOnly.status).toBe(200)

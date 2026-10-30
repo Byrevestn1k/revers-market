@@ -43,7 +43,9 @@ export const validateProductInput = (input: Record<string, unknown>, partial = f
     if (required('categoryId') && (typeof input.categoryId !== 'string' || !uuidPattern.test(input.categoryId))) errors.push('categoryId')
     if (required('title') && (typeof input.title !== 'string' || input.title.trim().length < 2 || input.title.trim().length > 160)) errors.push('title')
     if (required('description') && input.description !== undefined && (typeof input.description !== 'string' || input.description.length > 5000)) errors.push('description')
-    if (required('quantity') && (typeof input.quantity !== 'number' || !Number.isFinite(input.quantity) || input.quantity <= 0)) errors.push('quantity')
+    // PostgreSQL stores product quantities to three decimal places; smaller
+    // positive values round to zero and cannot represent available stock.
+    if (required('quantity') && (typeof input.quantity !== 'number' || !Number.isFinite(input.quantity) || input.quantity < 0.0005)) errors.push('quantity')
     if (required('unit') && !PRODUCT_UNITS.includes(input.unit as ProductUnit)) errors.push('unit')
     if (required('price') && (typeof input.price !== 'number' || !Number.isFinite(input.price) || input.price < 0)) errors.push('price')
     if (required('currency') && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) errors.push('currency')

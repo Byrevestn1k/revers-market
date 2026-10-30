@@ -10,6 +10,11 @@ const validProduct = {
 describe('product validation', () => {
     it('accepts a product priced in USD', () => expect(validateProductInput({ ...validProduct, price: 100, currency: 'USD' })).toEqual([]))
     it('accepts a complete product payload', () => expect(validateProductInput(validProduct)).toEqual([]))
+    it('rejects quantities that round to zero at the database scale', () => {
+        expect(validateProductInput({ ...validProduct, quantity: 0.0004 })).toContain('quantity')
+        expect(validateProductInput({ ...validProduct, quantity: 0.0005 })).not.toContain('quantity')
+        expect(validateProductInput({ quantity: 0.001 }, true)).toEqual([])
+    })
     it('rejects uncontrolled values and unsafe photo URLs', () => {
         expect(validateProductInput({ ...validProduct, unit: 'random', deliveryMode: 'unknown', photos: [{ url: 'javascript:alert(1)' }] })).toEqual(['unit', 'deliveryMode', 'photos'])
     })

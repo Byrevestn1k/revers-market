@@ -68,7 +68,7 @@ if (hasDatabase) {
             const rejected = await seller.patch(`/api/products/${productId}`).send({ status: 'active' })
             expect(rejected.status).toBe(409)
             expect(rejected.body).toMatchObject({ error: 'PRODUCT_NO_AVAILABLE_QUANTITY', message: 'Щоб знову продавати товар, спочатку вкажіть доступну кількість' })
-            expect((await seller.patch(`/api/products/${productId}`).send({ status: 'active', quantity: 0.0004 })).body.error).toBe('PRODUCT_NO_AVAILABLE_QUANTITY')
+            expect((await seller.patch(`/api/products/${productId}`).send({ status: 'active', quantity: 0.0004 })).status).toBe(400)
             expect((await seller.patch(`/api/products/${productId}`).send({ status: 'active', quantity: 0 })).status).toBe(400)
             const minimum = await seller.patch(`/api/products/${productId}`).send({ status: 'active', quantity: 0.001 })
             expect(minimum.status).toBe(200)
