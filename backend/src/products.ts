@@ -211,7 +211,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
     let categoryWarning: Awaited<ReturnType<typeof assessCategory>> | null = null
     try {
         await client.query('BEGIN')
-        const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, settlement_code, geo_zone, latitude, longitude FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id])
+        const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
         if (!owner.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } } }
         if (input.deliveryOptions !== undefined && !await verifiedDeliveryOptions(input.deliveryOptions as ProductInput['deliveryOptions'])) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
         if (['settlementCode', 'geoZone', 'latitude', 'longitude'].some(key => key in input)) {
@@ -226,7 +226,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
             return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE', message: 'Категорія недоступна' } }
         }
         const previousProduct = owner.rows[0]
-        if (input.status === 'active' && Number(input.quantity ?? previousProduct.quantity) - Number(previousProduct.reserved_quantity) <= 0) {
+        if (input.status === 'active' && !previousProduct.has_available_quantity) {
             await client.query('ROLLBACK')
             return { status: 409, body: { error: 'PRODUCT_NO_AVAILABLE_QUANTITY', message: 'Щоб знову продавати товар, спочатку вкажіть доступну кількість' } }
         }
