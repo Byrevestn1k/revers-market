@@ -44,6 +44,7 @@ test('Step 14: real postal subscription, Product, Request, Offer and Deal across
     await subscription.getByRole('combobox', { name: 'Країна, область або населений пункт' }).click();
     await subscription.getByRole('option', { name: /Уся Україна/ }).click();
     await subscription.getByLabel('Поштова доставка').check();
+    await subscription.getByLabel('Нова пошта').check();
     await subscription.getByRole('button', { name: 'Зберегти підписку' }).click();
     await expect(sellerPage.getByRole('article', { name: /Підписка:/ })).toContainText('Поштова доставка');
 
@@ -54,6 +55,7 @@ test('Step 14: real postal subscription, Product, Request, Offer and Deal across
     await buyerPage.getByLabel('Кількість').fill('3');
     await buyerPage.getByLabel('Один продавець').check();
     await buyerPage.getByLabel('Поштова доставка').check();
+    await buyerPage.getByLabel('Нова пошта').check();
     await expect(buyerPage.getByText('✓ Точку для мапи визначено')).toBeVisible();
     for (const width of [1440, 1280, 1024, 768, 390, 320]) {
       await buyerPage.setViewportSize({ width, height: 900 });
@@ -63,7 +65,7 @@ test('Step 14: real postal subscription, Product, Request, Offer and Deal across
     await expect(buyerPage).toHaveURL(/\/map$/);
     const ownRequests = (await (await contexts[0].request.get('/api/buy-requests', { params: { mine: 'true' } })).json()).buyRequests;
     const createdRequest = ownRequests.find((item: { title: string }) => item.title === requestTitle);
-    expect(createdRequest?.deliveryOptions).toEqual([{ method: 'POSTAL_DELIVERY' }]);
+    expect(createdRequest?.deliveryOptions).toEqual([{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }]);
     const requestId = createdRequest.id as string;
     await sellerPage.goto('/notifications');
     await expect(sellerPage.getByText(requestTitle).first()).toBeVisible();
@@ -75,6 +77,7 @@ test('Step 14: real postal subscription, Product, Request, Offer and Deal across
     await sellerPage.getByLabel('Кількість').fill('10');
     await sellerPage.getByLabel('Ціна за одиницю').fill('120');
     await sellerPage.getByLabel('Поштова доставка').check();
+    await sellerPage.getByLabel('Нова пошта').check();
     for (const width of [1440, 1280, 1024, 768, 390, 320]) {
       await sellerPage.setViewportSize({ width, height: 900 });
       expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Product form overflow at ${width}`).toBe(true);
@@ -113,7 +116,7 @@ test('Step 14: real postal subscription, Product, Request, Offer and Deal across
     await expect(dealDialog).toHaveCount(0);
     await db.connect(); dbConnected = true;
     const snapshot = (await db.query('SELECT conditions_snapshot FROM orders WHERE offer_id=$1', [offerId])).rows[0].conditions_snapshot;
-    expect(snapshot.delivery.options).toEqual([{ method: 'POSTAL_DELIVERY', nationwide: true }]);
+    expect(snapshot.delivery.options).toEqual([{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }]);
     const forbidden = await contexts[0].request.patch(`/api/buy-requests/${requestId}`, { data: { deliveryOptions: [{ method: 'FLEXIBLE' }] } });
     expect(forbidden.status()).toBe(409);
     expect((await db.query('SELECT conditions_snapshot FROM orders WHERE offer_id=$1', [offerId])).rows[0].conditions_snapshot).toEqual(snapshot);
@@ -126,7 +129,7 @@ test('Step 14: real postal subscription, Product, Request, Offer and Deal across
     await sellerPage.getByRole('button', { name: 'Зберегти зміни' }).click();
     await expect(sellerPage).toHaveURL(/\/my\/products$/);
     const restricted = (await (await contexts[1].request.get(`/api/products/${productId}`)).json()).product;
-    expect(restricted.deliveryOptions).toEqual([{ method: 'POSTAL_DELIVERY', regions: ['Рівненська область'] }]);
+    expect(restricted.deliveryOptions).toEqual([{ method: 'POSTAL_DELIVERY', regions: ['Рівненська область'], postalOperators: ['NOVA_POSHTA'] }]);
     expect((await db.query('SELECT conditions_snapshot FROM orders WHERE offer_id=$1', [offerId])).rows[0].conditions_snapshot).toEqual(snapshot);
     expect((await contexts[0].request.patch('/api/profile/me', { data: { location: 'Луцьк', settlementCode: 'UA07080170010083384', mapLocation: { mode: 'pin', latitude: 50.747, longitude: 25.325, consent: true } } })).status()).toBe(200);
     await buyerPage.goto('/my/requests/new');
@@ -135,6 +138,7 @@ test('Step 14: real postal subscription, Product, Request, Offer and Deal across
     await buyerPage.getByLabel('Кількість').fill('1');
     await buyerPage.getByLabel('Один продавець').check();
     await buyerPage.getByLabel('Поштова доставка').check();
+    await buyerPage.getByLabel('Нова пошта').check();
     await buyerPage.getByRole('button', { name: 'Опублікувати запит' }).click();
     await expect(buyerPage).toHaveURL(/\/map$/);
     const newRequests = (await (await contexts[0].request.get('/api/buy-requests', { params: { mine: 'true' } })).json()).buyRequests;
@@ -211,6 +215,7 @@ test('Step 14: pickup, seller delivery radius and flexible agreement in the brow
       await buyer.getByLabel('Кількість').fill('1');
       await buyer.getByLabel('Один продавець').check();
       await buyer.getByLabel({ SELF_PICKUP: 'Самовивіз', SELLER_DELIVERY: 'Доставка продавцем', POSTAL_DELIVERY: 'Поштова доставка' }[method]).check();
+      if (method === 'POSTAL_DELIVERY') await buyer.getByLabel('Нова пошта').check();
       if (radius) await buyer.getByLabel('Готовий їхати, км').fill(radius);
       await buyer.getByRole('button', { name: 'Опублікувати запит' }).click();
       await expect(buyer).toHaveURL(/\/map$/);
@@ -281,6 +286,7 @@ test('Step 14: pickup, seller delivery radius and flexible agreement in the brow
     await agreedForm.getByLabel('Погодитися з умовами покупця').check();
     await agreedForm.getByLabel(/Ціна за/).fill('130');
     await agreedForm.getByRole('checkbox', { name: 'Поштова доставка' }).check();
+    await agreedForm.getByRole('checkbox', { name: 'Нова пошта' }).check();
     await agreedForm.getByRole('button', { name: 'Переглянути умови' }).click();
     await agreedForm.getByRole('button', { name: 'Надіслати пропозицію' }).click();
     await expect(agreedForm).toHaveCount(0);
@@ -314,7 +320,7 @@ test('Step 14: explicit map delivery filter keeps the ordinary catalogue availab
     expect((await context.request.patch('/api/profile/me', { data: { location: 'Рівне', settlementCode: rivneCode, mapLocation: { mode: 'pin', latitude: 50.6199, longitude: 26.2516, consent: true } } })).status()).toBe(200);
     const category = ((await (await context.request.get('/api/categories')).json()).categories as { id: string; code: string }[]).find(item => item.code === 'grains')!;
     const productTitle = `Мапа пошта ${stamp}`;
-    const product = await context.request.post('/api/products', { data: { categoryId: category.id, title: productTitle, quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true }], geoZone: 'Рівне', settlementCode: rivneCode, latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' } });
+    const product = await context.request.post('/api/products', { data: { categoryId: category.id, title: productTitle, quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }], geoZone: 'Рівне', settlementCode: rivneCode, latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' } });
     expect(product.status(), await product.text()).toBe(201);
     const productId = (await product.json()).product.id as string;
     const request = await context.request.post('/api/buy-requests', { data: { categoryId: category.id, title: `Мапа продавець ${stamp}`, description: '', quantity: 1, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: rivneCode, latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [{ method: 'SELLER_DELIVERY' }], fulfillmentMode: 'single_seller' } });

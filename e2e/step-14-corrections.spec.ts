@@ -28,7 +28,7 @@ test('Step 14 corrections: subscription API, alerts, radius and responsive field
     expect(list.status(), await list.text()).toBe(200);
     expect((await list.json()).subscriptions).toEqual([]);
 
-    const postal = await seller.request.post('/api/demand-subscriptions', { data: { categoryId, region: 'Рівненська область', deliveryOptions: [{ method: 'POSTAL_DELIVERY', regions: ['Рівненська область'] }] } });
+    const postal = await seller.request.post('/api/demand-subscriptions', { data: { categoryId, region: 'Рівненська область', deliveryOptions: [{ method: 'POSTAL_DELIVERY', regions: ['Рівненська область'], postalOperators: ['NOVA_POSHTA'] }] } });
     expect(postal.status(), await postal.text()).toBe(201);
     const postalId = (await postal.json()).subscription.id as string;
     const radius = await seller.request.post('/api/demand-subscriptions', { data: { categoryId, countryCode: 'UA', deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10, place: { settlementCode: rivne, region: 'Рівненська область', publicPoint: { latitude: 50.62, longitude: 26.25 } } }] } });
@@ -44,7 +44,7 @@ test('Step 14 corrections: subscription API, alerts, radius and responsive field
     }
     const createRequest = async (title: string, code: string, city: string, latitude: number, longitude: number, method: string) => buyer.request.post('/api/buy-requests', { data: {
       categoryId, title, description: '', quantity: 1, unit: 'kg', currency: 'UAH', geoArea: city, settlementCode: code,
-      latitude, longitude, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [method === 'SELF_PICKUP' ? { method, radiusKm: 1 } : { method }], fulfillmentMode: 'single_seller',
+      latitude, longitude, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [method === 'SELF_PICKUP' ? { method, radiusKm: 1 } : method === 'POSTAL_DELIVERY' ? { method, postalOperators: ['NOVA_POSHTA'] } : { method }], fulfillmentMode: 'single_seller',
     } });
     const postalRequest = await createRequest(`Пошта Рівне ${stamp}`, rivne, 'Рівне', 50.6199, 26.2516, 'POSTAL_DELIVERY');
     expect(postalRequest.status(), await postalRequest.text()).toBe(201);

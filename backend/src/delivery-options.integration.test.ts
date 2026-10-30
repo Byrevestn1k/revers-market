@@ -20,19 +20,40 @@ if (process.env.DATABASE_URL) {
           users.push(result.body.user.id);
         }
         const category = (await buyer.get('/api/categories')).body.categories.find((item: { code: string }) => item.code === 'grains');
-        const postal = { method: 'POSTAL_DELIVERY', nationwide: true };
+        const postal = { method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] };
         const pickup = { method: 'SELF_PICKUP' };
+        const missing = { categoryId: category.id, title: 'Поштовий запит', description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: 'UA56060470010041018', countryCode: 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] };
+        expect((await buyer.post('/api/buy-requests').send(missing)).status).toBe(400);
+        expect((await buyer.post('/api/buy-requests').send({ ...missing, deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'NOVA_POSHTA'] }] })).status).toBe(400);
+        expect((await buyer.post('/api/buy-requests').send({ ...missing, deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['UNKNOWN'] }] })).status).toBe(400);
+        expect((await seller.post('/api/products').send({ categoryId: category.id, title: 'Товар без оператора', quantity: 1, unit: 'kg', price: 10, currency: 'UAH', deliveryMode: 'carrier', geoZone: 'Рівне' })).status).toBe(400);
         const product = await seller.post('/api/products').send({ categoryId: category.id, title: 'Товар Step 14', description: '', quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [pickup, postal], geoZone: 'Рівне', settlementCode: 'UA56060470010041018', latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' });
         expect(product.status).toBe(201);
         expect(product.body.product.deliveryOptions).toEqual(expect.arrayContaining([pickup, postal]));
         const productId = product.body.product.id;
-        const requestResult = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Запит Step 14', description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: 'UA56060470010041018', latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }], fulfillmentMode: 'multiple_sellers' });
+        expect((await seller.patch(`/api/products/${productId}`).send({ deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true }] })).status).toBe(400);
+        expect((await seller.patch(`/api/products/${productId}`).send({ deliveryMode: 'carrier', deliveryOptions: [pickup] })).status).toBe(400);
+        const mismatch = await buyer.post('/api/buy-requests').send({ ...missing, deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['UKRPOSHTA'] }] });
+        expect(mismatch.status).toBe(201);
+        const mismatchOffer = await seller.post(`/api/buy-requests/${mismatch.body.buyRequest.id}/offers`).send({ creationMode: 'product', productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштою', deliveryOptions: [postal] });
+        expect(mismatchOffer.status).toBe(201);
+        expect(mismatchOffer.body.offer.deliveryCompatibility.status).toBe('NO_MATCH');
+        const legacy = await buyer.post('/api/buy-requests').send({ ...missing, title: 'Старий поштовий запит', deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }] });
+        expect(legacy.status).toBe(201);
+        await pool.query('UPDATE buy_requests SET delivery_options=$1::jsonb WHERE id=$2', [JSON.stringify([{ method: 'POSTAL_DELIVERY' }]), legacy.body.buyRequest.id]);
+        const legacyId = legacy.body.buyRequest.id;
+        expect((await buyer.get(`/api/buy-requests/${legacyId}`)).body.buyRequest.deliveryOptions).toEqual([{ method: 'POSTAL_DELIVERY' }]);
+        expect((await buyer.patch(`/api/buy-requests/${legacyId}`).send({ title: 'Оновлений старий запит', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] })).status).toBe(200);
+        const legacyOffer = await seller.post(`/api/buy-requests/${legacyId}/offers`).send({ creationMode: 'product', productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштою', deliveryOptions: [postal] });
+        expect(legacyOffer.status).toBe(201);
+        expect(legacyOffer.body.offer.deliveryCompatibility.status).toBe('UNKNOWN');
+        const requestResult = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Запит Step 14', description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: 'UA56060470010041018', latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }], fulfillmentMode: 'multiple_sellers' });
         expect(requestResult.status).toBe(201);
         const requestId = requestResult.body.buyRequest.id;
         const mapPath = '/api/map/markers?latitude=50.62&longitude=26.25&radiusKm=10&zoom=11';
         const postalMap = await buyer.get(`${mapPath}&deliveryMethod=POSTAL_DELIVERY`);
         expect(postalMap.status).toBe(200);
-        expect(postalMap.body.markers.filter((marker: { id: string }) => [productId, requestId].includes(marker.id)).map((marker: { deliveryOptions: unknown }) => marker.deliveryOptions)).toEqual(expect.arrayContaining([[pickup, postal], [{ method: 'POSTAL_DELIVERY' }]]));
+        expect(postalMap.body.markers.filter((marker: { id: string }) => [productId, requestId].includes(marker.id)).map((marker: { deliveryOptions: unknown }) => marker.deliveryOptions)).toEqual(expect.arrayContaining([[pickup, postal], [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }]]));
         const pickupMap = await buyer.get(`${mapPath}&deliveryMethod=SELF_PICKUP`);
         expect(pickupMap.body.markers.some((marker: { id: string }) => marker.id === productId)).toBe(true);
         expect(pickupMap.body.markers.some((marker: { id: string }) => marker.id === requestId)).toBe(false);
@@ -57,7 +78,10 @@ if (process.env.DATABASE_URL) {
         expect((await seller.patch(`/api/offers/${offerId}`).send({ deliveryOptions: [pickup] })).status).toBe(409);
         expect((await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [deal.body.order.id])).rows[0].conditions_snapshot).toEqual(snapshot);
         expect((await seller.patch(`/api/products/${productId}`).send({ title: 'Оновлений товар' })).body.product.deliveryOptions).toEqual(expect.arrayContaining([pickup, postal]));
-        const second = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Паралельний запит Step 14', description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: 'UA56060470010041018', countryCode: 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }], fulfillmentMode: 'multiple_sellers' });
+        const changedPostal = { ...postal, postalOperators: ['UKRPOSHTA'] };
+        expect((await seller.patch(`/api/products/${productId}`).send({ deliveryOptions: [pickup, changedPostal] })).status).toBe(200);
+        expect((await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [deal.body.order.id])).rows[0].conditions_snapshot).toEqual(snapshot);
+        const second = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Паралельний запит Step 14', description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: 'UA56060470010041018', countryCode: 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }], fulfillmentMode: 'multiple_sellers' });
         expect(second.status).toBe(201);
         const secondId = second.body.buyRequest.id;
         const [edit, concurrentOffer] = await Promise.all([
@@ -68,7 +92,7 @@ if (process.env.DATABASE_URL) {
         expect([200, 409]).toContain(edit.status);
         if (edit.status === 409) expect(edit.body.error).toBe('DELIVERY_OPTIONS_LOCKED');
         const savedOptions = (await pool.query('SELECT delivery_options FROM buy_requests WHERE id=$1', [secondId])).rows[0].delivery_options;
-        expect(savedOptions).toEqual(edit.status === 200 ? [{ method: 'FLEXIBLE' }] : [{ method: 'POSTAL_DELIVERY' }]);
+        expect(savedOptions).toEqual(edit.status === 200 ? [{ method: 'FLEXIBLE' }] : [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }]);
       } finally {
         if (users.length) {
           await pool.query('DELETE FROM orders WHERE buyer_id = ANY($1::uuid[]) OR seller_id = ANY($1::uuid[])', [users]);

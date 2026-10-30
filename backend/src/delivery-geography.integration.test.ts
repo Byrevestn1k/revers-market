@@ -72,7 +72,7 @@ if (process.env.DATABASE_URL) {
 
     it('rejects new zero-radius rules and never alerts from legacy zero-radius geography', async () => {
       const selfPickup = { method: 'SELF_PICKUP', place };
-      const postal = { method: 'POSTAL_DELIVERY', regions: ['Рівненська область'] };
+      const postal = { method: 'POSTAL_DELIVERY', regions: ['Рівненська область'], postalOperators: ['NOVA_POSHTA'] };
       const zeroRadius = await seller.post('/api/demand-subscriptions').send({
         categoryId, region: 'Рівненська область', deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 0, place }],
       });
@@ -83,11 +83,11 @@ if (process.env.DATABASE_URL) {
       expect(postalSubscription.status, JSON.stringify(postalSubscription.body)).toBe(201);
       const postalSubscriptionId = postalSubscription.body.subscription.id;
       const postalCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM notifications WHERE demand_subscription_id=$1', [postalSubscriptionId])).rows[0].count);
-      const postalRequest = await buyer.post('/api/buy-requests').send({ ...requestBody(null, null), mapLocationMode: 'profile', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
+      const postalRequest = await buyer.post('/api/buy-requests').send({ ...requestBody(null, null), mapLocationMode: 'profile', deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }] });
       expect(postalRequest.status, JSON.stringify(postalRequest.body)).toBe(201);
       expect(await postalCount()).toBe(1);
 
-      await pool.query(`UPDATE buy_requests SET latitude=NULL, longitude=NULL, delivery_options=$1::jsonb WHERE id=$2`, [JSON.stringify([{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY' }]), postalRequest.body.buyRequest.id]);
+      await pool.query(`UPDATE buy_requests SET latitude=NULL, longitude=NULL, delivery_options=$1::jsonb WHERE id=$2`, [JSON.stringify([{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }]), postalRequest.body.buyRequest.id]);
       await pool.query('DELETE FROM notifications WHERE demand_subscription_id=$1 AND buy_request_id=$2', [postalSubscriptionId, postalRequest.body.buyRequest.id]);
       await notifyDemandSubscriptions(pool, postalRequest.body.buyRequest.id);
       expect(await postalCount()).toBe(1);
@@ -96,7 +96,7 @@ if (process.env.DATABASE_URL) {
       expect(pickupSubscription.status, JSON.stringify(pickupSubscription.body)).toBe(201);
       const pickupSubscriptionId = pickupSubscription.body.subscription.id;
       const pickupCount = async () => Number((await pool.query('SELECT count(*)::int AS count FROM notifications WHERE demand_subscription_id=$1', [pickupSubscriptionId])).rows[0].count);
-      const legacyPickup = await buyer.post('/api/buy-requests').send({ ...requestBody(null, null), mapLocationMode: 'profile', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
+      const legacyPickup = await buyer.post('/api/buy-requests').send({ ...requestBody(null, null), mapLocationMode: 'profile', deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }] });
       expect(legacyPickup.status, JSON.stringify(legacyPickup.body)).toBe(201);
       await pool.query(`UPDATE buy_requests SET latitude=NULL, longitude=NULL, delivery_options=$1::jsonb WHERE id=$2`, [JSON.stringify([{ method: 'SELF_PICKUP', radiusKm: 0 }]), legacyPickup.body.buyRequest.id]);
       await pool.query('DELETE FROM notifications WHERE demand_subscription_id=$1 AND buy_request_id=$2', [pickupSubscriptionId, legacyPickup.body.buyRequest.id]);
@@ -114,7 +114,7 @@ if (process.env.DATABASE_URL) {
     }, 30000);
 
     it('rejects invalid Product, Offer and region points while retaining valid postal and flexible terms', async () => {
-      const productBody = { categoryId, title: `Товар ${suffix}`, description: '', quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true }], geoZone: 'Рівне', settlementCode: rivne, latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' };
+      const productBody = { categoryId, title: `Товар ${suffix}`, description: '', quantity: 10, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }], geoZone: 'Рівне', settlementCode: rivne, latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' };
       expect((await seller.post('/api/products').send({ ...productBody, latitude: 0, longitude: 0 })).status).toBe(400);
       expect((await seller.post('/api/products').send({ ...productBody, latitude: 50.45, longitude: 30.52 })).status).toBe(400);
       const wrongRegion = await seller.post('/api/products').send({ ...productBody, settlementCode: null, geoZone: 'Рівненська область', latitude: 50.45, longitude: 30.52 });
@@ -125,12 +125,12 @@ if (process.env.DATABASE_URL) {
       expect((await seller.patch(`/api/products/${productId}`).send({ latitude: 50.45, longitude: 30.52 })).status).toBe(400);
       expect((await pool.query('SELECT latitude::float8 AS latitude FROM products WHERE id=$1', [productId])).rows[0].latitude).toBe(50.6199);
 
-      const requestResult = await buyer.post('/api/buy-requests').send({ ...requestBody(), deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
+      const requestResult = await buyer.post('/api/buy-requests').send({ ...requestBody(), deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }] });
       expect(requestResult.status).toBe(201);
       const requestId = requestResult.body.buyRequest.id;
       const terms = { creationMode: 'manual', title: 'Поштова пропозиція', quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Пошта' };
       expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10, place: { ...place, publicPoint: { latitude: 0, longitude: 0 } } }] })).status).toBe(400);
-      const postal = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true }] });
+      const postal = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }] });
       expect(postal.status, JSON.stringify(postal.body)).toBe(201);
       expect(postal.body.offer.deliveryCompatibility.status).toBe('EXACT_MATCH');
       expect((await pool.query('SELECT count(*)::int AS count FROM offers WHERE buy_request_id=$1', [requestId])).rows[0].count).toBe(1);

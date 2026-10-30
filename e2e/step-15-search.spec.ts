@@ -64,6 +64,7 @@ test('Step 15: real Buyer Request and Seller Product search across browser width
     await buyer.getByLabel('Кількість').fill('1');
     await buyer.getByLabel('Один продавець').check();
     await buyer.getByLabel('Поштова доставка').check();
+    await buyer.getByLabel('Нова пошта').check();
     await expect(buyer.getByText('✓ Точку для мапи визначено')).toBeVisible();
     const requestCreated = buyer.waitForResponse(r => new URL(r.url()).pathname === '/api/buy-requests' && r.request().method() === 'POST');
     await buyer.getByRole('button', { name: 'Опублікувати запит' }).click();
@@ -79,6 +80,7 @@ test('Step 15: real Buyer Request and Seller Product search across browser width
     await seller.getByLabel('Кількість').fill('1');
     await seller.getByLabel('Ціна за одиницю').fill('100');
     await seller.getByLabel('Поштова доставка').check();
+    await seller.getByLabel('Нова пошта').check();
     await expect(seller.getByText('✓ Точку для мапи визначено')).toBeVisible();
     const productCreated = seller.waitForResponse(r => new URL(r.url()).pathname === '/api/products' && r.request().method() === 'POST');
     await seller.getByRole('button', { name: 'Опублікувати товар' }).click();

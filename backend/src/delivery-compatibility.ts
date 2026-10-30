@@ -1,10 +1,12 @@
 import { distanceKm } from './city-boundaries.js';
 import type { MapPoint } from './map-service.js';
 import { getSettlement, listSettlementRegions } from './settlements.js';
+import { isDeepStrictEqual } from 'node:util';
 
 export const DELIVERY_METHODS = ['SELF_PICKUP', 'SELLER_DELIVERY', 'POSTAL_DELIVERY', 'FLEXIBLE'] as const;
 export type DeliveryMethod = typeof DELIVERY_METHODS[number];
 export type DeliveryStatus = 'EXACT_MATCH' | 'POSSIBLE_AGREEMENT' | 'NO_MATCH' | 'UNKNOWN';
+export const POSTAL_OPERATORS = ['NOVA_POSHTA', 'UKRPOSHTA'] as const;
 export type DeliveryOption = {
   method: DeliveryMethod;
   radiusKm?: number;
@@ -12,10 +14,28 @@ export type DeliveryOption = {
   regions?: string[];
   nationwide?: boolean;
   place?: DeliveryPlace;
+  postalOperators?: typeof POSTAL_OPERATORS[number][];
 };
 export type DeliveryPlace = { settlementCode: string | null; region: string | null; publicPoint: MapPoint | null; verifiedPoint?: boolean };
 export type DeliveryParty = { options: DeliveryOption[] | null; place: DeliveryPlace };
 export type DeliveryMatch = { status: DeliveryStatus; methods: DeliveryMethod[] };
+
+// Unchanged legacy postal terms remain editable; new postal terms need an
+// explicit operator. A missing legacy value never means all operators.
+export function postalTermsDefined(options: DeliveryOption[] | null | undefined, previous?: DeliveryOption[] | null): boolean {
+  const postal = options?.find(option => option.method === 'POSTAL_DELIVERY');
+  if (!postal || postal.postalOperators?.length) return true;
+  const old = previous?.find(option => option.method === 'POSTAL_DELIVERY');
+  return Boolean(old && isDeepStrictEqual(old, postal));
+}
+
+export function productSupportsOption(productOption: DeliveryOption, offerOption: DeliveryOption): boolean {
+  if (productOption.method !== 'POSTAL_DELIVERY' || offerOption.method !== 'POSTAL_DELIVERY') return isDeepStrictEqual(productOption, offerOption);
+  const { postalOperators: available, ...productTerms } = productOption;
+  const { postalOperators: offered, ...offerTerms } = offerOption;
+  if (!available?.length && !offered?.length) return isDeepStrictEqual(productOption, offerOption);
+  return isDeepStrictEqual(productTerms, offerTerms) && Boolean(available?.length && offered?.length && offered.every(operator => available.includes(operator)));
+}
 
 const regions = new Set(listSettlementRegions().regions);
 // A private public point may be rounded to 0.01 degrees. Two rounded points can
@@ -39,7 +59,8 @@ export function validateDeliveryOptions(value: unknown, role: 'buyer' | 'seller'
     const allowed = item.method === 'SELF_PICKUP' && role === 'buyer' ? ['method', 'radiusKm', 'region']
       : item.method === 'SELF_PICKUP' && role === 'seller' ? ['method', 'place']
       : item.method === 'SELLER_DELIVERY' && role === 'seller' ? ['method', 'radiusKm', 'regions', 'place']
-      : item.method === 'POSTAL_DELIVERY' && role === 'seller' ? ['method', 'nationwide', 'regions'] : ['method'];
+      : item.method === 'POSTAL_DELIVERY' && role === 'seller' ? ['method', 'nationwide', 'regions', 'postalOperators']
+      : item.method === 'POSTAL_DELIVERY' ? ['method', 'postalOperators'] : ['method'];
     if (Object.keys(item).some(key => !allowed.includes(key))) return false;
     // A zero-radius public point cannot prove that two private locations are
     // identical. New radius rules therefore start at one kilometre; existing
@@ -49,6 +70,7 @@ export function validateDeliveryOptions(value: unknown, role: 'buyer' | 'seller'
     if (item.regions !== undefined && (!Array.isArray(item.regions) || !item.regions.length || item.regions.length > 30
       || item.regions.some((region: unknown) => !regions.has(region as string)) || new Set(item.regions).size !== item.regions.length)) return false;
     if (item.nationwide !== undefined && item.nationwide !== true) return false;
+    if (item.postalOperators !== undefined && (!Array.isArray(item.postalOperators) || !item.postalOperators.length || item.postalOperators.some((operator: unknown) => !POSTAL_OPERATORS.includes(operator as typeof POSTAL_OPERATORS[number])) || new Set(item.postalOperators).size !== item.postalOperators.length)) return false;
     if (item.place !== undefined) {
       const place = item.place as DeliveryPlace;
       if (!place || typeof place !== 'object' || Array.isArray(place) || Object.keys(place).some(key => !['settlementCode', 'region', 'publicPoint'].includes(key))
@@ -89,6 +111,8 @@ function compatible(method: DeliveryMethod, buyer: DeliveryOption, seller: Deliv
     }
   }
   if (method === 'POSTAL_DELIVERY') {
+    if (!buyer.postalOperators?.length || !seller.postalOperators?.length) return 'UNKNOWN';
+    if (!buyer.postalOperators.some(operator => seller.postalOperators!.includes(operator))) return 'NO_MATCH';
     if (!buyerPlace.region) return 'UNKNOWN';
     return seller.nationwide || seller.regions?.includes(buyerPlace.region) ? 'EXACT_MATCH' : 'NO_MATCH';
   }

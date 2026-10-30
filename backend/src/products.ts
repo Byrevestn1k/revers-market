@@ -10,6 +10,7 @@ import { approximatePoint, regionCondition, settlementCondition } from './map-se
 import { ExternalUrlPhotoStorage, type PhotoStorage, type StoredPhoto } from './photo-storage.js'
 import { validateProductInput, type ProductInput, type ProductStatus } from './product-validation.js'
 import { verifiedDeliveryOptions, verifiedInputPoint } from './delivery-geography.js'
+import { postalTermsDefined, type DeliveryOption } from './delivery-compatibility.js'
 import { assessCategory } from './category-recommendation.js'
 import { categoryDuplicates } from './category-duplicates.js'
 
@@ -122,6 +123,8 @@ export const listPopularCategories = async () => {
 export const createProduct = async (user: AuthUser, input: Record<string, unknown>) => {
     const errors = validateProductInput(input)
     if (errors.length) return invalid(errors)
+    if (!postalTermsDefined(input.deliveryOptions as DeliveryOption[] | undefined)) return invalid(['deliveryOptions'])
+    if (input.deliveryMode === 'carrier' && !(input.deliveryOptions as DeliveryOption[] | undefined)?.some(option => option.method === 'POSTAL_DELIVERY' && option.postalOperators?.length)) return invalid(['deliveryOptions'])
     if (!await verifiedDeliveryOptions(input.deliveryOptions as ProductInput['deliveryOptions'])) return invalid(['deliveryOptions'])
     if (!await verifiedInputPoint({ settlementCode: input.settlementCode, label: input.geoZone, latitude: input.latitude, longitude: input.longitude })) return invalid(['latitude', 'longitude'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE', message: 'Категорія недоступна' } }
@@ -211,8 +214,10 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
     let categoryWarning: Awaited<ReturnType<typeof assessCategory>> | null = null
     try {
         await client.query('BEGIN')
-        const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
+        const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, delivery_options, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
         if (!owner.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } } }
+        if (input.deliveryOptions !== undefined && !postalTermsDefined(input.deliveryOptions as DeliveryOption[], owner.rows[0].delivery_options)) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
+        if (input.deliveryMode === 'carrier' && !(input.deliveryOptions as DeliveryOption[] | undefined ?? owner.rows[0].delivery_options as DeliveryOption[] | null)?.some(option => option.method === 'POSTAL_DELIVERY' && option.postalOperators?.length)) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
         if (input.deliveryOptions !== undefined && !await verifiedDeliveryOptions(input.deliveryOptions as ProductInput['deliveryOptions'])) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
         if (['settlementCode', 'geoZone', 'latitude', 'longitude'].some(key => key in input)) {
             const previous = owner.rows[0]

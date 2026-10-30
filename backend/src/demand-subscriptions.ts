@@ -9,7 +9,7 @@ import { requestPublicLocationSql } from './request-public-location.js';
 import { settlementAdministrativeBoundary } from './city-boundaries.js';
 import { categoryFilterSql } from './category-filter.js';
 import { MapService } from './map-service.js';
-import { validateDeliveryOptions } from './delivery-compatibility.js';
+import { postalTermsDefined, validateDeliveryOptions, type DeliveryOption } from './delivery-compatibility.js';
 import { verifiedDeliveryOptions, verifiedOptionsForMatching, verifiedSettlementPoint, verifiedSubscriptionCenter } from './delivery-geography.js';
 
 type Queryable = Pick<PoolClient, 'query'>;
@@ -169,6 +169,7 @@ export const saveDemandSubscription = async (user: AuthUser, input: Record<strin
     await client.query('BEGIN');
     const current = id === undefined ? null : (await client.query<DemandSubscription>(`${select} WHERE s.id = $1 AND s.user_id = $2 FOR UPDATE OF s`, [id, user.id])).rows[0];
     if (id !== undefined && !current) { await client.query('ROLLBACK'); return notFound(); }
+    if (input.deliveryOptions !== undefined && !postalTermsDefined(input.deliveryOptions as DeliveryOption[], current?.deliveryOptions)) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']); }
     const previous = current ? Object.fromEntries(Object.keys(defaults).map(key => [key, current[key as keyof DemandSubscription]])) : defaults;
     const selected = { ...previous, categoryId: current?.category.id, ...input } as Record<string, unknown>;
     if ('countryCode' in input && !('countryCodes' in input)) selected.countryCodes = input.countryCode == null ? [] : [input.countryCode];

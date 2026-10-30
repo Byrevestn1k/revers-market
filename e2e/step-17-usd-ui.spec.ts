@@ -31,6 +31,7 @@ test('Step 17 creates Product, Buy Request and Seller Offer with USD through for
     await buyerPage.locator('input[name="price"]').fill('100');
     await buyerPage.locator('select[name="currency"]').selectOption('USD');
     await buyerPage.getByRole('checkbox', { name: 'Поштова доставка' }).check();
+    await buyerPage.getByRole('checkbox', { name: 'Нова пошта' }).check();
     const productCreated = buyerPage.waitForResponse(response => new URL(response.url()).pathname === '/api/products' && response.request().method() === 'POST', { timeout: 15000 });
     await buyerPage.getByRole('button', { name: 'Опублікувати товар' }).click();
     const productResponse = await productCreated;

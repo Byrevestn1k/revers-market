@@ -29,6 +29,7 @@ test('Step 21: publish Product and Buy Request with zero and eight photos', asyn
       if (type === 'product') {
         await page.locator('input[name="price"]').fill('100')
         await page.getByRole('checkbox', { name: 'Поштова доставка' }).check()
+        await page.getByRole('checkbox', { name: 'Нова пошта' }).check()
       } else await page.getByRole('checkbox', { name: 'Можна домовитися' }).check()
       if (count) {
         await page.locator('.photo-picker input[type=file]').setInputFiles(files)

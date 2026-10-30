@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchDelivery, validateDeliveryOptions, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js';
+import { matchDelivery, postalTermsDefined, productSupportsOption, validateDeliveryOptions, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js';
 
 const rivne: DeliveryPlace = { settlementCode: 'UA56060470010041018', region: 'Рівненська область', publicPoint: { latitude: 50.62, longitude: 26.25 }, verifiedPoint: true };
 const lutsk: DeliveryPlace = { settlementCode: null, region: 'Волинська область', publicPoint: { latitude: 50.75, longitude: 25.33 }, verifiedPoint: true };
@@ -26,7 +26,7 @@ describe('delivery compatibility', () => {
     const corrupt = { ...rivne, publicPoint: { latitude: 0, longitude: 0 }, verifiedPoint: false };
     expect(matchDelivery(buyer([{ method: 'SELLER_DELIVERY' }], corrupt), seller([{ method: 'SELLER_DELIVERY', radiusKm: 10 }], corrupt)).status).toBe('UNKNOWN');
     expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 0 }], corrupt), seller([{ method: 'SELF_PICKUP' }], corrupt)).status).toBe('UNKNOWN');
-    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }], corrupt), seller([{ method: 'POSTAL_DELIVERY', nationwide: true }])).status).toBe('EXACT_MATCH');
+    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }], corrupt), seller([{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }])).status).toBe('EXACT_MATCH');
   });
 
   it('treats legacy zero-radius and incomplete geography conservatively', () => {
@@ -43,10 +43,25 @@ describe('delivery compatibility', () => {
   });
 
   it('checks postal regions and prefers any real exact method', () => {
-    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }]), seller([{ method: 'POSTAL_DELIVERY', nationwide: true }])).status).toBe('EXACT_MATCH');
-    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }]), seller([{ method: 'POSTAL_DELIVERY', regions: ['Волинська область'] }])).status).toBe('NO_MATCH');
+    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }]), seller([{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }])).status).toBe('EXACT_MATCH');
+    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }]), seller([{ method: 'POSTAL_DELIVERY', regions: ['Волинська область'], postalOperators: ['NOVA_POSHTA'] }])).status).toBe('NO_MATCH');
     expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }], unknown), seller([{ method: 'POSTAL_DELIVERY', nationwide: true }])).status).toBe('UNKNOWN');
-    expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY' }], { ...rivne, publicPoint: null, verifiedPoint: false }), seller([{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true }])).methods).toEqual(['POSTAL_DELIVERY']);
+    expect(matchDelivery(buyer([{ method: 'SELF_PICKUP', radiusKm: 0 }, { method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }], { ...rivne, publicPoint: null, verifiedPoint: false }), seller([{ method: 'SELF_PICKUP' }, { method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }])).methods).toEqual(['POSTAL_DELIVERY']);
+  });
+
+  it('requires shared operators without blocking an independent pickup match', () => {
+    const buyerPostal: DeliveryOption = { method: 'POSTAL_DELIVERY', postalOperators: ['UKRPOSHTA'] };
+    const sellerPostal: DeliveryOption = { method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] };
+    expect(matchDelivery(buyer([buyerPostal]), seller([sellerPostal])).status).toBe('NO_MATCH');
+    expect(matchDelivery(buyer([{ method: 'POSTAL_DELIVERY' }]), seller([sellerPostal])).status).toBe('UNKNOWN');
+    expect(matchDelivery(buyer([buyerPostal, { method: 'SELF_PICKUP', region: 'Рівненська область' }]), seller([sellerPostal, { method: 'SELF_PICKUP' }])).methods).toEqual(['SELF_PICKUP']);
+    expect(matchDelivery(buyer([{ method: 'FLEXIBLE' }]), seller([sellerPostal])).status).toBe('POSSIBLE_AGREEMENT');
+    expect(validateDeliveryOptions([{ ...buyerPostal, postalOperators: ['UKRPOSHTA', 'UKRPOSHTA'] }], 'buyer')).toBe(false);
+    expect(validateDeliveryOptions([{ method: 'POSTAL_DELIVERY', postalOperators: ['INVALID'] }], 'buyer')).toBe(false);
+    expect(postalTermsDefined([{ method: 'POSTAL_DELIVERY' }])).toBe(false);
+    expect(postalTermsDefined([{ method: 'POSTAL_DELIVERY' }], [{ method: 'POSTAL_DELIVERY' }])).toBe(true);
+    expect(productSupportsOption({ ...sellerPostal, postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }, sellerPostal)).toBe(true);
+    expect(productSupportsOption(sellerPostal, { ...sellerPostal, postalOperators: ['UKRPOSHTA'] })).toBe(false);
   });
 
   it('keeps flexibility separate from confirmed compatibility', () => {

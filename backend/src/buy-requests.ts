@@ -18,7 +18,7 @@ import { listingSearchColumns, smartSearchSql } from './smart-search.js'
 import { notifyDemandSubscriptions } from './demand-subscriptions.js'
 import { randomUUID } from 'node:crypto'
 import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './photo-storage.js'
-import { matchDelivery, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js'
+import { matchDelivery, postalTermsDefined, productSupportsOption, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js'
 import { verifiedDeliveryOptions, verifiedDeliveryPlace, verifiedInputPoint, verifiedOptionsForMatching } from './delivery-geography.js'
 import { isDeepStrictEqual } from 'node:util'
 
@@ -257,6 +257,7 @@ const validateAcceptance = (
 export const createBuyRequest = async (user: AuthUser, input: Record<string, unknown>) => {
     const errors = validateBuyRequestInput(input)
     if (errors.length) return invalid(errors)
+    if (!postalTermsDefined(input.deliveryOptions as DeliveryOption[] | undefined)) return invalid(['deliveryOptions'])
     if (Array.isArray(input.photos) && input.photos.some((photo: PhotoUpload) => photo.url)) return invalid(['photos'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
     const assessment = await assessCategory({ title: String(input.title), description: String(input.description ?? ''), categoryId: String(input.categoryId), unit: String(input.unit) })
@@ -400,6 +401,7 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
         const sellers = await client.query("SELECT DISTINCT seller_id FROM orders WHERE buy_request_id = $1 AND status NOT IN ('cancelled', 'failed', 'rejected', 'expired') LIMIT 2", [id])
         if (sellers.rowCount && sellers.rowCount > 1) return { status: 409, body: { error: 'FULFILLMENT_MODE_LOCKED', message: 'Режим одного продавця недоступний: запит уже має угоди з різними продавцями.' } }
     }
+    if (input.deliveryOptions !== undefined && !postalTermsDefined(input.deliveryOptions as DeliveryOption[], current.rows[0].delivery_options)) return invalid(['deliveryOptions'])
     if (input.deliveryOptions !== undefined && !isDeepStrictEqual(input.deliveryOptions, current.rows[0].delivery_options) && (hasOffers || hasDeals)) return { status: 409, body: { error: 'DELIVERY_OPTIONS_LOCKED', message: 'Способи отримання не можна змінити після появи пропозиції або угоди.' } }
     const geographyFields: Record<string, string> = { countryCode: 'country_code', settlementCode: 'settlement_code', geoArea: 'geo_area', latitude: 'latitude', longitude: 'longitude', address: 'delivery_address', mapLocationMode: 'map_location_mode', receiptMethod: 'receipt_method' }
     const geographyChanged = Object.entries(geographyFields).some(([key, column]) => key in input && (key === 'latitude' || key === 'longitude'
@@ -461,6 +463,7 @@ export const recordOfferView = async (user: AuthUser, offerId: string) => {
 export const createOffer = async (user: AuthUser, requestId: string, input: Record<string, unknown>) => {
     const errors = validateOfferInput(input)
     if (errors.length) return invalid(errors)
+    if (!postalTermsDefined(input.deliveryOptions as DeliveryOption[] | undefined)) return invalid(['deliveryOptions'])
     if (input.creationMode === 'manual' && !input.title) return invalid(['title'])
     if (input.creationMode === 'product' && !input.productId) return invalid(['productId'])
     if (Array.isArray(input.deliveryOptions) && input.deliveryOptions.length !== 1) return invalid(['deliveryOptions'])
@@ -482,7 +485,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     if (Array.isArray(input.deliveryOptions)) {
         const option = input.deliveryOptions[0] as DeliveryOption
         if (!await verifiedDeliveryOptions([option])) return invalid(['deliveryOptions'])
-        if (input.productId && !(product?.rows[0].delivery_options as DeliveryOption[] | null)?.some(candidate => isDeepStrictEqual(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH', message: 'Цей спосіб не підтверджений вибраним товаром.' } }
+        if (input.productId && !(product?.rows[0].delivery_options as DeliveryOption[] | null)?.some(candidate => productSupportsOption(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH', message: 'Цей спосіб не підтверджений вибраним товаром.' } }
         if (!input.productId && ['SELF_PICKUP', 'SELLER_DELIVERY'].includes(option.method) && !option.place?.settlementCode) return invalid(['deliveryOptions'])
         if (!input.productId && option.method === 'SELLER_DELIVERY' && (option.radiusKm ?? 0) > 0 && !option.place?.publicPoint) return invalid(['deliveryOptions'])
     }
@@ -601,6 +604,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         if (!link) return { status: 404, body: { error: 'OFFER_NOT_FOUND' } }
         const request = (await client.query('SELECT * FROM buy_requests WHERE id = $1 FOR UPDATE', [link.buy_request_id])).rows[0]
         const existing = (await client.query('SELECT * FROM offers WHERE id = $1 FOR UPDATE', [offerId])).rows[0]
+        if (input.deliveryOptions !== undefined && !postalTermsDefined(input.deliveryOptions as DeliveryOption[], existing.delivery_options)) return invalid(['deliveryOptions'])
         if (existing.status !== 'submitted' || Number(existing.accepted_quantity) > 0) return { status: 409, body: { error: 'OFFER_TERMS_LOCKED' } }
         if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
         if ((input.unit !== undefined && input.unit !== request.unit) || (input.currency !== undefined && input.currency !== request.currency)) return invalid(['unit','currency'])
@@ -620,7 +624,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
             if (input.deliveryOptions !== undefined && !await verifiedDeliveryOptions([option])) return invalid(['deliveryOptions'])
             if (selectedProductId) {
                 const linkedProduct = await client.query<{ delivery_options: DeliveryOption[] | null }>('SELECT delivery_options FROM products WHERE id=$1 AND owner_id=$2 FOR SHARE', [selectedProductId, user.id])
-                if (!linkedProduct.rows[0]?.delivery_options?.some(candidate => isDeepStrictEqual(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH' } }
+                if (!linkedProduct.rows[0]?.delivery_options?.some(candidate => productSupportsOption(candidate, option))) return { status: 409, body: { error: 'PRODUCT_DELIVERY_MISMATCH' } }
             } else if (['SELF_PICKUP', 'SELLER_DELIVERY'].includes(option.method) && (!option.place?.settlementCode || option.method === 'SELLER_DELIVERY' && (option.radiusKm ?? 0) > 0 && !option.place.publicPoint)) return invalid(['deliveryOptions'])
         }
         const { idParam, ownerParam } = withOwnerConditions(values, offerId, user.id)

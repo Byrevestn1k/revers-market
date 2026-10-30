@@ -54,6 +54,7 @@ test('safe category flow publishes, warns, allows manual change and accepts a re
     await page.locator('input[name="quantity"]').fill('1');
     await page.locator('input[name="price"]').fill('100');
     await page.getByRole('checkbox', { name: 'Поштова доставка' }).check();
+    await page.getByRole('checkbox', { name: 'Нова пошта' }).check();
     const matsCreated = page.waitForResponse(r => new URL(r.url()).pathname === '/api/products' && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Опублікувати товар' }).click();
     const matsResponse = await matsCreated;
@@ -71,6 +72,7 @@ test('safe category flow publishes, warns, allows manual change and accepts a re
     await page.locator('input[name="quantity"]').fill('1');
     await page.locator('input[name="price"]').fill('100');
     await page.getByRole('checkbox', { name: 'Поштова доставка' }).check();
+    await page.getByRole('checkbox', { name: 'Нова пошта' }).check();
     const warnedCreated = page.waitForResponse(r => new URL(r.url()).pathname === '/api/products' && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Опублікувати товар' }).click();
     const warnedResponse = await warnedCreated;

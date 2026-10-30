@@ -24,7 +24,7 @@ if (process.env.DATABASE_URL) {
     type Agent = typeof seller;
 
     const subscribe = async (agent: Agent = seller, fields: Record<string, unknown> = {}) => {
-      const response = await agent.post('/api/demand-subscriptions').send({ categoryId, countryCode: fields.region || (fields.settlementCodes as string[] | undefined)?.length ? null : 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true }], ...fields });
+      const response = await agent.post('/api/demand-subscriptions').send({ categoryId, countryCode: fields.region || (fields.settlementCodes as string[] | undefined)?.length ? null : 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }], ...fields });
       expect(response.status, JSON.stringify(response.body)).toBe(201);
       return response.body.subscription;
     };
@@ -42,7 +42,7 @@ if (process.env.DATABASE_URL) {
           ? { latitude: null, longitude: null } : locations[selectedCode] ?? locations[rivne.code];
       const response = await buyer.post('/api/buy-requests').send({
         categoryId, title: 'Потрібен мед для Step 8', description: '', quantity: 10, unit: 'kg', currency: 'UAH',
-        minPrice: 1, maxPrice: 200, ...(fields.receiptMethod ? {} : { delivery: 'no' }), deliveryOptions: [{ method: 'POSTAL_DELIVERY' }], geoArea: rivne.name, settlementCode: rivne.code,
+        minPrice: 1, maxPrice: 200, ...(fields.receiptMethod ? {} : { delivery: 'no' }), deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }], geoArea: rivne.name, settlementCode: rivne.code,
         address: 'Секретна адреса 123', addressVisibility: 'private', ...location,
         ...fields,
       });
@@ -138,15 +138,22 @@ if (process.env.DATABASE_URL) {
       expect((await notifications()).notifications.map((item: { id: string }) => item.id)).toEqual(initial.map((item: { id: string }) => item.id));
     }, 120000);
 
+    it('only notifies for a shared postal operator and does not duplicate alerts', async () => {
+      await subscribe();
+      await createRequest({ deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['UKRPOSHTA'] }] });
+      const matching = await createRequest({ deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }] });
+      expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([matching]);
+    });
+
     it('alerts once only for confirmed geographic delivery, never for flexibility or unknown legacy terms', async () => {
       const place = { settlementCode: rivne.code, region: rivne.region, publicPoint: { latitude: 50.61, longitude: 26.21 } };
       await subscribe(seller, { deliveryOptions: [
         { method: 'SELF_PICKUP', place },
-        { method: 'POSTAL_DELIVERY', regions: [rivne.region] },
+        { method: 'POSTAL_DELIVERY', regions: [rivne.region], postalOperators: ['NOVA_POSHTA'] },
         { method: 'FLEXIBLE' },
       ] });
-      const exact = await createRequest({ deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 5 }, { method: 'POSTAL_DELIVERY' }] });
-      await createRequest({ settlementCode: kyiv.code, geoArea: kyiv.name, deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] });
+      const exact = await createRequest({ deliveryOptions: [{ method: 'SELF_PICKUP', radiusKm: 5 }, { method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }] });
+      await createRequest({ settlementCode: kyiv.code, geoArea: kyiv.name, deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }] });
       await createRequest({ deliveryOptions: [{ method: 'SELLER_DELIVERY' }, { method: 'FLEXIBLE' }] });
       await createRequest({ deliveryOptions: undefined });
       expect((await notifications()).notifications.map((item: { buyRequestId: string }) => item.buyRequestId)).toEqual([exact]);
@@ -491,7 +498,7 @@ if (process.env.DATABASE_URL) {
       try {
         await client.query('BEGIN');
         const inserted = await client.query(`INSERT INTO buy_requests (buyer_id, category_id, title, description, requested_quantity, unit, currency, geo_area, country_code, settlement_code, delivery_options)
-          VALUES ($1,$2,'Rollback demand test','',10,'kg','UAH','Рівне','UA',$3,'[{"method":"POSTAL_DELIVERY"}]'::jsonb) RETURNING id`, [userIds[1], categoryId, rivne.code]);
+          VALUES ($1,$2,'Rollback demand test','',10,'kg','UAH','Рівне','UA',$3,'[{"method":"POSTAL_DELIVERY","postalOperators":["NOVA_POSHTA"]}]'::jsonb) RETURNING id`, [userIds[1], categoryId, rivne.code]);
         id = inserted.rows[0].id;
         await notifyDemandSubscriptions(client, id);
         expect((await client.query('SELECT 1 FROM notifications WHERE buy_request_id = $1 AND user_id = $2', [id, userIds[0]])).rowCount).toBe(1);
