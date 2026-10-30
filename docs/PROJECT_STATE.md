@@ -169,6 +169,6 @@ Step 21: READY FOR INDEPENDENT REVIEW; виправлення Seller Offer пе�
 
 Спрощення статусів розпочато в гілці `codex/step-22-simplified-statuses`. Основні перевірки виконано; обмеження та неперевірені сценарії наведені в [STEP_22_SIMPLIFIED_STATUSES.md](STEP_22_SIMPLIFIED_STATUSES.md).
 
-## Step 23 — робота триває
+## Step 23 — підготовлено до незалежного огляду
 
-Поштові оператори та їхню сумісність впроваджують у залежній гілці `codex/step-23-postal-operators`. До завершення перевірок статус — **NOT READY**. Деталі та межі перевірок: [STEP_23_POSTAL_OPERATORS.md](STEP_23_POSTAL_OPERATORS.md).
+Поштові оператори та їхню сумісність впроваджено у залежній гілці `codex/step-23-postal-operators`. Повторні браузерні регресії Step 16 і Step 17 пройшли; статус — **READY FOR INDEPENDENT REVIEW**. Деталі та межі перевірок: [STEP_23_POSTAL_OPERATORS.md](STEP_23_POSTAL_OPERATORS.md).

@@ -19,7 +19,7 @@ test('Step 17 creates Product, Buy Request and Seller Offer with USD through for
   try {
     expect((await buyer.request.post('/api/auth/login', { data: credentials('Hybrid') })).status()).toBe(200);
     expect((await seller.request.post('/api/auth/login', { data: credentials('Seller A') })).status()).toBe(200);
-    const category = (await (await buyer.request.get('/api/categories')).json()).categories.find((item: { code: string }) => item.code === 'honey_raw');
+    const category = (await (await buyer.request.get('/api/categories')).json()).categories.find((item: { code: string }) => item.code === 'apiculture');
     expect(category).toBeTruthy();
     const suffix = Date.now();
     const buyerPage = await buyer.newPage();
@@ -27,6 +27,7 @@ test('Step 17 creates Product, Buy Request and Seller Offer with USD through for
     await buyerPage.locator('input[name="title"]').fill(`Step17 USD Product ${suffix}`);
     await buyerPage.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill(category.name);
     await buyerPage.getByRole('option').filter({ hasText: category.name }).last().click();
+    await expect(buyerPage.locator('input[name="categoryId"]')).toHaveValue(category.id);
     await buyerPage.locator('input[name="quantity"]').fill('2');
     await buyerPage.locator('input[name="price"]').fill('100');
     await buyerPage.locator('select[name="currency"]').selectOption('USD');
@@ -42,6 +43,7 @@ test('Step 17 creates Product, Buy Request and Seller Offer with USD through for
     await buyerPage.locator('input[name="title"]').fill(`Step17 USD Request ${suffix}`);
     await buyerPage.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill(category.name);
     await buyerPage.getByRole('option').filter({ hasText: category.name }).last().click();
+    await expect(buyerPage.locator('input[name="categoryId"]')).toHaveValue(category.id);
     await buyerPage.locator('input[name="quantity"]').fill('2');
     await buyerPage.locator('select[name="currency"]').selectOption('USD');
     await buyerPage.locator('input[name="minPrice"]').fill('100');

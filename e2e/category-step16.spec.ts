@@ -93,11 +93,17 @@ test('safe category flow publishes, warns, allows manual change and accepts a re
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/my/products/' + wrongId + '/edit');
-    await choose(page, 'Мед', /› Мед$/);
-    await expect(page.getByRole('combobox', { name: 'Пошук або вибір категорії' })).toHaveValue(/› Мед$/);
+    const categories = (await (await owner.request.get('/api/categories')).json()).categories as { id: string; code: string }[];
+    const apiculture = categories.find(category => category.code === 'apiculture');
+    expect(apiculture).toBeTruthy();
+    await choose(page, 'Продукти бджільництва', /› Продукти бджільництва$/);
+    await expect(page.getByRole('combobox', { name: 'Пошук або вибір категорії' })).toHaveValue(/› Продукти бджільництва$/);
+    await expect(page.locator('input[name="categoryId"]')).toHaveValue(apiculture!.id);
     const changed = page.waitForResponse(r => new URL(r.url()).pathname === '/api/products/' + wrongId && r.request().method() === 'PATCH');
     await page.getByRole('button', { name: 'Зберегти зміни' }).click();
-    expect((await changed).status()).toBe(200);
+    const changedResponse = await changed;
+    expect(changedResponse.status()).toBe(200);
+    expect((await changedResponse.json()).product.category.id).toBe(apiculture!.id);
 
     await page.setViewportSize({ width: 390, height: 850 });
     await page.goto('/my/requests/new');
