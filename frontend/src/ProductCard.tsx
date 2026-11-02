@@ -1,3 +1,4 @@
+import { ConvertedPrice } from './product-currency'
 import { useEffect, useState } from 'react'
 import { listingState, listingStateLabel } from './activity'
 import { CategoryImage } from './CategoryPicker'
@@ -36,6 +37,7 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
             <div className="product-image"><ListingPicture product={product} /><span className={'status status-' + listingState('product', status)}>{listingStateLabel('product', status)}</span></div>
             <div className="product-card-body"><small className="listing-category">{product.category.name}</small><h3>{product.title}</h3>
                 {product.price && <strong className="price">{listingPrice(product.price.amount, product.price.currency)}{product.unit && <small> / {unitLabel(product.unit)}</small>}</strong>}
+                {product.price && <ConvertedPrice amount={product.price.amount} currency={product.price.currency} />}
                 <p>⌖ {product.publicAddress || product.geoZone}</p>
                 <div className="card-meta"><span>{product.availableQuantity ?? product.quantity} {unitLabel(product.unit)}</span><span>{product.deliveryOptions?.length ? deliveryOptionsLabel(product.deliveryOptions) : DELIVERY_LABELS[product.deliveryMode ?? ''] ?? ''}</span></div>
                 {product.owner?.username && <small className="listing-owner">{product.owner.nickname || product.owner.username}</small>}

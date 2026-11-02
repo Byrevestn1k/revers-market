@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 
 type Entry = { count: number; resetAt: number };
 
-export function createSearchRateLimiter(options: { max?: number; windowMs?: number; maxKeys?: number } = {}): RequestHandler {
+export function createSearchRateLimiter(options: { max?: number; windowMs?: number; maxKeys?: number; all?: boolean } = {}): RequestHandler {
   const max = options.max ?? 120;
   const windowMs = options.windowMs ?? 60_000;
   const maxKeys = options.maxKeys ?? 10_000;
@@ -10,7 +10,7 @@ export function createSearchRateLimiter(options: { max?: number; windowMs?: numb
   let lastSweep = 0;
 
   return (request, response, next) => {
-    if (typeof request.query.q !== 'string' || !request.query.q.trim()) { next(); return; }
+    if (!options.all && (typeof request.query.q !== 'string' || !request.query.q.trim())) { next(); return; }
     const now = Date.now();
     if (now - lastSweep >= windowMs || entries.size >= maxKeys) {
       for (const [key, entry] of entries) if (entry.resetAt <= now) entries.delete(key);

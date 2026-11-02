@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { exchangeRates } from './exchange-rates.js'
 import { getSettlement, settlementCodesInRegion } from './settlements.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
@@ -166,6 +167,10 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     const limit = Math.min(50, Math.max(1, Number.parseInt(String(query.limit ?? '20'), 10) || 20))
     const conditions = user && query.mine === 'true' ? ['p.owner_id = $1'] : ['p.status = \'active\'', 'p.quantity > p.reserved_quantity']
     const parameters: unknown[] = user && query.mine === 'true' ? [user.id] : []
+    if (query.ids !== undefined) {
+        if (!Array.isArray(query.ids) || query.ids.length > 20000 || query.ids.some(id => typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) return invalid(['ids'])
+        parameters.push(query.ids); conditions.push(`p.id = ANY($${parameters.length}::uuid[])`)
+    }
     if (typeof query.ownerUsername === 'string' && query.ownerUsername.trim()) { parameters.push(query.ownerUsername.trim().toLowerCase()); conditions.push(`u.username_normalized = $${parameters.length}`) }
     if (typeof query.categoryId === 'string' && query.categoryId) { parameters.push(query.categoryId); conditions.push(categoryFilterSql('p.category_id', parameters.length)) }
     if (query.settlementCode !== undefined) {
@@ -179,15 +184,36 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
         conditions.push(regionCondition('p.settlement_code', 'p.geo_zone', region, parameters))
     }
     if (typeof query.geoZone === 'string' && query.geoZone.trim()) { parameters.push(query.geoZone.trim()); conditions.push(`p.geo_zone ILIKE $${parameters.length}`) }
+    const searchParameterStart = parameters.length
     const search = query.searchIn === 'owner'
         ? null
         : smartSearchSql(listingSearchColumns('product'), typeof query.q === 'string' ? query.q : undefined, parameters, query.searchIn === 'title')
     if (query.searchIn === 'owner') conditions.push(...textSearchConditions(['u.username', 'u.nickname'], typeof query.q === 'string' ? query.q : undefined, parameters))
-    if (search) conditions.push(search.condition)
+    if (search) {
+        conditions.push(search.condition)
+        if (parameters.length === searchParameterStart + 2) conditions.push(`$${parameters.length}::text IS NOT NULL`)
+    }
+    const sort = query.sort ?? 'default'
+    if (typeof sort !== 'string' || !['default', 'newest', 'oldest', 'price_asc', 'price_desc'].includes(sort)) return invalid(['sort'])
+    let rateSet = null
+    let order = `${search ? `${search.rank} DESC, ` : ''}p.created_at DESC, p.id DESC`
+    if (sort === 'newest') order = 'p.created_at DESC, p.id DESC'
+    if (sort === 'oldest') order = 'p.created_at ASC, p.id ASC'
+    if (sort === 'price_asc' || sort === 'price_desc') {
+        if (query.rateId !== undefined && (typeof query.rateId !== 'string' || !/^[a-f0-9]{24}$/.test(query.rateId))) return invalid(['rateId'])
+        rateSet = await exchangeRates.get(query.rateId as string | undefined)
+        if (!rateSet) return { status: 503, body: { error: 'RATES_UNAVAILABLE', message: 'Сортування за ціною тимчасово недоступне' } }
+        const unsupported = await pool.query(`SELECT 1 FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${conditions.join(' AND ')} AND p.price IS NOT NULL AND p.currency NOT IN ('UAH', 'USD', 'EUR', 'PLN') LIMIT 1`, parameters)
+        if (unsupported.rowCount) return { status: 503, body: { error: 'RATES_UNAVAILABLE', message: 'Сортування за ціною тимчасово недоступне' } }
+        parameters.push(rateSet.rates.USD, rateSet.rates.EUR, rateSet.rates.PLN)
+        const n = parameters.length
+        const expression = `CASE p.currency WHEN 'UAH' THEN p.price WHEN 'USD' THEN p.price * $${n-2}::numeric WHEN 'EUR' THEN p.price * $${n-1}::numeric WHEN 'PLN' THEN p.price * $${n}::numeric ELSE NULL END`
+        order = `${expression} ${sort === 'price_asc' ? 'ASC' : 'DESC'} NULLS LAST, p.id ASC`
+    }
     const where = conditions.join(' AND ')
-    const countParameters = [...parameters]
+    const countParameters = sort === 'price_asc' || sort === 'price_desc' ? parameters.slice(0, -3) : [...parameters]
     parameters.push(limit, (page - 1) * limit)
-    const rows = await pool.query<ProductRow>(`${productSelect} WHERE ${where} ORDER BY ${search ? `${search.rank} DESC, ` : ''}p.created_at DESC, p.id DESC LIMIT $${parameters.length - 1} OFFSET $${parameters.length}`, parameters)
+    const rows = await pool.query<ProductRow>(`${productSelect} WHERE ${where} ORDER BY ${order} LIMIT $${parameters.length - 1} OFFSET $${parameters.length}`, parameters)
     const photosByProduct = new Map<string, PhotoRow[]>()
     if (rows.rows.length) {
         const photos = await pool.query<PhotoRow & { product_id: string }>('SELECT product_id, id, storage_key, url, alt, sort_order FROM product_photos WHERE product_id = ANY($1::uuid[]) ORDER BY product_id, sort_order, id', [rows.rows.map(row => row.id)])
@@ -199,7 +225,7 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     }
     const products = rows.rows.map(row => ({ ...row, photos: photosByProduct.get(row.id) ?? [] }))
     const total = rows.rows.length ? Number(rows.rows[0].total_count) : page === 1 ? 0 : Number((await pool.query<{ count: string }>(`SELECT count(*) FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id WHERE ${where}`, countParameters)).rows[0].count)
-    return { status: 200, body: { products: products.map((product) => toProductDto(product, product.owner_id === user?.id)), pagination: { page, limit, total, pages: Math.ceil(total / limit) } } }
+    return { status: 200, body: { products: products.map((product) => toProductDto(product, product.owner_id === user?.id)), pagination: { page, limit, total, pages: Math.ceil(total / limit) }, ...(rateSet ? { rateSet } : {}) } }
 }
 
 export const updateProduct = async (user: AuthUser, id: string, input: Record<string, unknown>) => {

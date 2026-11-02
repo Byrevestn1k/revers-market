@@ -1,10 +1,10 @@
 # Project state
 
-**Current step:** `STEP 20 — category taxonomy cleanup in progress`.
+**Current step:** `STEP 24 — product sorting and currency conversion READY FOR INDEPENDENT REVIEW`.
 
-**Last updated:** 2026-10-27
+**Last updated:** 2026-11-02
 
-Step 20 work is on `codex/step-20-category-cleanup`. Scope: one canonical beekeeping products category, guarded category-link migrations, paused narrow honey subscription, and taxonomy audit. See [STEP_20_CATEGORY_AUDIT.md](STEP_20_CATEGORY_AUDIT.md) and [STEP_20_CATEGORY_CLEANUP.md](STEP_20_CATEGORY_CLEANUP.md). Merge and push require separate user authorization; pre-existing [mobile map group overlap](BACKLOG_MAP_GROUP_OVERLAP.md) and listed unverified scenarios remain. The final committed state requires independent Sol re-review.
+Step 24 work is on `codex/step-24-product-sorting-currency`; see [STEP_24_SORTING_CURRENCY.md](STEP_24_SORTING_CURRENCY.md). Browser QA is complete; independent Sol re-review is outstanding. Previous Step 20 work is on `codex/step-20-category-cleanup`. Scope: one canonical beekeeping products category, guarded category-link migrations, paused narrow honey subscription, and taxonomy audit. See [STEP_20_CATEGORY_AUDIT.md](STEP_20_CATEGORY_AUDIT.md) and [STEP_20_CATEGORY_CLEANUP.md](STEP_20_CATEGORY_CLEANUP.md). Merge and push require separate user authorization; pre-existing [mobile map group overlap](BACKLOG_MAP_GROUP_OVERLAP.md) and listed unverified scenarios remain. The final committed state requires independent Sol re-review.
 
 **Purpose:** короткий handoff для нового AI. Це не повне ТЗ, changelog або друга специфікація.
 

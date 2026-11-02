@@ -1,3 +1,4 @@
+import { exchangeRates } from './exchange-rates.js'
 import cors from 'cors'
 import express from 'express'
 import { fileURLToPath } from 'node:url'
@@ -94,6 +95,11 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.use('/uploads', express.static(fileURLToPath(new URL('../uploads', import.meta.url))))
     app.use('/api/auth/external', externalAuthRouter(options.providerExchange))
     app.get(['/api/products', '/api/buy-requests', '/api/map/markers'], createSearchRateLimiter())
+
+    app.get('/api/exchange-rates', withResult(async () => {
+        const rates = await exchangeRates.get()
+        return rates ? { status: 200, body: { rates } } : { status: 503, body: { error: 'RATES_UNAVAILABLE', message: 'Перерахунок тимчасово недоступний' } }
+    }))
 
     app.get('/health', withResult(async () => {
         const database = await checkDatabase()
@@ -224,6 +230,8 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         const markers = await mapService.findMarkers({ latitude, longitude }, filters)
         return { status: 200, body: { markers, filters: { radiusKm, showProducts, showBuyRequests } } }
     }))
+
+    app.post('/api/products/sorted', createSearchRateLimiter({ all: true }), withResult((request) => listProducts({ ids: request.body?.ids, page: request.body?.page, limit: request.body?.limit, sort: request.body?.sort, rateId: request.body?.rateId })))
 
     app.get('/api/products', withResult((request) => listProducts(request.query, request.authUser)))
 
