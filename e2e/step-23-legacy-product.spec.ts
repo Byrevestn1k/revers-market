@@ -1,0 +1,62 @@
+import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import pg from 'pg';
+
+test('legacy postal Product remains editable without inventing operators', async ({ browser }, testInfo) => {
+  test.setTimeout(240_000);
+  const url = process.env.DATABASE_URL;
+  if (!url || !['localhost', '127.0.0.1'].includes(new URL(url).hostname) || !new URL(url).pathname.startsWith('/step23_p2_')) throw new Error('Isolated Step 23 test database required');
+  const text = (await readFile('docs/TEST_ACCOUNTS.local.md', 'utf8')).replaceAll('\r\n', '\n');
+  const block = text.split('## Hybrid\n')[1]?.split('\n## ')[0] ?? '';
+  const username = block.match(/Username:\s*([^\r\n]+)/)?.[1].trim();
+  const password = block.match(/Password:\s*([^\r\n]+)/)?.[1].trim();
+  if (!username || !password) throw new Error('Local QA account unavailable');
+  const context = await browser.newContext({ baseURL: process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5173', viewport: { width: 390, height: 850 } });
+  const db = new pg.Client({ connectionString: url });
+  let productId = '';
+  try {
+    await db.connect();
+    expect((await context.request.post('/api/auth/login', { data: { username, password } })).status()).toBe(200);
+    const category = (await (await context.request.get('/api/categories')).json()).categories.find((item: { code: string }) => item.code === 'grains');
+    const created = await context.request.post('/api/products', { data: { categoryId: category.id, title: `Legacy postal QA ${Date.now()}`, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', deliveryMode: 'carrier', deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }], geoZone: 'Рівне', settlementCode: 'UA56060470010041018', latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', status: 'active' } });
+    expect(created.status()).toBe(201); productId = (await created.json()).product.id;
+    const legacy = [{ method: 'POSTAL_DELIVERY', nationwide: true }];
+    await db.query('UPDATE products SET delivery_options=$1::jsonb WHERE id=$2', [JSON.stringify(legacy), productId]);
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`/my/products/${productId}/edit`);
+    await expect(page.getByRole('checkbox', { name: 'Поштова доставка' })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Нова пошта' })).not.toBeChecked();
+    await page.getByLabel('Ціна за одиницю').fill('120');
+    const saved = page.waitForResponse(response => response.url().endsWith(`/api/products/${productId}`) && response.request().method() === 'PATCH');
+    await page.getByRole('button', { name: 'Зберегти зміни' }).click();
+    const response = await saved;
+    expect(response.status(), await response.text()).toBe(200);
+    expect((await response.json()).product.deliveryOptions).toEqual(legacy);
+    await page.goto(`/my/products/${productId}/edit`);
+    await expect(page.getByLabel('Ціна за одиницю')).toHaveValue('120');
+    await expect(page.getByRole('checkbox', { name: 'Нова пошта' })).not.toBeChecked();
+    await page.screenshot({ path: testInfo.outputPath('legacy-unchanged.png'), fullPage: true });
+    const full = await context.request.patch(`/api/products/${productId}`, { data: { title: 'Повна форма', price: 121, quantity: 5, deliveryMode: 'carrier', deliveryOptions: legacy } });
+    expect(full.status()).toBe(200);
+    expect((await full.json()).product.deliveryOptions).toEqual(legacy);
+    const invalid = await context.request.patch(`/api/products/${productId}`, { data: { deliveryMode: 'carrier', deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: false }] } });
+    expect(invalid.status()).toBe(400);
+    await page.goto(`/my/products/${productId}/edit`);
+    await expect(page.getByRole('checkbox', { name: 'Нова пошта' })).not.toBeChecked();
+    await page.getByRole('checkbox', { name: 'Нова пошта' }).check();
+    const defined = page.waitForResponse(response => response.url().endsWith(`/api/products/${productId}`) && response.request().method() === 'PATCH');
+    await page.getByRole('button', { name: 'Зберегти зміни' }).click();
+    const definedResponse = await defined;
+    expect(definedResponse.status()).toBe(200);
+    expect((await definedResponse.json()).product.deliveryOptions[0].postalOperators).toEqual(['NOVA_POSHTA']);
+    await page.goto(`/my/products/${productId}/edit`);
+    await expect(page.getByRole('checkbox', { name: 'Нова пошта' })).toBeChecked();
+    await page.screenshot({ path: testInfo.outputPath('operator-saved.png'), fullPage: true });
+    expect(errors).toEqual([]);
+  } finally {
+    if (productId) await db.query('DELETE FROM products WHERE id=$1', [productId]);
+    await db.end(); await context.close();
+  }
+});

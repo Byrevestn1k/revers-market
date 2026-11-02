@@ -13,6 +13,7 @@ import { verifiedDeliveryOptions, verifiedInputPoint } from './delivery-geograph
 import { postalTermsDefined, type DeliveryOption } from './delivery-compatibility.js'
 import { assessCategory } from './category-recommendation.js'
 import { categoryDuplicates } from './category-duplicates.js'
+import { isDeepStrictEqual } from 'node:util'
 
 type ProductRow = {
     total_count?: string
@@ -214,10 +215,17 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
     let categoryWarning: Awaited<ReturnType<typeof assessCategory>> | null = null
     try {
         await client.query('BEGIN')
-        const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, delivery_options, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
+        const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, delivery_mode, delivery_options, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
         if (!owner.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } } }
         if (input.deliveryOptions !== undefined && !postalTermsDefined(input.deliveryOptions as DeliveryOption[], owner.rows[0].delivery_options)) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
-        if (input.deliveryMode === 'carrier' && !(input.deliveryOptions as DeliveryOption[] | undefined ?? owner.rows[0].delivery_options as DeliveryOption[] | null)?.some(option => option.method === 'POSTAL_DELIVERY' && option.postalOperators?.length)) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
+        if (input.deliveryMode === 'carrier') {
+            const oldOptions = owner.rows[0].delivery_options as DeliveryOption[] | null
+            const effectiveOptions = input.deliveryOptions === undefined ? oldOptions : input.deliveryOptions as DeliveryOption[]
+            const postal = effectiveOptions?.find(option => option.method === 'POSTAL_DELIVERY')
+            const oldPostal = oldOptions?.find(option => option.method === 'POSTAL_DELIVERY')
+            const unchangedLegacyPostal = oldPostal ? isDeepStrictEqual(oldPostal, postal) : input.deliveryOptions === undefined && owner.rows[0].delivery_mode === 'carrier'
+            if (!postal?.postalOperators?.length && !unchangedLegacyPostal) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
+        }
         if (input.deliveryOptions !== undefined && !await verifiedDeliveryOptions(input.deliveryOptions as ProductInput['deliveryOptions'])) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
         if (['settlementCode', 'geoZone', 'latitude', 'longitude'].some(key => key in input)) {
             const previous = owner.rows[0]
