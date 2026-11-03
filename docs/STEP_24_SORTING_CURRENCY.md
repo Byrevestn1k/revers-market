@@ -1,5 +1,9 @@
 # Step 24 — сортування товарів і конвертація валют
 
+## Уточнення доказів Browser QA
+
+Повтор повних E2E на 390 і 1280 px пройшов 2026-11-03. Докази та інструкція: [qa/step-24/README.md](qa/step-24/README.md), [результати assertions і розміри](qa/step-24/results.json), [mobile search](qa/step-24/search-390.png), [mobile Favorites](qa/step-24/favorites-390.png), [desktop search](qa/step-24/search-1280.png), [desktop Favorites](qa/step-24/favorites-1280.png), [відтворюваний тест](../e2e/step-24-evidence.cjs). Перевірка консолі починається після входу; перед входом у попередньому запуску спостерігалися два 401. Фізичний Android і реальна відмова НБУ залишаються UNVERIFIED.
+
 Статус: **READY FOR INDEPENDENT REVIEW**. Робоча гілка `codex/step-24-product-sorting-currency`; зміни ще не інтегровані.
 
 До цього кроку `/api/products` використовував серверну пагінацію та впорядковував за релевантністю Smart Search, а потім за `created_at` та ID. Список на `/discover` формувався з уже отриманих маркерів карти. Product зберігає обов’язкову `numeric(14,2)` ціну за одиницю та початкову валюту; договірної ціни модель не має.

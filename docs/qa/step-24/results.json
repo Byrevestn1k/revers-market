@@ -1,0 +1,180 @@
+[
+  {
+    "assertion": "390: viewport innerWidth",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: no horizontal overflow",
+    "result": "PASS"
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "innerWidth": 390,
+    "clientWidth": 390,
+    "scrollWidth": 390
+  },
+  {
+    "assertion": "390: sorted server order",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: filtered products",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: original and approximate price",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: converted amount",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: rate date",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: favorite persisted",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: details price",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: query retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: category retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: city retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: delivery retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: sorting retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: currency retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: favorite retained after details",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: favorite removed",
+    "result": "PASS"
+  },
+  {
+    "assertion": "390: pagination server order and no duplicates",
+    "result": "PASS"
+  },
+  {
+    "width": 390,
+    "consoleErrors": []
+  },
+  {
+    "assertion": "390: no console errors",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: viewport innerWidth",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: no horizontal overflow",
+    "result": "PASS"
+  },
+  {
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "innerWidth": 1280,
+    "clientWidth": 1280,
+    "scrollWidth": 1280
+  },
+  {
+    "assertion": "1280: sorted server order",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: filtered products",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: original and approximate price",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: converted amount",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: rate date",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: favorite persisted",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: details price",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: query retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: category retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: city retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: delivery retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: sorting retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: currency retained",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: favorite retained after details",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: favorite removed",
+    "result": "PASS"
+  },
+  {
+    "assertion": "1280: pagination server order and no duplicates",
+    "result": "PASS"
+  },
+  {
+    "width": 1280,
+    "consoleErrors": []
+  },
+  {
+    "assertion": "1280: no console errors",
+    "result": "PASS"
+  }
+]
