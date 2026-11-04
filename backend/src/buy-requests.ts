@@ -502,7 +502,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     const savedPhotos = await saveOfferPhotos(client, created.rows[0].id, input.productId as string | null ?? null, sourcePhotos, storedPhotos)
     if (!Array.isArray(savedPhotos)) return savedPhotos
     const result = await client.query(`${offerSelect} WHERE o.id = $1`, [created.rows[0].id])
-    await createNotification(client, request.rows[0].buyer_id, 'order', 'Нова пропозиція', 'Продавець відповів на ваш запит', 'buying', { buyRequestId: requestId })
+    await createNotification(client, request.rows[0].buyer_id, 'order', 'Нова пропозиція', 'Продавець відповів на ваш запит', 'buying', { buyRequestId: requestId, offerId: created.rows[0].id })
     await audit(client, user.id, 'offer.created', 'offer', created.rows[0].id, { requestId })
     await client.query('COMMIT'); committed = true
     return { status: 201, body: { offer: await offerDto(result.rows[0]) } }
@@ -641,7 +641,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         if (conversation) {
             await client.query("INSERT INTO messages (conversation_id,sender_id,body,kind) VALUES ($1,$2,$3,'system')", [conversation.id,user.id,updateText])
         }
-        await createNotification(client, request.buyer_id, 'order', 'Пропозицію оновлено', updateText, 'buying', { conversationId: conversation?.id, buyRequestId: link.buy_request_id })
+        await createNotification(client, request.buyer_id, 'order', 'Пропозицію оновлено', updateText, 'buying', { conversationId: conversation?.id, buyRequestId: link.buy_request_id, offerId })
         const result = await client.query(`${offerSelect} WHERE o.id = $1`, [offerId])
         await audit(client, user.id, 'offer.updated', 'offer', offerId)
         await client.query('COMMIT'); committed = true
@@ -680,7 +680,7 @@ export const withdrawOffer = async (user: AuthUser, offerId: string) => {
         await client.query("UPDATE negotiation_proposals SET status='expired', responded_at=now() WHERE offer_id=$1 AND status='pending'",[offerId])
         const conversation = (await client.query('SELECT id FROM conversations WHERE offer_id=$1',[offerId])).rows[0]
         if (conversation) await client.query("INSERT INTO messages (conversation_id,sender_id,body,kind) VALUES ($1,$2,'Продавець відкликав пропозицію. Створені домовленості залишаються чинними.','system')",[conversation.id,user.id])
-        await createNotification(client, request.buyer_id, 'order', 'Пропозицію відкликано', 'Створені домовленості залишаються чинними.', 'buying', { conversationId: conversation?.id ?? null, buyRequestId: link.buy_request_id })
+        await createNotification(client, request.buyer_id, 'order', 'Пропозицію відкликано', 'Створені домовленості залишаються чинними.', 'buying', { conversationId: conversation?.id ?? null, buyRequestId: link.buy_request_id, offerId })
         await audit(client, user.id, 'offer.withdrawn', 'offer', offerId)
         await client.query('COMMIT'); committed = true
         return { status: 204, body: null }
@@ -693,7 +693,7 @@ export const rejectOffer = async (user: AuthUser, offerId: string) => {
     if (offer.rows[0].buyer_id !== user.id) return { status: 403, body: { error: 'FORBIDDEN' } }
     const result = await pool.query(`UPDATE offers SET status = 'rejected', updated_at = now() WHERE id = $1 AND status IN ('submitted', 'partially_accepted') AND accepted_quantity = 0 RETURNING seller_id`, [offerId])
     if (!result.rowCount) return { status: 409, body: { error: 'OFFER_CANNOT_BE_REJECTED' } }
-    await createNotification(pool, result.rows[0].seller_id, 'order', 'Пропозицію відхилено', 'Покупець відхилив вашу пропозицію', 'selling', { buyRequestId: offer.rows[0].buy_request_id })
+    await createNotification(pool, result.rows[0].seller_id, 'order', 'Пропозицію відхилено', 'Покупець відхилив вашу пропозицію', 'selling', { buyRequestId: offer.rows[0].buy_request_id, offerId })
     await audit(pool, user.id, 'offer.rejected', 'offer', offerId)
     return { status: 204, body: null }
 }

@@ -27,7 +27,8 @@ for (const width of [1440, 1024, 768, 390, 320]) {
       if (path.startsWith('/api/products')) return route.fulfill({ json: { products: [], pagination: { page: 1, pages: 1 } } })
       if (path === '/api/notifications') {
         const unread = events.filter(item => !item.readAt)
-        return route.fulfill({ json: { notifications: events, unreadCounts: { total: unread.length, buying: unread.filter(item => item.context === 'buying').length, selling: unread.filter(item => item.context === 'selling').length } } })
+        const context = new URL(route.request().url()).searchParams.get('context')
+        return route.fulfill({ json: { notifications: context ? events.filter(item => item.context === context) : events, unreadCounts: { total: unread.length, buying: unread.filter(item => item.context === 'buying').length, selling: unread.filter(item => item.context === 'selling').length, legacy: 0 }, nextCursor: null } })
       }
       if (path === '/api/notifications/read') {
         const id = route.request().postDataJSON().notificationId
@@ -39,10 +40,11 @@ for (const width of [1440, 1024, 768, 390, 320]) {
       return route.fulfill({ json: {} })
     })
     await page.goto('/notifications')
-    await page.getByRole('tab', { name: 'Усі', exact: true }).click()
+    await page.getByRole('tab', { name: /Я продавець/ }).click()
     const rows = page.locator('.notification-row')
-    await expect(rows).toHaveCount(events.length)
-    for (const [index, event] of events.entries()) {
+    const sellingEvents = events.filter(item => item.context === 'selling')
+    await expect(rows).toHaveCount(sellingEvents.length)
+    for (const [index, event] of sellingEvents.entries()) {
       const row = rows.nth(index)
       await expect(row.locator('.notification-event-title')).toHaveText(event.title)
       await expect(row.locator('.notification-event-title')).toBeVisible()
@@ -58,7 +60,7 @@ for (const width of [1440, 1024, 768, 390, 320]) {
         await expect(row.getByText(preview.publicPlace, { exact: true })).toBeVisible()
       } else await expect(row.locator('.notification-request-preview')).toHaveCount(0)
     }
-    await page.getByRole('tab', { name: /^Продаж/ }).click()
+    await page.getByRole('tab', { name: /Я продавець/ }).click()
     const rejected = page.locator('.notification-row').filter({ hasText: rejectionBody })
     const eventBox = await rejected.locator('.notification-event-body').boundingBox()
     const previewBox = await rejected.locator('.notification-request-preview').boundingBox()
@@ -81,9 +83,9 @@ for (const width of [1440, 1024, 768, 390, 320]) {
     await expect(page).toHaveURL(new RegExp(`/buy-requests/${requestId}$`))
     await expect(page.getByRole('heading', { name: productTitle, exact: true })).toBeVisible()
     await page.goto('/notifications')
-    await page.getByRole('tab', { name: /^Продаж/ }).click()
+    await page.getByRole('tab', { name: /Я продавець/ }).click()
     await expect(page.locator('.notification-row').filter({ hasText: rejectionBody }).locator('small')).toContainText('Прочитано')
-    await expect(page.getByRole('tab', { name: /^Продаж/ })).toHaveText('Продаж 5')
+    await expect(page.getByRole('tab', { name: /Я продавець/ })).toHaveText('Я продавець (5)')
   })
 }
 
@@ -108,12 +110,12 @@ test('notification retry clears a failed read error after the list reloads', asy
   })
 
   await page.goto('/notifications', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('tab', { name: /Купівля/ }).click()
+  await page.getByRole('tab', { name: /Я покупець/ }).click()
   await page.getByRole('button', { name: 'Позначити прочитаним' }).click()
   await expect(page.getByRole('alert')).toContainText('Тимчасова помилка')
 
   failRead = false
   await page.getByRole('button', { name: 'Оновити список' }).click()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Прочитати всі' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Позначити всі прочитаними' })).toBeEnabled()
 })

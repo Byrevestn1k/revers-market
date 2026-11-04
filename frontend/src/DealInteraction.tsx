@@ -261,8 +261,9 @@ export function SelectOfferDialog({ offer, item, http, onClose, onDone }: { offe
     </form></DealDialog>
 }
 
-export function RequestOffers({ item, http, notify, onRefresh }: { item: DealRequest; http: Http; notify: Notify; onRefresh: () => void }) {
+export function RequestOffers({ item, http, notify, onRefresh, focusedOfferId }: { item: DealRequest; http: Http; notify: Notify; onRefresh: () => void; focusedOfferId?: string | null }) {
     const [offers, setOffers] = useState<DealOffer[]>([])
+    const focusedOfferRef = useRef<HTMLElement | null>(null)
     const [orders, setOrders] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -277,6 +278,7 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
         catch (caught) { setError((caught as Error).message) } finally { setLoading(false) }
     }
     useEffect(() => { void load() }, [item.id, item.remainingQuantity])
+    useEffect(() => { if (focusedOfferId && offers.some(offer => offer.id === focusedOfferId) && focusedOfferRef.current) { focusedOfferRef.current.scrollIntoView({ block: 'center' }); focusedOfferRef.current.focus({ preventScroll: true }) } }, [focusedOfferId, offers])
     const contact = async (offer: DealOffer) => { if (busy) return; setBusy(true); try { const data = await http(`/api/offers/${offer.id}/conversation`, post({})); window.history.pushState({}, '', `/messages/${encodeURIComponent(data.conversation.id)}`); window.dispatchEvent(new PopStateEvent('popstate')); window.scrollTo(0, 0) } catch (caught) { notify((caught as Error).message) } finally { setBusy(false) } }
     const chosenSeller = item.fulfillmentMode === 'single_seller' ? orders.find((order: any) => !['cancelled', 'failed', 'rejected', 'expired'].includes(order.status))?.seller.id : null
     const selectable = (offer: DealOffer) => activeRequest(item) && item.remainingQuantity > 0 && ['submitted','partially_accepted'].includes(offer.status) && (!offer.validUntil || new Date(offer.validUntil) > new Date()) && offer.quantity > offer.acceptedQuantity && (!chosenSeller || chosenSeller === offer.seller.id)
@@ -287,7 +289,7 @@ export function RequestOffers({ item, http, notify, onRefresh }: { item: DealReq
         <div className="deal-actions"><h3>Пропозиції ({offers.length})</h3><label>Сортування<select value={sort} onChange={e => setSort(e.target.value)}><option value="new">За часом</option><option value="price">Найдешевші</option><option value="rating">За рейтингом</option></select></label><label><input type="checkbox" checked={onlyAvailable} onChange={e => setOnlyAvailable(e.target.checked)} /> Доступні для вибору</label></div>
         {loading && <p role="status">Завантажуємо пропозиції…</p>}{error && <p role="alert" className="form-error">{error}</p>}
         {!loading && !offers.length && <p>Пропозицій поки немає. Ми повідомимо, коли продавці відгукнуться.</p>}
-        {sorted.map(offer => <article key={offer.id} className="deal-offer"><header><div><a href={`/profiles/${encodeURIComponent(offer.seller.username)}`}><strong>{offer.seller.username}</strong></a><small>★ {offer.seller.rating ?? '—'}/12 · {offer.seller.completedDeals ?? 0} підтверджених угод</small></div><div><strong>{amount(offer.price.amount, offer.price.currency)} / {unitLabel(offer.unit)}</strong><small>{offerStatuses[offer.status] ?? offer.status}</small></div></header>
+        {sorted.map(offer => <article key={offer.id} ref={offer.id === focusedOfferId ? focusedOfferRef : undefined} tabIndex={offer.id === focusedOfferId ? -1 : undefined} className={`deal-offer${offer.id === focusedOfferId ? ' deal-offer-focused' : ''}`}><header><div><a href={`/profiles/${encodeURIComponent(offer.seller.username)}`}><strong>{offer.seller.username}</strong></a><small>★ {offer.seller.rating ?? '—'}/12 · {offer.seller.completedDeals ?? 0} підтверджених угод</small></div><div><strong>{amount(offer.price.amount, offer.price.currency)} / {unitLabel(offer.unit)}</strong><small>{offerStatuses[offer.status] ?? offer.status}</small></div></header>
             <OfferImage key={offer.photos?.[0]?.url || offer.additionalPhotoUrl || 'fallback'} url={offer.photos?.[0]?.url || offer.additionalPhotoUrl} alt={offer.title || 'Фото пропозиції'} category={offer.request?.category} className="deal-offer-photo" />
             <h4>{offer.title ?? offer.existingProduct?.title ?? item.title}</h4>
             <p>Пропонує {offer.quantity} {unitLabel(offer.unit)} · {offer.delivery}</p>

@@ -311,7 +311,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
 
     app.get('/api/conversations', requireAuth, withResult((request) => listConversations(request.authUser!)))
 
-    app.get('/api/notifications', requireAuth, withResult((request) => listNotifications(request.authUser!)))
+    app.get('/api/notifications', requireAuth, withResult((request) => listNotifications(request.authUser!, request.query)))
 
     app.get('/api/demand-subscriptions', requireAuth, withResult((request) => listDemandSubscriptions(request.authUser!)))
     app.post('/api/demand-subscriptions', requireAuth, withResult((request) => saveDemandSubscription(request.authUser!, request.body ?? {})))
@@ -320,7 +320,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.patch('/api/demand-subscriptions/:id', requireAuth, withResult((request) => saveDemandSubscription(request.authUser!, request.body ?? {}, String(request.params.id))))
     app.delete('/api/demand-subscriptions/:id', requireAuth, withResult((request) => deleteDemandSubscription(request.authUser!, String(request.params.id))))
 
-    app.patch('/api/notifications/read', requireAuth, withResult((request) => markNotificationsRead(request.authUser!, typeof request.body?.notificationId === 'string' ? request.body.notificationId : undefined, request.body?.context === 'buying' || request.body?.context === 'selling' ? request.body.context : undefined)))
+    app.patch('/api/notifications/read', requireAuth, withResult((request) => markNotificationsRead(request.authUser!, request.body?.notificationId, request.body?.context)))
 
     app.post('/api/orders/:id/reviews', requireAuth, withResult((request) => createReview(request.authUser!, String(request.params.id), request.body ?? {})))
 

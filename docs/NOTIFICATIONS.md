@@ -1,5 +1,7 @@
 # Notifications contract
 
+**Step 25 work in progress:** the branch changes the center to «Я покупець», «Я продавець» and «Інші події» for historical records without a role. It adds cursor pagination and an optional Offer reference; the proposed behavior and remaining verification are recorded in [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). The historical CURRENT description below predates this unfinished step.
+
 **Purpose:** authoritative feature contract for notifications, unread state, destinations and future seller demand subscriptions. This document separates CURRENT behavior from TARGET and FUTURE work.
 
 ## CURRENT

@@ -6,7 +6,7 @@ import { getSettlement, resolvePublicSettlement } from './settlements.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 export type NotificationContext = 'buying' | 'selling'
-export type NotificationReferences = { orderId?: string | null; conversationId?: string | null; buyRequestId?: string | null }
+export type NotificationReferences = { orderId?: string | null; conversationId?: string | null; buyRequestId?: string | null; offerId?: string | null }
 const invalid = (message: string) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message } })
 
 export const audit = async (queryable: Queryable, actorId: string | null, action: string, entityType: string, entityId: string | null, metadata: Record<string, unknown> = {}) => {
@@ -14,12 +14,27 @@ export const audit = async (queryable: Queryable, actorId: string | null, action
 }
 
 export const createNotification = async (queryable: Queryable, userId: string, type: string, title: string, body: string, context: NotificationContext, references: NotificationReferences = {}) => {
-    await queryable.query('INSERT INTO notifications (user_id, type, title, body, context, order_id, conversation_id, buy_request_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [userId, type, title, body, context, references.orderId ?? null, references.conversationId ?? null, references.buyRequestId ?? null])
+    await queryable.query('INSERT INTO notifications (user_id, type, title, body, context, order_id, conversation_id, buy_request_id, offer_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [userId, type, title, body, context, references.orderId ?? null, references.conversationId ?? null, references.buyRequestId ?? null, references.offerId ?? null])
 }
 
-export const listNotifications = async (user: AuthUser) => {
+export const listNotifications = async (user: AuthUser, params: { context?: unknown; unread?: unknown; limit?: unknown; cursor?: unknown } = {}) => {
+    const { context, unread, limit, cursor } = params
+    if (context !== undefined && context !== 'buying' && context !== 'selling' && context !== 'legacy') return invalid('Невірний контекст сповіщень')
+    if (unread !== undefined && unread !== 'true' && unread !== 'false') return invalid('Невірний фільтр сповіщень')
+    if (limit !== undefined && (typeof limit !== 'string' || !/^[1-9]\d*$/.test(limit) || Number(limit) > 100)) return invalid('Невірний розмір сторінки')
+    const pageSize = limit === undefined ? 100 : Number(limit)
+    let position: { createdAt: string; id: string } | undefined
+    if (cursor !== undefined) {
+        if (typeof cursor !== 'string' || cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(cursor)) return invalid('Невірний курсор')
+        try {
+            const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+            if (typeof parsed.createdAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(parsed.createdAt) || (!Number.isFinite(Date.parse(parsed.createdAt)) || new Date(parsed.createdAt).toISOString().slice(0, 23) !== parsed.createdAt.slice(0, 23)) || typeof parsed.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.id)) return invalid('Невірний курсор')
+            position = parsed
+        } catch { return invalid('Невірний курсор') }
+    }
     const [result, unreadResult] = await Promise.all([
-        pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.read_at AS "readAt", n.created_at AS "createdAt",
+        pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.offer_id AS "offerId", n.read_at AS "readAt", n.created_at AS "createdAt",
+        to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorCreatedAt",
         CASE WHEN r.id IS NOT NULL AND n.context = 'selling' THEN json_build_object(
             'title', r.title, 'quantity', r.requested_quantity::float8, 'unit', r.unit,
             'minPrice', r.min_unit_price::float8, 'maxPrice', r.max_unit_price::float8, 'currency', trim(r.currency),
@@ -31,25 +46,38 @@ export const listNotifications = async (user: AuthUser) => {
         LEFT JOIN buy_requests r ON r.id = n.buy_request_id
         LEFT JOIN users u ON u.id = r.buyer_id
         ${requestPublicLocationSql}
-        WHERE n.user_id = $1 ORDER BY n.created_at DESC LIMIT 100`, [user.id]),
+        WHERE n.user_id = $1
+          AND ($2::text IS NULL OR ($2 = 'legacy' AND n.context IS NULL) OR n.context = $2)
+          AND ($3::boolean = false OR n.read_at IS NULL)
+          AND ($4::timestamptz IS NULL OR (n.created_at, n.id) < ($4::timestamptz, $5::uuid))
+        ORDER BY n.created_at DESC, n.id DESC LIMIT $6`, [user.id, context ?? null, unread === 'true', position?.createdAt ?? null, position?.id ?? null, pageSize + 1]),
         pool.query(`SELECT COUNT(*) FILTER (WHERE read_at IS NULL)::int AS total,
             COUNT(*) FILTER (WHERE read_at IS NULL AND context = 'buying')::int AS buying,
-            COUNT(*) FILTER (WHERE read_at IS NULL AND context = 'selling')::int AS selling
+            COUNT(*) FILTER (WHERE read_at IS NULL AND context = 'selling')::int AS selling,
+            COUNT(*) FILTER (WHERE read_at IS NULL AND context IS NULL)::int AS legacy
             FROM notifications WHERE user_id = $1`, [user.id])
     ])
-    const notifications = result.rows.map(row => {
+    const hasMore = result.rows.length > pageSize
+    const page = result.rows.slice(0, pageSize)
+    const last = page[page.length - 1]
+    const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ createdAt: last.cursorCreatedAt, id: last.id })).toString('base64url') : null
+    const notifications = page.map(({ cursorCreatedAt: _cursorCreatedAt, ...row }) => {
         if (!row.buyRequestPreview) return row
         const { settlementCode, countryCode, geoArea, ...preview } = row.buyRequestPreview
         const settlement = getSettlement(settlementCode) ?? (settlementCode == null ? resolvePublicSettlement(geoArea, countryCode) : null)
         return { ...row, buyRequestPreview: { ...preview, publicPlace: settlement ? `${settlement.name}, ${settlement.region}` : geoArea || 'Не вказано' } }
     })
-    return { status: 200, body: { notifications, unreadCounts: unreadResult.rows[0] } }
+    return { status: 200, body: { notifications, unreadCounts: unreadResult.rows[0], nextCursor } }
 }
 
-export const markNotificationsRead = async (user: AuthUser, notificationId?: string, context?: NotificationContext) => {
-    const condition = notificationId ? 'id = $1 AND user_id = $2' : context ? 'user_id = $1 AND context = $2 AND read_at IS NULL' : 'user_id = $1 AND read_at IS NULL'
-    const values = notificationId ? [notificationId, user.id] : context ? [user.id, context] : [user.id]
-    await pool.query(`UPDATE notifications SET read_at = now() WHERE ${condition}`, values)
+export const markNotificationsRead = async (user: AuthUser, notificationId?: unknown, context?: unknown) => {
+    if (notificationId !== undefined && (typeof notificationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(notificationId))) return invalid('Невірний ідентифікатор сповіщення')
+    if (context !== undefined && context !== 'buying' && context !== 'selling' && context !== 'legacy') return invalid('Невірний контекст сповіщень')
+    await pool.query(`UPDATE notifications SET read_at = now()
+        WHERE user_id = $1 AND read_at IS NULL
+          AND ($2::uuid IS NULL OR id = $2)
+          AND ($3::text IS NULL OR ($3 = 'legacy' AND context IS NULL) OR context = $3)`,
+        [user.id, notificationId ?? null, context ?? null])
     return { status: 200, body: { ok: true } }
 }
 

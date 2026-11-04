@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 const hasDatabase = Boolean(process.env.DATABASE_URL)
 type TestAgent = ReturnType<typeof request.agent>
 type Notification = { id: string; title: string; context: 'buying' | 'selling' | null; readAt: string | null; buyRequestId: string | null }
-type NotificationResponse = { notifications: Notification[]; unreadCounts: { total: number; buying: number; selling: number } }
+type NotificationResponse = { notifications: Notification[]; unreadCounts: { total: number; buying: number; selling: number; legacy: number }; nextCursor: string | null }
 
 if (hasDatabase) {
     const { createApp } = await import('./app.js')
@@ -49,18 +49,18 @@ if (hasDatabase) {
 
         it('persists structured context and references without classifying legacy history', async () => {
             const buyerNotifications = (await buyer.get('/api/notifications')).body.notifications
-            expect(buyerNotifications.find((item: any) => item.title === 'Нова пропозиція')).toMatchObject({ body: 'Продавець відповів на ваш запит', context: 'buying', buyRequestId: requestId })
+            expect(buyerNotifications.find((item: any) => item.title === 'Нова пропозиція')).toMatchObject({ body: 'Продавець відповів на ваш запит', context: 'buying', buyRequestId: requestId, offerId })
 
             expect((await buyer.post(`/api/offers/${offerId}/reject`)).status).toBe(204)
             const sellerNotifications = (await seller.get('/api/notifications')).body.notifications
             expect(sellerNotifications.find((item: any) => item.title === 'Пропозицію відхилено')).toMatchObject({
-                body: 'Покупець відхилив вашу пропозицію', context: 'selling', buyRequestId: requestId,
+                body: 'Покупець відхилив вашу пропозицію', context: 'selling', buyRequestId: requestId, offerId,
                 buyRequestPreview: { title: 'Запит для сповіщень', quantity: 10, unit: 'kg' },
             })
 
             await pool.query("INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'system', 'Стара подія', '')", [buyerId])
             const withLegacy = (await buyer.get('/api/notifications')).body.notifications
-            expect(withLegacy.find((item: any) => item.title === 'Стара подія')).toMatchObject({ context: null })
+            expect(withLegacy.find((item: any) => item.title === 'Стара подія')).toMatchObject({ context: null, offerId: null })
         })
 
         it('marks one notification and only the selected context as read', async () => {
@@ -103,6 +103,45 @@ if (hasDatabase) {
             await findSellerEvent(completedId, 'Угоду підтверджено обома сторонами', '5 kg, 50 UAH. Тепер можна залишити відгук.')
         }, 30000)
 
+        it('paginates tied timestamps, filters legacy separately, and protects read operations', async () => {
+            const rows = await pool.query(`INSERT INTO notifications (user_id, type, title, context, created_at)
+                SELECT $1, 'system', 'Pagination ' || value,
+                  CASE WHEN value % 3 = 0 THEN 'buying' WHEN value % 3 = 1 THEN 'selling' ELSE NULL END,
+                  TIMESTAMPTZ '2026-06-01 12:00:00.123456Z'
+                FROM generate_series(1, 12) AS value RETURNING id, context`, [volumeUserId])
+            const ids = new Set<string>(rows.rows.map((row: { id: string }) => row.id))
+            let cursor: string | null = null
+            const seen: string[] = []
+            do {
+                const response = await volumeUser.get('/api/notifications').query({ limit: 3, ...(cursor ? { cursor } : {}) })
+                expect(response.status).toBe(200)
+                seen.push(...response.body.notifications.map((item: Notification) => item.id))
+                cursor = response.body.nextCursor
+            } while (cursor)
+            expect(new Set(seen)).toEqual(ids)
+            expect(seen).toHaveLength(12)
+
+            const legacy = await volumeUser.get('/api/notifications').query({ context: 'legacy', unread: 'true' })
+            expect(legacy.body.notifications).toHaveLength(4)
+            expect(legacy.body.unreadCounts).toEqual({ total: 12, buying: 4, selling: 4, legacy: 4 })
+            const buying = rows.rows.find((row: { context: string | null }) => row.context === 'buying').id
+            await Promise.all([
+                volumeUser.patch('/api/notifications/read').send({ notificationId: buying, context: 'buying' }),
+                volumeUser.patch('/api/notifications/read').send({ notificationId: buying, context: 'buying' }),
+                buyer.patch('/api/notifications/read').send({ notificationId: buying }),
+            ])
+            const wrongUserTarget = rows.rows.find((row: { context: string | null }) => row.context === 'selling').id
+            await buyer.patch('/api/notifications/read').send({ notificationId: wrongUserTarget })
+            expect((await pool.query('SELECT read_at FROM notifications WHERE id = $1', [wrongUserTarget])).rows[0].read_at).toBeNull()
+            expect((await volumeUser.patch('/api/notifications/read').send({ context: 'invalid' })).status).toBe(400)
+            expect((await volumeUser.patch('/api/notifications/read').send({ notificationId: 'invalid' })).status).toBe(400)
+            expect((await volumeUser.get('/api/notifications').query({ cursor: 'bad' })).status).toBe(400)
+            await volumeUser.patch('/api/notifications/read').send({ context: 'buying' })
+            const counts = (await volumeUser.get('/api/notifications')).body.unreadCounts
+            expect(counts).toEqual({ total: 8, buying: 0, selling: 4, legacy: 4 })
+            await pool.query('DELETE FROM notifications WHERE id = ANY($1::uuid[])', [[...ids]])
+        })
+
         it('returns exact unread counters when history exceeds the visible 100 notifications', async () => {
             const inserted = await pool.query(`INSERT INTO notifications (user_id, type, title, body, context, created_at)
                 SELECT $1, 'system', 'Volume notification ' || value, '',
@@ -115,7 +154,7 @@ if (hasDatabase) {
             const initial = (await volumeUser.get('/api/notifications')).body as NotificationResponse
             expect(initial.notifications).toHaveLength(100)
             expect(initial.notifications.some((item) => item.title === 'Volume notification 1')).toBe(false)
-            expect(initial.unreadCounts).toEqual({ total: 105, buying: 35, selling: 35 })
+            expect(initial.unreadCounts).toEqual({ total: 105, buying: 35, selling: 35, legacy: 35 })
 
             const oldestSellingId = byTitle.get('Volume notification 1')
             const newestBuyingId = byTitle.get('Volume notification 105')
@@ -125,7 +164,7 @@ if (hasDatabase) {
             expect((await volumeUser.patch('/api/notifications/read').send({ context: 'buying' })).status).toBe(200)
 
             const afterBuyingReadAll = (await volumeUser.get('/api/notifications')).body as NotificationResponse
-            expect(afterBuyingReadAll.unreadCounts).toEqual({ total: 69, buying: 0, selling: 34 })
+            expect(afterBuyingReadAll.unreadCounts).toEqual({ total: 69, buying: 0, selling: 34, legacy: 35 })
             const legacyUnread = await pool.query('SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND context IS NULL AND read_at IS NULL', [volumeUserId])
             expect(legacyUnread.rows[0].count).toBe(35)
         })

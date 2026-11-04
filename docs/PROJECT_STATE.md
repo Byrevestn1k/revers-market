@@ -1,5 +1,7 @@
 # Project state
 
+**Step 25:** робота на `codex/step-25-notification-center` підготовлена до незалежного перегляду; не готова до інтеграції. Аудит, результати Browser QA та невиконані перевірки — у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Остаточний незалежний перегляд ще не проведено.
+
 **Current step:** `STEP 24 — product sorting and currency conversion READY FOR INDEPENDENT REVIEW`.
 
 **Last updated:** 2026-11-02

@@ -113,7 +113,7 @@ if (process.env.DATABASE_URL) {
         expect(result.notifications).toHaveLength(1);
         expect(result.notifications[0]).toMatchObject({ type: 'system', context: 'selling', buyRequestId: id, orderId: null, conversationId: null, readAt: null });
         expect(result.notifications[0].title).toContain('Новий запит у категорії');
-        expect(result.unreadCounts).toEqual({ total: 1, buying: 0, selling: 1 });
+        expect(result.unreadCounts).toEqual({ total: 1, buying: 0, selling: 1, legacy: 0 });
         expect(JSON.stringify(result)).not.toMatch(/Секретна|50\.612345|26\.212345|latitude|longitude|settlementCode|address/);
         const destination = await agent.get(`/api/buy-requests/${id}`);
         expect(destination.status).toBe(200);
