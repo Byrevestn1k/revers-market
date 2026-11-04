@@ -32,11 +32,11 @@ export const canUserTransitionOrder = (userId: string, buyerId: string, sellerId
 }
 
 const orderSelect = `SELECT o.*, r.title AS request_title, bu.username AS buyer_username, su.username AS seller_username
-    FROM orders o JOIN buy_requests r ON r.id = o.buy_request_id
+    FROM orders o LEFT JOIN buy_requests r ON r.id = o.buy_request_id
     JOIN users bu ON bu.id = o.buyer_id JOIN users su ON su.id = o.seller_id`
 
 const orderDto = (row: any) => ({
-    id: row.id, buyRequestId: row.buy_request_id,
+    id: row.id, buyRequestId: row.buy_request_id, source: row.source,
     buyer: { id: row.buyer_id, username: row.buyer_username }, seller: { id: row.seller_id, username: row.seller_username },
     quantity: row.quantity === null ? null : Number(row.quantity), unit: row.unit, price: { unit: row.unit_price === null ? null : Number(row.unit_price), currency: row.currency },
     subtotal: Number(row.subtotal), conditionsSnapshot: row.conditions_snapshot, status: row.status,
@@ -165,7 +165,9 @@ const finishUnsuccessful = async (user: AuthUser, orderId: string, reason: strin
         const order = await lockDeal(client, orderId)
         if (!order || !isOrderParticipant(user.id, order.buyer_id, order.seller_id)) { await client.query('ROLLBACK'); return { status: order ? 403 : 404, body: { error: order ? 'FORBIDDEN' : 'ORDER_NOT_FOUND' } } }
         if (['failed','cancelled','rejected'].includes(order.status) && order.cancelled_by === user.id) { await client.query('COMMIT'); return getOrder(user, orderId) }
+        if (order.dispute_status === 'open') { await client.query('ROLLBACK'); return { status: 409, body: { error: 'DEAL_DISPUTED' } } }
         if (!['selected','accepted','in_progress','buyer_marked_completed','seller_marked_completed'].includes(order.status)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'DEAL_CANNOT_FAIL' } } }
+        if (order.source === 'direct_product' && (order.buyer_completed_at || order.seller_completed_at)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'DEAL_CANNOT_FAIL' } } }
         const byBuyer = user.id === order.buyer_id
         const otherResult = byBuyer ? order.seller_result : order.buyer_result
         const disagreement = otherResult?.outcome === 'completed' || (byBuyer ? order.seller_completed_at : order.buyer_completed_at)
@@ -277,6 +279,7 @@ const resolveCurrentDealDispute = async (user: AuthUser, orderId: string, outcom
         const order = await lockDeal(client, orderId)
         if (!order || !isOrderParticipant(user.id, order.buyer_id, order.seller_id)) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'FORBIDDEN' } } }
         if (order.dispute_status !== 'open') { await client.query('ROLLBACK'); return { status: 409, body: { error: 'NO_OPEN_DISPUTE' } } }
+        if (!['selected', 'accepted', 'in_progress', 'buyer_marked_completed', 'seller_marked_completed', 'disputed', 'completed'].includes(order.status)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'INVALID_ORDER_TRANSITION' } } }
         const byBuyer = user.id === order.buyer_id
         const mine = byBuyer ? order.buyer_result : order.seller_result
         const other = byBuyer ? order.seller_result : order.buyer_result
@@ -308,7 +311,7 @@ export const getOrderConversation = async (user: AuthUser, orderId: string) => {
     const result = await pool.query(`SELECT c.id, c.order_id, c.created_at, c.updated_at FROM conversations c
         JOIN conversation_participants cp ON cp.conversation_id = c.id
         LEFT JOIN orders o ON o.id = $1
-        WHERE (c.order_id = $1 OR c.offer_id = o.offer_id) AND cp.user_id = $2`, [orderId, user.id])
+        WHERE (c.order_id = $1 OR c.offer_id = o.offer_id OR EXISTS (SELECT 1 FROM direct_product_proposals dp WHERE dp.order_id = $1 AND dp.conversation_id = c.id)) AND cp.user_id = $2`, [orderId, user.id])
     if (!result.rowCount) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
     return { status: 200, body: { conversation: result.rows[0] } }
 }
@@ -426,8 +429,11 @@ export const getOrCreateListingConversation = async (user: AuthUser, listingType
         const reference = isProduct ? 'c.product_id' : 'c.buy_request_id'
         const existing = await client.query<{ id: string }>(`SELECT c.id FROM conversations c
             JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2
-            WHERE ${reference} = $1 LIMIT 1 FOR UPDATE`, [listingId, user.id])
-        if (existing.rowCount) { await client.query('COMMIT'); return { status: 200, body: { conversation: existing.rows[0] } } }
+            WHERE ${reference} = $1 LIMIT 1 FOR UPDATE OF cp`, [listingId, user.id])
+        if (existing.rowCount) {
+            if (isProduct) await client.query('UPDATE conversation_participants SET deleted_at=NULL, archived_at=NULL, pinned_at=NULL WHERE conversation_id=$1 AND user_id=$2 AND deleted_at IS NOT NULL', [existing.rows[0].id, user.id])
+            await client.query('COMMIT'); return { status: 200, body: { conversation: existing.rows[0] } }
+        }
         const conversation = await client.query<{ id: string }>(`INSERT INTO conversations (${isProduct ? 'product_id' : 'buy_request_id'}) VALUES ($1) RETURNING id`, [listingId])
         const buyerId = isProduct ? user.id : owner.owner_id
         const sellerId = isProduct ? owner.owner_id : user.id

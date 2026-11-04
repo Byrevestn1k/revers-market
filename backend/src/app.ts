@@ -15,6 +15,7 @@ import { createProduct, deleteProduct, getProduct, listCategories, listPopularCa
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
 import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateListingConversation, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus, confirmDeal, failDeal, markDealCompleted } from './order-service.js'
 import { getConversationContext, changeNegotiation } from './negotiation-service.js'
+import { getDirectProposals, changeDirectProposal } from './direct-product-service.js'
 import { getOrderContact } from './order-service.js'
 import { recordOfferView } from './buy-requests.js'
 import { blockUser, createReport, createReview, deleteConversationForParticipant, getBlockStatus, listConversations, listModerationReports, listNotifications, listReports, listReviews, markNotificationsRead, unblockUser, updateConversationArchived, updateConversationPinned, updateReportModeration } from './community-service.js'
@@ -300,6 +301,8 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.get('/api/conversations/:id/messages', requireAuth, withResult((request) => listMessages(request.authUser!, String(request.params.id))))
     app.get('/api/conversations/:id/context', requireAuth, withResult((request) => getConversationContext(request.authUser!, String(request.params.id))))
     app.post('/api/conversations/:id/negotiations', requireAuth, withResult((request) => changeNegotiation(request.authUser!, String(request.params.id), request.body ?? {})))
+    app.get('/api/conversations/:id/direct-proposals', requireAuth, withResult((request) => getDirectProposals(request.authUser!, String(request.params.id))))
+    app.post('/api/conversations/:id/direct-proposals', requireAuth, withResult((request) => changeDirectProposal(request.authUser!, String(request.params.id), request.body ?? {})))
 
     app.post('/api/conversations/:id/messages', requireAuth, withResult((request) => createMessage(request.authUser!, String(request.params.id), request.body?.body)))
 

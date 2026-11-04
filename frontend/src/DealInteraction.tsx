@@ -5,6 +5,7 @@ import type { Conversation } from './messages-state'
 import { unitLabel, listingPrice } from './listing-options'
 import { CategoryImage } from './CategoryPicker'
 import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
+import { DirectProposalCard, DirectProposalForm, type DirectContext, type DirectProposal } from './DirectProposal'
 import type { Category } from './categories'
 import './deal-interaction.css'
 
@@ -309,6 +310,10 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const [messages, setMessages] = useState<any[]>([])
     const [proposals, setProposals] = useState<Proposal[]>([])
     const [context, setContext] = useState<Context | null>(null)
+    const [directContext, setDirectContext] = useState<DirectContext | null>(null)
+    const [directProposals, setDirectProposals] = useState<DirectProposal[]>([])
+    const [directEditing, setDirectEditing] = useState<{ proposal: DirectProposal; context: DirectContext } | null>(null)
+    const focusedDirect = useRef('')
     const [viewer, setViewer] = useState('')
     const [text, setText] = useState('')
     const [editing, setEditing] = useState(false)
@@ -319,23 +324,36 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const [readError, setReadError] = useState('')
     const [counterpartLastReadAt, setCounterpartLastReadAt] = useState<string | null>(null)
     const sending = useRef(false)
-    const activeConversation = useRef<string | null>(chat.conversationId)
-    activeConversation.current = chat.conversationId
+    const conversationKey = `${chat.conversationId}:${chat.productId ?? ''}:${chat.type ?? ''}`
+    const activeConversation = useRef<string | null>(conversationKey)
+    activeConversation.current = conversationKey
     const load = async () => {
-        const conversationId = chat.conversationId
+        const loadKey = conversationKey
         const [result, details] = await Promise.all([http(`/api/conversations/${chat.conversationId}/messages`), http(`/api/conversations/${chat.conversationId}/context`)])
-        if (activeConversation.current !== conversationId) return
+        if (activeConversation.current !== loadKey) return
         setMessages(result.messages); setCounterpartLastReadAt(result.counterpartLastReadAt ?? null); setContext(details.context); setProposals(details.proposals)
+        if (chat.productId && chat.type === 'direct') {
+            const direct = await http(`/api/conversations/${chat.conversationId}/direct-proposals`)
+            if (activeConversation.current !== loadKey) return
+            setDirectContext(direct.context); setDirectProposals(direct.proposals)
+        } else { setDirectContext(null); setDirectProposals([]) }
         if (document.visibilityState === 'hidden') return
         try {
             await http(`/api/conversations/${chat.conversationId}/read`, { method: 'PATCH' })
             await refreshConversations()
-            if (activeConversation.current === conversationId) setReadError('')
+            if (activeConversation.current === loadKey) setReadError('')
         } catch {
-            if (activeConversation.current === conversationId) setReadError('Не вдалося оновити стан прочитання. Повторимо автоматично.')
+            if (activeConversation.current === loadKey) setReadError('Не вдалося оновити стан прочитання. Повторимо автоматично.')
         }
     }
-    useEffect(() => { activeConversation.current = chat.conversationId; setReadError(''); let alive = true; const refresh = () => { if (alive) void load().catch(caught => { if (alive) setError(caught.message) }) }; refresh(); http('/api/profile/me').then(result => { if (alive) setViewer(result.profile.id) }).catch(caught => setError(caught.message)); const timer = window.setInterval(refresh, 4000); return () => { alive = false; activeConversation.current = null; clearInterval(timer) } }, [chat.conversationId])
+    useEffect(() => { activeConversation.current = conversationKey; setReadError(''); setDirectEditing(null); setDirectContext(null); setDirectProposals([]); let alive = true; const refresh = () => { if (alive) void load().catch(caught => { if (alive) setError(caught.message) }) }; refresh(); http('/api/profile/me').then(result => { if (alive) setViewer(result.profile.id) }).catch(caught => setError(caught.message)); const timer = window.setInterval(refresh, 4000); return () => { alive = false; if (activeConversation.current === conversationKey) activeConversation.current = null; clearInterval(timer) } }, [conversationKey])
+    useEffect(() => {
+        const proposalId = new URLSearchParams(window.location.search).get('proposal')
+        const focusKey = `${chat.conversationId}:${proposalId}`
+        if (!proposalId || focusedDirect.current === focusKey || !directProposals.some(proposal => proposal.id === proposalId)) return
+        const card = document.getElementById(`direct-proposal-${proposalId}`)
+        if (card) { focusedDirect.current = focusKey; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) }
+    }, [chat.conversationId, directProposals, viewer])
     const act = async (path: string, body: unknown, done?: () => void) => {
         if (sending.current) return
         sending.current = true; setBusy(true); setError('')
@@ -345,6 +363,7 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const editTerms = () => { editingParent.current = latest?.id ?? null; setEditing(true) }
     const negotiate = (action: string, proposal: Proposal) => act(`/api/conversations/${chat.conversationId}/negotiations`, { action, proposalId: proposal.id })
     const timeline = [...messages.map(m => ({ ...m, entryType: 'message' })), ...proposals.map(p => ({ ...p, entryType: 'proposal' }))].sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    const directCards = <>{directContext && viewer && directProposals.map(proposal => <DirectProposalCard key={proposal.id} proposal={proposal} context={directContext} viewer={viewer} busy={busy} onAction={(action, item) => void act(`/api/conversations/${chat.conversationId}/direct-proposals`, { action, proposalId: item.id })} onCounter={item => setDirectEditing({ proposal: item, context: directContext })} />)}{directEditing && <DirectProposalForm key={directEditing.proposal.id} context={directEditing.context} initial={directEditing.proposal} busy={busy} onCancel={() => setDirectEditing(null)} onSubmit={value => void act(`/api/conversations/${chat.conversationId}/direct-proposals`, value, () => setDirectEditing(null))} />}</>
     const dayLabel = (value: string) => {
         const date = new Date(value), now = new Date(), yesterday = new Date(now)
         yesterday.setDate(now.getDate() - 1)
@@ -362,7 +381,7 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
             <div className="chat-context-actions">{contextHref && <a className="text-button" href={contextHref}>{contextName}</a>}{chat.id && <ChatActions chat={{ ...chat, id: chat.id }} http={http} notify={notify} onChanged={refreshConversations} onArchived={onClose} />}</div>
         </div>
         {readError && <p className="form-error" role="status">{readError}</p>}
-        <div className="deal-chat-history" aria-live="polite">{!timeline.length && <p>Ще немає повідомлень. Можете уточнити деталі пропозиції.</p>}{timeline.map((entry, index) => <div key={entry.id}>{(index === 0 || new Date(timeline[index - 1].createdAt).toDateString() !== new Date(entry.createdAt).toDateString()) && <p className="chat-day-separator"><span>{dayLabel(entry.createdAt)}</span></p>}{entry.entryType === 'message' ? entry.kind === 'system' ? <article className="deal-system-event"><p>{entry.body}</p><small>{time(entry.createdAt)}</small></article> : <article className={`chat-message ${entry.senderId === viewer ? 'chat-message-mine' : 'chat-message-theirs'}`}><span className="chat-message-avatar" aria-hidden="true">{entry.senderAvatarUrl ? <img src={entry.senderAvatarUrl} alt="" /> : entry.senderUsername?.[0]?.toUpperCase() ?? '?'}</span><div className="chat-message-bubble"><p>{entry.body}</p><small>{time(entry.createdAt)}{entry.senderId === viewer && <span className={'chat-message-status ' + (counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? 'read' : 'sent')} title={counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? 'Прочитано' : 'Надіслано'} aria-label={counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? 'Прочитано' : 'Надіслано'}>{counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? '✓✓' : '✓'}</span>}</small></div></article> : <article className="negotiation-card"><strong>{entry.createdBy === viewer ? 'Ви запропонували' : 'Інша сторона пропонує'}</strong><p>{amount(entry.price, context?.currency ?? '')} / {unitLabel(context?.unit ?? '')} · {entry.quantity} {unitLabel(context?.unit ?? '')}</p><p>Разом: {amount(entry.price * entry.quantity + entry.deliveryPrice, context?.currency ?? '')}</p><p>{entry.delivery}{entry.deliveryPrice > 0 ? ` · ${amount(entry.deliveryPrice, context?.currency ?? '')}` : ''}</p><p>{entry.comment}</p><small>{time(entry.createdAt)}</small><b>{entry.id !== latest?.id ? 'Неактуально' : ({ pending: 'Актуальна пропозиція — очікуємо відповіді', accepted: 'Умови погоджено. Угода ще не створена.', rejected: 'Відхилено', withdrawn: 'Відкликано', expired: 'Строк дії минув', countered: 'Неактуально' } as Record<string,string>)[entry.status]}</b>{entry.status === 'pending' && entry.id === latest?.id && viewer && <div className="deal-actions">{entry.createdBy !== viewer ? <><button className="primary-button" disabled={busy} onClick={() => negotiate('accept', entry)}>Прийняти умови</button><button className="outline-button" disabled={busy} onClick={editTerms}>Запропонувати інші умови</button><button className="text-button" disabled={busy} onClick={() => negotiate('reject', entry)}>Відхилити</button></> : <button className="text-button" disabled={busy} onClick={() => negotiate('withdraw', entry)}>Відкликати умови</button>}</div>}</article>}</div>)}</div>
+        <div className={"deal-chat-history" + (chat.productId && chat.type === "direct" ? " direct-product-history" : "")} aria-live="polite">{directCards}{!timeline.length && <p>Ще немає повідомлень. Можете уточнити деталі пропозиції.</p>}{timeline.map((entry, index) => <div key={entry.id}>{(index === 0 || new Date(timeline[index - 1].createdAt).toDateString() !== new Date(entry.createdAt).toDateString()) && <p className="chat-day-separator"><span>{dayLabel(entry.createdAt)}</span></p>}{entry.entryType === 'message' ? entry.kind === 'system' ? <article className="deal-system-event"><p>{entry.body}</p><small>{time(entry.createdAt)}</small></article> : <article className={`chat-message ${entry.senderId === viewer ? 'chat-message-mine' : 'chat-message-theirs'}`}><span className="chat-message-avatar" aria-hidden="true">{entry.senderAvatarUrl ? <img src={entry.senderAvatarUrl} alt="" /> : entry.senderUsername?.[0]?.toUpperCase() ?? '?'}</span><div className="chat-message-bubble"><p>{entry.body}</p><small>{time(entry.createdAt)}{entry.senderId === viewer && <span className={'chat-message-status ' + (counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? 'read' : 'sent')} title={counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? 'Прочитано' : 'Надіслано'} aria-label={counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? 'Прочитано' : 'Надіслано'}>{counterpartLastReadAt && new Date(entry.createdAt) <= new Date(counterpartLastReadAt) ? '✓✓' : '✓'}</span>}</small></div></article> : <article className="negotiation-card"><strong>{entry.createdBy === viewer ? 'Ви запропонували' : 'Інша сторона пропонує'}</strong><p>{amount(entry.price, context?.currency ?? '')} / {unitLabel(context?.unit ?? '')} · {entry.quantity} {unitLabel(context?.unit ?? '')}</p><p>Разом: {amount(entry.price * entry.quantity + entry.deliveryPrice, context?.currency ?? '')}</p><p>{entry.delivery}{entry.deliveryPrice > 0 ? ` · ${amount(entry.deliveryPrice, context?.currency ?? '')}` : ''}</p><p>{entry.comment}</p><small>{time(entry.createdAt)}</small><b>{entry.id !== latest?.id ? 'Неактуально' : ({ pending: 'Актуальна пропозиція — очікуємо відповіді', accepted: 'Умови погоджено. Угода ще не створена.', rejected: 'Відхилено', withdrawn: 'Відкликано', expired: 'Строк дії минув', countered: 'Неактуально' } as Record<string,string>)[entry.status]}</b>{entry.status === 'pending' && entry.id === latest?.id && viewer && <div className="deal-actions">{entry.createdBy !== viewer ? <><button className="primary-button" disabled={busy} onClick={() => negotiate('accept', entry)}>Прийняти умови</button><button className="outline-button" disabled={busy} onClick={editTerms}>Запропонувати інші умови</button><button className="text-button" disabled={busy} onClick={() => negotiate('reject', entry)}>Відхилити</button></> : <button className="text-button" disabled={busy} onClick={() => negotiate('withdraw', entry)}>Відкликати умови</button>}</div>}</article>}</div>)}</div>
         {!messages.some(m => m.kind === 'text') && <div className="deal-quick-replies">{['Чи актуальна пропозиція?','Чи можете зробити дешевше?','Коли можна отримати?','Чи є доставка?','Хочу уточнити щодо товару'].map(value => <button key={value} className="outline-button compact" onClick={() => setText(value)}>{value}</button>)}</div>}
         {error && <p role="alert" className="form-error">{error}</p>}
         <form className="chat-input" onSubmit={e => { e.preventDefault(); if (text.trim()) void act(`/api/conversations/${chat.conversationId}/messages`, { body: text.trim() }, () => setText('')) }}><input aria-label="Повідомлення" placeholder="Повідомлення…" value={text} maxLength={5000} onChange={e => setText(e.target.value)} /><button className="primary-button" disabled={busy || !text.trim()}>Надіслати</button></form>

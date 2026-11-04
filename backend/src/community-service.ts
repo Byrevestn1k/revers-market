@@ -6,7 +6,7 @@ import { getSettlement, resolvePublicSettlement } from './settlements.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 export type NotificationContext = 'buying' | 'selling'
-export type NotificationReferences = { orderId?: string | null; conversationId?: string | null; buyRequestId?: string | null; offerId?: string | null }
+export type NotificationReferences = { orderId?: string | null; conversationId?: string | null; buyRequestId?: string | null; offerId?: string | null; directProposalId?: string | null }
 const invalid = (message: string) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message } })
 
 export const audit = async (queryable: Queryable, actorId: string | null, action: string, entityType: string, entityId: string | null, metadata: Record<string, unknown> = {}) => {
@@ -14,7 +14,7 @@ export const audit = async (queryable: Queryable, actorId: string | null, action
 }
 
 export const createNotification = async (queryable: Queryable, userId: string, type: string, title: string, body: string, context: NotificationContext, references: NotificationReferences = {}) => {
-    await queryable.query('INSERT INTO notifications (user_id, type, title, body, context, order_id, conversation_id, buy_request_id, offer_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [userId, type, title, body, context, references.orderId ?? null, references.conversationId ?? null, references.buyRequestId ?? null, references.offerId ?? null])
+    await queryable.query('INSERT INTO notifications (user_id, type, title, body, context, order_id, conversation_id, buy_request_id, offer_id, direct_proposal_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [userId, type, title, body, context, references.orderId ?? null, references.conversationId ?? null, references.buyRequestId ?? null, references.offerId ?? null, references.directProposalId ?? null])
 }
 
 export const listNotifications = async (user: AuthUser, params: { context?: unknown; unread?: unknown; limit?: unknown; cursor?: unknown } = {}) => {
@@ -33,7 +33,7 @@ export const listNotifications = async (user: AuthUser, params: { context?: unkn
         } catch { return invalid('Невірний курсор') }
     }
     const [result, unreadResult] = await Promise.all([
-        pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.offer_id AS "offerId", n.read_at AS "readAt", n.created_at AS "createdAt",
+        pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.offer_id AS "offerId", n.direct_proposal_id AS "directProposalId", n.read_at AS "readAt", n.created_at AS "createdAt",
         to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorCreatedAt",
         CASE WHEN r.id IS NOT NULL AND n.context = 'selling' THEN json_build_object(
             'title', r.title, 'quantity', r.requested_quantity::float8, 'unit', r.unit,

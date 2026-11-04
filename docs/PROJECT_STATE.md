@@ -1,10 +1,12 @@
 # Project state
 
-**Step 25:** робота на `codex/step-25-notification-center` підготовлена до незалежного перегляду; не готова до інтеграції. Аудит, результати Browser QA та невиконані перевірки — у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Остаточний незалежний перегляд ще не проведено.
+**Step 26:** готово до фінального незалежного перегляду на `codex/step-26-direct-product-deal`. Пакет і обмеження — у [STEP_26_FINAL_REVIEW.md](STEP_26_FINAL_REVIEW.md). Merge, push і deployment потребують окремого дозволу користувача.
 
-**Current step:** `STEP 24 — product sorting and currency conversion READY FOR INDEPENDENT REVIEW`.
+**Step 25:** історичний стан та результати перевірок наведено у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Код Step 26 базується на вказаному користувачем commit `1387aa2741ed4c768c1af9f9dddb9b947df20008`.
 
-**Last updated:** 2026-11-02
+**Current step:** `STEP 26 — READY FOR FINAL INDEPENDENT REVIEW`.
+
+**Last updated:** 2026-11-04
 
 Step 24 work is on `codex/step-24-product-sorting-currency`; see [STEP_24_SORTING_CURRENCY.md](STEP_24_SORTING_CURRENCY.md). Browser QA is complete; independent Sol re-review is outstanding. Previous Step 20 work is on `codex/step-20-category-cleanup`. Scope: one canonical beekeeping products category, guarded category-link migrations, paused narrow honey subscription, and taxonomy audit. See [STEP_20_CATEGORY_AUDIT.md](STEP_20_CATEGORY_AUDIT.md) and [STEP_20_CATEGORY_CLEANUP.md](STEP_20_CATEGORY_CLEANUP.md). Merge and push require separate user authorization; pre-existing [mobile map group overlap](BACKLOG_MAP_GROUP_OVERLAP.md) and listed unverified scenarios remain. The final committed state requires independent Sol re-review.
 

@@ -243,6 +243,8 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
         await client.query('BEGIN')
         const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, delivery_mode, delivery_options, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
         if (!owner.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } } }
+        if (input.unit !== undefined && input.unit !== owner.rows[0].unit && Number(owner.rows[0].reserved_quantity) > 0) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_UNIT_RESERVED', message: 'Неможливо змінити одиницю виміру, поки товар зарезервовано в угодах.' } } }
+        if (input.quantity !== undefined && Math.round(Number(input.quantity) * 1000) < Math.round(Number(owner.rows[0].reserved_quantity) * 1000)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_QUANTITY_RESERVED' } } }
         if (input.deliveryOptions !== undefined && !postalTermsDefined(input.deliveryOptions as DeliveryOption[], owner.rows[0].delivery_options)) { await client.query('ROLLBACK'); return invalid(['deliveryOptions']) }
         if (input.deliveryMode === 'carrier') {
             const oldOptions = owner.rows[0].delivery_options as DeliveryOption[] | null
@@ -318,6 +320,8 @@ export const deleteProduct = async (user: AuthUser, id: string) => {
     const client = await pool.connect()
     try {
         await client.query('BEGIN')
+        const lockedProduct = await client.query('SELECT id FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id])
+        if (!lockedProduct.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } } }
         const linkedOrders = await client.query('SELECT 1 FROM order_items WHERE product_id = $1 LIMIT 1', [id])
         if (linkedOrders.rowCount) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_HAS_ORDER_HISTORY' } } }
         const photos = await client.query<PhotoRow>(
