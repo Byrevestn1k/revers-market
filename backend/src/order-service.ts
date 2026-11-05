@@ -360,10 +360,15 @@ export const createMessage = async (user: AuthUser, conversationId: string, body
             return { status: 403, body: { error: 'USER_BLOCKED' } }
         }
         if (requestKey) {
-            const existing = await client.query('SELECT id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt" FROM messages WHERE conversation_id=$1 AND sender_id=$2 AND request_key=$3', [conversationId, user.id, requestKey])
+            const existing = await client.query(`SELECT m.id, m.conversation_id AS "conversationId", m.sender_id AS "senderId", m.body, m.created_at AS "createdAt",
+                m.created_at <= cp.history_hidden_before AS hidden
+                FROM messages m JOIN conversation_participants cp ON cp.conversation_id=m.conversation_id AND cp.user_id=$2
+                WHERE m.conversation_id=$1 AND m.sender_id=$2 AND m.request_key=$3`, [conversationId, user.id, requestKey])
             if (existing.rowCount) {
                 await client.query('COMMIT')
-                return existing.rows[0].body === body.trim() ? { status: 200, body: { message: existing.rows[0] } } : { status: 409, body: { error: 'REQUEST_KEY_REUSED' } }
+                const { hidden, ...message } = existing.rows[0]
+                if (hidden) return { status: 409, body: { error: 'MESSAGE_HISTORY_HIDDEN', message: 'Це повідомлення більше не доступне у вашій історії.' } }
+                return message.body === body.trim() ? { status: 200, body: { message } } : { status: 409, body: { error: 'REQUEST_KEY_REUSED' } }
             }
         }
         const result = await client.query('INSERT INTO messages (conversation_id, sender_id, body, created_at, request_key) VALUES ($1, $2, $3, clock_timestamp(), $4) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim(), requestKey ?? null])

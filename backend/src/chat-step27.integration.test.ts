@@ -122,6 +122,43 @@ if (process.env.DATABASE_URL) {
             expect((await agents[0].get(path)).body.messages.filter((item: any) => item.body === 'retry-safe')).toHaveLength(1)
             expect((await pool.query("SELECT count(*)::int AS count FROM notifications WHERE conversation_id=$1 AND body='retry-safe'", [chatId])).rows[0].count).toBe(1)
         })
+        it('never returns a personally hidden message when its request key is retried', async () => {
+            const created = await agents[0].post(`/api/users/${ids[1]}/conversation`)
+            expect([200, 201]).toContain(created.status)
+            const testChatId = created.body.conversation.id
+            const path = `/api/conversations/${testChatId}`
+            const requestKey = randomUUID()
+            const sent = await agents[0].post(`${path}/messages`).send({ body: 'hidden retry secret', requestKey })
+            expect(sent.status).toBe(201)
+            await agents[0].patch(`${path}/archived`).send({ archived: true })
+            expect((await agents[0].delete(`${path}/personal`)).status).toBe(200)
+            expect((await agents[1].post(`${path}/messages`).send({ body: 'new visible message' })).status).toBe(201)
+            const before = (await pool.query(`SELECT (SELECT count(*)::int FROM messages WHERE conversation_id=$1) AS messages,
+                (SELECT count(*)::int FROM notifications WHERE conversation_id=$1) AS notifications,
+                (SELECT history_hidden_before FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2) AS boundary`, [testChatId, ids[0]])).rows[0]
+            const unreadBefore = (await agents[1].get('/api/conversations')).body.conversations.find((item: any) => item.id === testChatId).unreadCount
+            const senderUnreadBefore = (await agents[0].get('/api/conversations')).body.conversations.find((item: any) => item.id === testChatId).unreadCount
+            for (const body of ['hidden retry secret', 'different text']) {
+                const retry = await agents[0].post(`${path}/messages`).send({ body, requestKey })
+                expect(retry.status).toBe(409)
+                expect(retry.body.error).toBe('MESSAGE_HISTORY_HIDDEN')
+                expect(retry.body.message).not.toContain('hidden retry secret')
+            }
+            const after = (await pool.query(`SELECT (SELECT count(*)::int FROM messages WHERE conversation_id=$1) AS messages,
+                (SELECT count(*)::int FROM notifications WHERE conversation_id=$1) AS notifications,
+                (SELECT history_hidden_before FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2) AS boundary`, [testChatId, ids[0]])).rows[0]
+            expect(after).toEqual(before)
+            expect((await agents[1].get('/api/conversations')).body.conversations.find((item: any) => item.id === testChatId).unreadCount).toBe(unreadBefore)
+            expect((await agents[0].get('/api/conversations')).body.conversations.find((item: any) => item.id === testChatId).unreadCount).toBe(senderUnreadBefore)
+            expect((await agents[0].get(`${path}/messages`)).body.messages.map((m: any) => m.body)).not.toContain('hidden retry secret')
+            expect((await agents[1].get(`${path}/messages`)).body.messages.map((m: any) => m.body)).toContain('hidden retry secret')
+            const newKey = randomUUID()
+            const first = await agents[0].post(`${path}/messages`).send({ body: 'visible retry', requestKey: newKey })
+            const second = await agents[0].post(`${path}/messages`).send({ body: 'visible retry', requestKey: newKey })
+            expect(first.status).toBe(201)
+            expect(second.status).toBe(200)
+            expect(second.body.message.id).toBe(first.body.message.id)
+        })
         it('serializes an incoming message against personal deletion', async () => {
             const path = `/api/conversations/${chatId}`
             await agents[1].post(`${path}/messages`).send({ body: 'before concurrent deletion' })
@@ -139,6 +176,40 @@ if (process.env.DATABASE_URL) {
             const counterpart = (await agents[1].get(`${path}/messages`)).body.messages.map((item: any) => item.body)
             expect(counterpart).toEqual(expect.arrayContaining(['before concurrent deletion', 'during concurrent deletion', 'after concurrent deletion']))
         })
+        it('does not reveal hidden retries in product and deal conversations', async () => {
+            const categoryId = (await agents[0].get('/api/categories')).body.categories.find((item: any) => item.code === 'grains').id
+            const product = await agents[1].post('/api/products').send({ categoryId, title: 'Тест товарного чату', quantity: 10, unit: 'kg', price: 20, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'SELF_PICKUP' }], geoZone: 'Київ', status: 'active', photos: [] })
+            expect(product.status).toBe(201)
+            const productChat = await agents[0].post(`/api/products/${product.body.product.id}/conversation`)
+            expect(productChat.status).toBe(201)
+            const requestResult = await agents[0].post('/api/buy-requests').send({ categoryId, title: 'Тест чату угоди', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity: 10, unit: 'kg', currency: 'UAH', geoArea: 'Київська область', fulfillmentMode: 'multiple_sellers' })
+            expect(requestResult.status).toBe(201)
+            const offer = await agents[1].post(`/api/buy-requests/${requestResult.body.buyRequest.id}/offers`).send({ quantity: 10, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })
+            expect(offer.status).toBe(201)
+            const selected = await agents[0].post(`/api/offers/${offer.body.offer.id}/accept`).send({ quantity: 5, selectionKey: randomUUID() })
+            expect(selected.status).toBe(201)
+            const dealChat = await agents[0].get(`/api/orders/${selected.body.order.id}/conversation`)
+            expect(dealChat.status).toBe(200)
+            for (const id of [productChat.body.conversation.id, dealChat.body.conversation.id]) {
+                const path = `/api/conversations/${id}`
+                const requestKey = randomUUID()
+                expect((await agents[0].post(`${path}/messages`).send({ body: 'контекстний прихований текст', requestKey })).status).toBe(201)
+                expect((await agents[0].patch(`${path}/archived`).send({ archived: true })).status).toBe(200)
+                expect((await agents[0].delete(`${path}/personal`)).status).toBe(200)
+                expect((await agents[1].post(`${path}/messages`).send({ body: 'новий текст' })).status).toBe(201)
+                const state = async () => (await pool.query(`SELECT (SELECT count(*)::int FROM messages WHERE conversation_id=$1) AS messages, (SELECT count(*)::int FROM notifications WHERE conversation_id=$1) AS notifications`, [id])).rows[0]
+                const before = await state()
+                const unread = (await agents[1].get('/api/conversations')).body.conversations.find((item: any) => item.id === id).unreadCount
+                const retry = await agents[0].post(`${path}/messages`).send({ body: 'контекстний прихований текст', requestKey })
+                expect(retry.status).toBe(409)
+                expect(retry.body).toMatchObject({ error: 'MESSAGE_HISTORY_HIDDEN' })
+                expect(JSON.stringify(retry.body)).not.toContain('контекстний прихований текст')
+                expect(await state()).toEqual(before)
+                expect((await agents[1].get('/api/conversations')).body.conversations.find((item: any) => item.id === id).unreadCount).toBe(unread)
+                expect((await agents[0].get(`${path}/messages`)).body.messages.map((m: any) => m.body)).not.toContain('контекстний прихований текст')
+                expect((await agents[1].get(`${path}/messages`)).body.messages.map((m: any) => m.body)).toContain('контекстний прихований текст')
+            }
+        }, 60000)
         it('keeps a concurrent restore and incoming message consistent', async () => {
             const path = `/api/conversations/${chatId}`
             await agents[0].patch(`${path}/archived`).send({ archived: true })
