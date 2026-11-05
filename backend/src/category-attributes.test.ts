@@ -16,7 +16,7 @@ describe('category attribute validation', () => {
         expect(await validateAttributes('category', {}, db)).toBe(true)
         expect(await validateAttributes('category', { brand: 'Samsung', year: 2023, distance: 12.5, condition: 'Новий', features: ['NFC'], unlocked: false }, db)).toBe(true)
     })
-    it.each([null, [], { foreign: 'value' }, { brand: 7 }, { year: 1800 }, { distance: -1 }, { condition: 'bad' }, { features: ['NFC', 'NFC'] }, { features: ['unknown'] }, { unlocked: 'true' }])('rejects invalid attributes: %j', async value => {
+    it.each([null, [], { foreign: 'value' }, { brand: 7 }, { brand: '' }, { year: null }, { year: 1800 }, { distance: '' }, { distance: -1 }, { condition: 'bad' }, { features: ['NFC', 'NFC'] }, { features: ['unknown'] }, { unlocked: null }, { unlocked: 'true' }])('rejects invalid attributes: %j', async value => {
         expect(await validateAttributes('category', value, db)).toBe(false)
     })
 })

@@ -28,6 +28,8 @@ describe.skipIf(!enabled)('structured category attributes', () => {
         const id = product.body.product.id
         expect((await buyer.patch(`/api/products/${id}`).send({ attributes: { grain_type: 'Чуже' } })).status).not.toBe(200)
         expect((await seller.patch(`/api/products/${id}`).send({ attributes: { storage: 128 } })).status).toBe(400)
+        expect((await seller.patch(`/api/products/${id}`).send({ attributes: { harvest_year: null } })).status).toBe(400)
+        expect((await seller.patch(`/api/products/${id}`).send({ attributes: { harvest_year: '' } })).status).toBe(400)
         expect((await seller.patch(`/api/products/${id}`).send({ title: `Зерно нове ${suffix}` })).body.product.attributes).toEqual({ grain_type: 'Пшениця', harvest_year: 2024 })
         const wanted = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: `Запит зерна ${suffix}`, description: 'Потрібен товар', quantity: 10, unit: 'kg', currency: 'UAH', receiptMethod: 'SELF_PICKUP', countryCode: 'UA', geoArea: 'Рівне', fulfillmentMode: 'multiple_sellers', attributes: { grain_type: 'Жито' } })
         expect(wanted.status).toBe(201)

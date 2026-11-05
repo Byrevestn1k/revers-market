@@ -4,9 +4,9 @@
 
 **Step 25:** історичний стан та результати перевірок наведено у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Код Step 26 базується на вказаному користувачем commit `1387aa2741ed4c768c1af9f9dddb9b947df20008`.
 
-**Current step:** `STEP 28 — READY FOR INDEPENDENT REVIEW`. Working audit and remaining checks: [STEP_28_BUY_REQUEST_SELLER_OFFER.md](STEP_28_BUY_REQUEST_SELLER_OFFER.md); QA protocol: [step-28](qa/step-28/README.md). Step 27 history: [STEP_27_CHAT_UX.md](STEP_27_CHAT_UX.md). Do not merge, push or deploy without a successful independent review and explicit user approval.
+**Current step:** `STEP 28 — INDEPENDENT REVIEW PASS`. Working audit and remaining checks: [STEP_28_BUY_REQUEST_SELLER_OFFER.md](STEP_28_BUY_REQUEST_SELLER_OFFER.md); QA protocol: [step-28](qa/step-28/README.md). Step 27 history: [STEP_27_CHAT_UX.md](STEP_27_CHAT_UX.md). Do not merge, push or deploy without explicit user approval.
 
-**Step 28 category extension:** migrations 061–062 and shared category attributes are implemented. The final backend rerun on a clean isolated database passed (304 passed, 1 live test skipped); earlier intermittent geographic test failures and remaining checks are documented in the QA protocol. Independent review is outstanding.
+**Step 28 category extension:** migrations 061–062 and shared category attributes are implemented. After the Sol review fix, the backend rerun on a clean isolated database passed (308 passed, 1 live test skipped); earlier intermittent geographic test failures and remaining checks are documented in the QA protocol.
 
 **Last updated:** 2026-11-05
 

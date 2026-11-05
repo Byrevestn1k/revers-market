@@ -23,7 +23,8 @@ export async function validateAttributes(categoryId: string, input: unknown, db:
     if (Object.keys(values).some(code => !byCode.has(code))) return false
     for (const definition of definitions) {
         const value = values[definition.code]
-        if (value === undefined || value === null || value === '') { if (definition.required) return false; continue }
+        if (value === undefined) { if (definition.required) return false; continue }
+        if (value === null || value === '') return false
         if (definition.valueType === 'text' && (typeof value !== 'string' || value.length > 200 || !value.trim())) return false
         if ((definition.valueType === 'number' || definition.valueType === 'number_unit') && (typeof value !== 'number' || !Number.isFinite(value) || definition.minValue !== null && value < definition.minValue || definition.maxValue !== null && value > definition.maxValue)) return false
         if (definition.valueType === 'single' && (typeof value !== 'string' || !definition.options.includes(value))) return false
