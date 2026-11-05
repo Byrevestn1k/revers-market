@@ -15,8 +15,10 @@ import { postalTermsDefined, type DeliveryOption } from './delivery-compatibilit
 import { assessCategory } from './category-recommendation.js'
 import { categoryDuplicates } from './category-duplicates.js'
 import { isDeepStrictEqual } from 'node:util'
+import { validateAttributes } from './category-attributes.js'
 
 type ProductRow = {
+    attributes: Record<string, unknown>
     total_count?: string
     settlement_code?: string | null
     public_address?: string | null
@@ -39,6 +41,7 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
     category: { id: row.category_id, code: row.category_code, name: row.category_name, imageIndex: row.category_image_index },
     title: row.title,
     description: row.description,
+    attributes: row.attributes ?? {},
     photos: row.photos.map(toPhotoDto),
     quantity: Number(row.quantity),
     availableQuantity: Number(row.quantity) - Number(row.reserved_quantity),
@@ -62,7 +65,7 @@ export const toProductDto = (row: ProductWithPhotos, includeAddress = false) => 
 const productSelect = `
     SELECT count(*) OVER() AS total_count, p.id, p.owner_id, u.username AS owner_username, p.category_id, c.code AS category_code, c.name AS category_name, c.image_index AS category_image_index,
            CASE WHEN p.address_visibility = 'public' THEN p.pickup_address WHEN p.map_location_mode = 'profile' AND u.map_location_mode = 'address' THEN u.exact_address ELSE NULL END AS public_address,
-           p.title, p.description, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.delivery_options, p.geo_zone,
+           p.title, p.description, p.attributes, p.quantity, p.reserved_quantity, p.unit, p.price, p.currency, p.delivery_mode, p.delivery_options, p.geo_zone,
            p.settlement_code, p.latitude, p.longitude, p.pickup_address, p.address_visibility, p.map_location_mode, p.status, p.expires_at, p.created_at, p.updated_at
     FROM products p JOIN users u ON u.id = p.owner_id JOIN categories c ON c.id = p.category_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id`
 
@@ -97,6 +100,7 @@ const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION
 export const listCategories = async () => {
     const result = await pool.query(`SELECT c.id, c.parent_id AS "parentId", c.code, c.name, c.path,
         c.image_index AS "imageIndex", c.sort_order AS "sortOrder",
+        ARRAY(SELECT a.alias FROM category_aliases a WHERE a.category_id=c.id ORDER BY a.alias) AS synonyms,
         ARRAY(SELECT old.id FROM categories old WHERE old.parent_id = c.id AND NOT old.is_active
             AND old.code IN (${retiredCategoryCodesSql}) ORDER BY old.code) AS "legacyIds"
         FROM categories c WHERE c.is_active ORDER BY c.sort_order, c.name, c.id`)
@@ -130,6 +134,7 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
     if (!await verifiedDeliveryOptions(input.deliveryOptions as ProductInput['deliveryOptions'])) return invalid(['deliveryOptions'])
     if (!await verifiedInputPoint({ settlementCode: input.settlementCode, label: input.geoZone, latitude: input.latitude, longitude: input.longitude })) return invalid(['latitude', 'longitude'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE', message: 'Категорія недоступна' } }
+    if (!await validateAttributes(input.categoryId as string, input.attributes === undefined ? {} : input.attributes)) return invalid(['attributes'])
     const assessment = await assessCategory({ title: String(input.title), description: String(input.description ?? ''), categoryId: String(input.categoryId), unit: String(input.unit) })
     const product = input as unknown as ProductInput
     const client = await pool.connect()
@@ -140,9 +145,9 @@ export const createProduct = async (user: AuthUser, input: Record<string, unknow
         const duplicates = product.status === 'active' ? await categoryDuplicates(client, 'product', user.id, product.title, product.description ?? '', product.categoryId) : null
         if (duplicates?.massAbuse) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'CATEGORY_DUPLICATE_ABUSE', message: 'Однакове оголошення вже розміщено в кількох категоріях.', duplicate: duplicates.notice } } }
         const result = await client.query<ProductRow>(
-            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at, pickup_address, settlement_code, address_visibility, map_location_mode, delivery_options)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
-            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null, product.settlementCode ?? null, product.addressVisibility ?? 'private', product.mapLocationMode ?? 'profile', product.deliveryOptions === undefined ? null : JSON.stringify(product.deliveryOptions)],
+            `INSERT INTO products (owner_id, category_id, title, description, quantity, unit, price, currency, delivery_mode, geo_zone, latitude, longitude, status, expires_at, pickup_address, settlement_code, address_visibility, map_location_mode, delivery_options, attributes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id`,
+            [user.id, product.categoryId, product.title.trim(), product.description ?? '', product.quantity, product.unit, product.price, product.currency, product.deliveryMode, product.geoZone.trim(), product.latitude ?? null, product.longitude ?? null, product.status ?? 'draft', product.expiresAt ?? null, product.address?.trim() || null, product.settlementCode ?? null, product.addressVisibility ?? 'private', product.mapLocationMode ?? 'profile', product.deliveryOptions === undefined ? null : JSON.stringify(product.deliveryOptions), JSON.stringify(input.attributes ?? {})],
         )
         await writePhotos(client, result.rows[0].id, product.photos, storedPhotos)
         if (assessment.level === 'warn') await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_warning', 'product', result.rows[0].id, JSON.stringify({ suggestions: assessment.suggestions })])
@@ -233,7 +238,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
     if (getSettlement(input.settlementCode) && !('geoZone' in input)) input = { ...input, geoZone: getSettlement(input.settlementCode)!.name }
     const errors = validateProductInput(input, true)
     if (errors.length) return invalid(errors)
-    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', deliveryOptions: 'delivery_options', geoZone: 'geo_zone', settlementCode: 'settlement_code', address: 'pickup_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', title: 'title', description: 'description', attributes: 'attributes', quantity: 'quantity', unit: 'unit', price: 'price', currency: 'currency', deliveryMode: 'delivery_mode', deliveryOptions: 'delivery_options', geoZone: 'geo_zone', settlementCode: 'settlement_code', address: 'pickup_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', status: 'status', expiresAt: 'expires_at' }
     const entries = Object.entries(input).filter(([key]) => key in allowed)
     if (!entries.length && !('photos' in input)) return invalid(['product'])
     const client = await pool.connect()
@@ -241,7 +246,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
     let categoryWarning: Awaited<ReturnType<typeof assessCategory>> | null = null
     try {
         await client.query('BEGIN')
-        const owner = await client.query('SELECT category_id, title, description, unit, status, quantity, reserved_quantity, delivery_mode, delivery_options, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
+        const owner = await client.query('SELECT category_id, title, description, attributes, unit, status, quantity, reserved_quantity, delivery_mode, delivery_options, settlement_code, geo_zone, latitude, longitude, COALESCE(round($3::numeric, 3), quantity) > reserved_quantity AS has_available_quantity FROM products WHERE id = $1 AND owner_id = $2 FOR UPDATE', [id, user.id, input.quantity ?? null])
         if (!owner.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'PRODUCT_NOT_FOUND' } } }
         if (input.unit !== undefined && input.unit !== owner.rows[0].unit && Number(owner.rows[0].reserved_quantity) > 0) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_UNIT_RESERVED', message: 'Неможливо змінити одиницю виміру, поки товар зарезервовано в угодах.' } } }
         if (input.quantity !== undefined && Math.round(Number(input.quantity) * 1000) < Math.round(Number(owner.rows[0].reserved_quantity) * 1000)) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_QUANTITY_RESERVED' } } }
@@ -266,6 +271,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
             await client.query('ROLLBACK')
             return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE', message: 'Категорія недоступна' } }
         }
+        if ((input.attributes !== undefined || input.categoryId !== undefined) && !await validateAttributes(String(input.categoryId ?? owner.rows[0].category_id), input.attributes === undefined ? owner.rows[0].attributes : input.attributes, client)) { await client.query('ROLLBACK'); return invalid(['attributes']) }
         const previousProduct = owner.rows[0]
         if (input.status === 'active' && !previousProduct.has_available_quantity) {
             await client.query('ROLLBACK')
@@ -283,7 +289,7 @@ export const updateProduct = async (user: AuthUser, id: string, input: Record<st
             ? await categoryDuplicates(client, 'product', user.id, String(input.title ?? previousProduct.title), String(input.description ?? previousProduct.description), String(input.categoryId ?? previousProduct.category_id), id) : null
         if (duplicates?.massAbuse) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'CATEGORY_DUPLICATE_ABUSE', message: 'Однакове оголошення вже розміщено в кількох категоріях.', duplicate: duplicates.notice } } }
         if (entries.length) {
-            const values = entries.map(([key, value]) => key === 'deliveryOptions' ? JSON.stringify(value) : value)
+            const values = entries.map(([key, value]) => key === 'deliveryOptions' || key === 'attributes' ? JSON.stringify(value) : value)
             const assignments = entries.map(([key], index) => `${allowed[key]} = $${index + 1}`)
             values.push(id, user.id)
             await client.query(`UPDATE products SET ${assignments.join(', ')}, updated_at = now() WHERE id = $${values.length - 1} AND owner_id = $${values.length}`, values)

@@ -4,9 +4,11 @@
 
 **Step 25:** історичний стан та результати перевірок наведено у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Код Step 26 базується на вказаному користувачем commit `1387aa2741ed4c768c1af9f9dddb9b947df20008`.
 
-**Current step:** `STEP 28 — IN PROGRESS, NOT READY FOR REVIEW`. Working audit and remaining checks: [STEP_28_BUY_REQUEST_SELLER_OFFER.md](STEP_28_BUY_REQUEST_SELLER_OFFER.md); QA protocol: [step-28](qa/step-28/README.md). Step 27 history: [STEP_27_CHAT_UX.md](STEP_27_CHAT_UX.md). Do not merge, push or deploy without a successful independent review and explicit user approval.
+**Current step:** `STEP 28 — READY FOR INDEPENDENT REVIEW`. Working audit and remaining checks: [STEP_28_BUY_REQUEST_SELLER_OFFER.md](STEP_28_BUY_REQUEST_SELLER_OFFER.md); QA protocol: [step-28](qa/step-28/README.md). Step 27 history: [STEP_27_CHAT_UX.md](STEP_27_CHAT_UX.md). Do not merge, push or deploy without a successful independent review and explicit user approval.
 
-**Last updated:** 2026-11-04
+**Step 28 category extension:** migrations 061–062 and shared category attributes are implemented. The final backend rerun on a clean isolated database passed (304 passed, 1 live test skipped); earlier intermittent geographic test failures and remaining checks are documented in the QA protocol. Independent review is outstanding.
+
+**Last updated:** 2026-11-05
 
 Step 24 work is on `codex/step-24-product-sorting-currency`; see [STEP_24_SORTING_CURRENCY.md](STEP_24_SORTING_CURRENCY.md). Browser QA is complete; independent Sol re-review is outstanding. Previous Step 20 work is on `codex/step-20-category-cleanup`. Scope: one canonical beekeeping products category, guarded category-link migrations, paused narrow honey subscription, and taxonomy audit. See [STEP_20_CATEGORY_AUDIT.md](STEP_20_CATEGORY_AUDIT.md) and [STEP_20_CATEGORY_CLEANUP.md](STEP_20_CATEGORY_CLEANUP.md). Merge and push require separate user authorization; pre-existing [mobile map group overlap](BACKLOG_MAP_GROUP_OVERLAP.md) and listed unverified scenarios remain. The final committed state requires independent Sol re-review.
 

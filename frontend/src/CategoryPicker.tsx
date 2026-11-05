@@ -25,7 +25,7 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
     const selectedName = categories.find((item) => item.id === selectedId)?.name
     const normalized = query.trim().toLocaleLowerCase('uk-UA')
     const rootCategories = useMemo(() => categoryChildren(categories, null), [categories])
-    const matchingCategories = useMemo(() => normalized ? categories.filter((item) => labels.get(item.id)?.toLocaleLowerCase('uk-UA').includes(normalized)) : inlineTree ? categories : rootCategories, [categories, labels, normalized, rootCategories, inlineTree])
+    const matchingCategories = useMemo(() => normalized ? categories.filter((item) => labels.get(item.id)?.toLocaleLowerCase('uk-UA').includes(normalized) || item.synonyms?.some(alias => alias.toLocaleLowerCase('uk-UA').includes(normalized))) : inlineTree ? categories : rootCategories, [categories, labels, normalized, rootCategories, inlineTree])
 
     useEffect(() => {
         const closeOnOutsideClick = (event: MouseEvent) => {

@@ -1,4 +1,4 @@
-export type Category = { id: string; code?: string; name: string; parentId: string | null; path?: string; imageIndex?: number | null; sortOrder?: number; legacyIds?: string[] }
+export type Category = { id: string; code?: string; name: string; parentId: string | null; path?: string; imageIndex?: number | null; sortOrder?: number; legacyIds?: string[]; synonyms?: string[] }
 
 export const canonicalCategoryId = (categories: Category[], id: string) => categories.find(item => item.legacyIds?.includes(id))?.id ?? id
 

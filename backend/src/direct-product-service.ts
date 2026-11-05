@@ -15,8 +15,8 @@ const error = (status: number, code: string) => ({ status, body: { error: code, 
 const remaining = (p: any) => (Math.round(Number(p.quantity) * 1000) - Math.round(Number(p.reserved_quantity) * 1000)) / 1000
 const visibleDelivery = (p: any) => p.delivery_options ?? (p.delivery_mode === 'pickup' ? [{ method: 'SELF_PICKUP' }] : p.delivery_mode === 'seller_delivery' ? [{ method: 'SELLER_DELIVERY' }] : p.delivery_mode === 'flexible' ? [{ method: 'FLEXIBLE' }] : [])
 const dto = (row: any) => ({ id: row.id, createdBy: row.created_by, parentId: row.parent_id, price: Number(row.unit_price), currency: row.product_terms.currency, unit: row.product_terms.unit, quantity: Number(row.quantity), delivery: row.delivery, postalOperator: row.postal_operator, deliveryPrice: Number(row.delivery_price), comment: row.comment, status: row.status, createdAt: row.created_at, orderId: row.order_id })
-const terms = (p: any) => ({ title: p.title, description: p.description, price: Number(p.price), currency: p.currency, unit: p.unit, deliveryOptions: p.delivery_options, deliveryMode: p.delivery_mode })
-const token = (value: any) => createHash('sha256').update(JSON.stringify([value.title, value.description, value.price, value.currency, value.unit, value.deliveryOptions, value.deliveryMode])).digest('hex')
+const terms = (p: any) => ({ title: p.title, description: p.description, attributes: p.attributes ?? {}, price: Number(p.price), currency: p.currency, unit: p.unit, deliveryOptions: p.delivery_options, deliveryMode: p.delivery_mode })
+const token = (value: any) => createHash('sha256').update(JSON.stringify([value.title, value.description, value.attributes, value.price, value.currency, value.unit, value.deliveryOptions, value.deliveryMode])).digest('hex')
 const available = (p: any) => p.status === 'active' && (!p.expires_at || p.expires_at > new Date()) && Number(p.quantity) > Number(p.reserved_quantity)
 const supports = (p: any, method: unknown, operator: unknown) => {
     if (typeof method !== 'string' || !['SELF_PICKUP', 'SELLER_DELIVERY', 'POSTAL_DELIVERY'].includes(method)) return false
@@ -86,13 +86,13 @@ export const changeDirectProposal = async (user: AuthUser, conversationId: strin
             if (!latest || latest.id !== input.proposalId || latest.status !== 'pending') { await client.query('ROLLBACK'); return error(409, 'NEGOTIATION_CHANGED') }
             if ((action === 'withdraw') !== (latest.created_by === user.id)) { await client.query('ROLLBACK'); return error(403, 'FORBIDDEN') }
             if (action === 'accept') {
-                if (!isDeepStrictEqual(terms(p), latest.product_terms) || !supports(p, latest.delivery, latest.postal_operator)) { await client.query('ROLLBACK'); return error(409, 'TERMS_CHANGED') }
+                if (!isDeepStrictEqual(terms(p), { ...latest.product_terms, attributes: latest.product_terms.attributes ?? {} }) || !supports(p, latest.delivery, latest.postal_operator)) { await client.query('ROLLBACK'); return error(409, 'TERMS_CHANGED') }
                 if (Number(latest.quantity) > remaining(p)) { await client.query('ROLLBACK'); return error(409, 'PRODUCT_STOCK_UNAVAILABLE') }
                 await client.query('UPDATE products SET reserved_quantity=reserved_quantity+$2, updated_at=now() WHERE id=$1', [p.id, latest.quantity])
                 const photos = (await client.query('SELECT url, alt FROM product_photos WHERE product_id=$1 ORDER BY sort_order,id', [p.id])).rows
                 const delivery = { delivery: latest.delivery, postalOperator: latest.postal_operator, price: Number(latest.delivery_price) }
                 const subtotal = Number(latest.unit_price) * Number(latest.quantity) + Number(latest.delivery_price)
-                const snapshot = { productTitle: p.title, description: p.description, photos, delivery, goodsTotal: Number(latest.unit_price) * Number(latest.quantity), grandTotal: subtotal, directProposalId: latest.id }
+                const snapshot = { productTitle: p.title, description: p.description, attributes: p.attributes ?? {}, photos, delivery, goodsTotal: Number(latest.unit_price) * Number(latest.quantity), grandTotal: subtotal, directProposalId: latest.id }
                 const order = (await client.query(`INSERT INTO orders (source,buyer_id,seller_id,status,currency,subtotal,quantity,unit,unit_price,conditions_snapshot,seller_confirmed_at)
                     VALUES ('direct_product',$1,$2,'in_progress',$3,$4,$5,$6,$7,$8,now()) RETURNING id`, [link.buyer_id, link.seller_id, p.currency, subtotal, latest.quantity, p.unit, latest.unit_price, JSON.stringify(snapshot)])).rows[0]
                 orderId = order.id

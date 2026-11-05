@@ -21,6 +21,7 @@ import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './p
 import { matchDelivery, postalTermsDefined, productSupportsOption, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js'
 import { verifiedDeliveryOptions, verifiedDeliveryPlace, verifiedInputPoint, verifiedOptionsForMatching } from './delivery-geography.js'
 import { isDeepStrictEqual } from 'node:util'
+import { validateAttributes } from './category-attributes.js'
 
 type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -91,7 +92,7 @@ const requestSelect = `SELECT count(*) OVER() AS total_count, r.*, c.code AS cat
     COALESCE((SELECT jsonb_agg(jsonb_build_object('url', rp.url, 'alt', rp.alt) ORDER BY rp.sort_order, rp.id) FROM buy_request_photos rp WHERE rp.buy_request_id = r.id), '[]'::jsonb) AS photos
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id`
 const offerSelect = `SELECT o.*, o.xmin::text AS revision, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.description AS request_description,
-    r.category_id, r.requested_quantity AS request_quantity, r.unit AS request_unit, r.min_unit_price AS request_min_price, r.max_unit_price AS request_max_price,
+    r.category_id, r.attributes AS request_attributes, r.requested_quantity AS request_quantity, r.unit AS request_unit, r.min_unit_price AS request_min_price, r.max_unit_price AS request_max_price,
     r.preferred_delivery AS request_delivery, r.receipt_method AS request_receipt_method, r.delivery_options AS request_delivery_options,
     r.settlement_code AS request_settlement_code, r.latitude AS request_latitude, r.longitude AS request_longitude, r.address_visibility AS request_address_visibility,
     p.settlement_code AS product_settlement_code, p.latitude AS product_latitude, p.longitude AS product_longitude, p.address_visibility AS product_address_visibility,
@@ -108,6 +109,7 @@ const offerSelect = `SELECT o.*, o.xmin::text AS revision, u.username AS seller_
     FROM offers o JOIN users u ON u.id = o.seller_id JOIN buy_requests r ON r.id = o.buy_request_id JOIN categories c ON c.id = r.category_id LEFT JOIN products p ON p.id = o.product_id`
 
 interface BuyRequestRow {
+    attributes: Record<string, unknown>
     delivery_options: import('./delivery-compatibility.js').DeliveryOption[] | null
     country_code: string | null
     receipt_method: 'SELF_PICKUP' | 'SELLER_DELIVERY' | null
@@ -148,6 +150,7 @@ interface BuyRequestRow {
 }
 
 interface OfferRow {
+    attributes: Record<string, unknown>
     revision: string
     delivery_options: import('./delivery-compatibility.js').DeliveryOption[] | null
     offer_photos?: { url: string; alt: string }[]
@@ -156,6 +159,7 @@ interface OfferRow {
     characteristics: string
     creation_mode: string | null
     request_description: string
+    request_attributes: Record<string, unknown>
     request_quantity: string | number
     request_unit: string
     request_min_price: string | number | null
@@ -206,7 +210,7 @@ interface OfferRow {
 const requestDto = (row: BuyRequestRow, includeAddress = false) => ({
     id: row.id, buyer: { id: row.buyer_id, username: row.buyer_username }, ...(includeAddress ? { offerCount: row.offer_count } : {}),
     category: { id: row.category_id, code: row.category_code, name: row.category_name, imageIndex: row.category_image_index },
-    productId: row.product_id, title: row.title, description: row.description, photos: row.photos ?? [],
+    productId: row.product_id, title: row.title, description: row.description, attributes: row.attributes ?? {}, photos: row.photos ?? [],
     quantity: Number(row.requested_quantity), fulfilledQuantity: Number(row.fulfilled_quantity), selectedQuantity: Number(row.selected_quantity ?? 0), completedQuantity: Number(row.completed_quantity ?? row.fulfilled_quantity), remainingQuantity: Number(row.requested_quantity) - Number(row.selected_quantity ?? 0) - Number(row.completed_quantity ?? row.fulfilled_quantity), fulfillmentMode: row.fulfillment_mode, unit: row.unit,
     price: { min: number(row.min_unit_price), max: number(row.max_unit_price), currency: row.currency },
     delivery: { required: row.delivery_required, preferred: row.preferred_delivery, address: includeAddress || row.address_visibility === 'public' ? row.delivery_address : null },
@@ -223,8 +227,8 @@ const deliveryPlace = (code: string | null, latitude: number | string | null, lo
 const offerDto = async (row: OfferRow) => ({
     id: row.id, seller: { id: row.seller_id, username: row.seller_username, rating: row.seller_rating == null ? null : Number(row.seller_rating), avatarUrl: row.seller_avatar, completedDeals: row.seller_deals ?? 0 }, buyRequestId: row.buy_request_id, requestTitle: row.request_title, requestStatus: row.request_status,
     existingProduct: row.product_id ? { id: row.product_id, title: row.product_title } : null,
-    title: row.title ?? row.product_title ?? row.request_title, description: row.description, characteristics: row.characteristics, creationMode: row.creation_mode,
-    request: { title: row.request_title, description: row.request_description, quantity: Number(row.request_quantity), unit: row.request_unit, minPrice: number(row.request_min_price), maxPrice: number(row.request_max_price), delivery: row.request_delivery, receiptMethod: row.request_receipt_method, deliveryOptions: row.request_delivery_options, category: { id: row.category_id, name: row.request_category_name, imageIndex: row.request_category_image_index, parentId: null } },
+    title: row.title ?? row.product_title ?? row.request_title, description: row.description, characteristics: row.characteristics, attributes: row.attributes ?? {}, creationMode: row.creation_mode,
+    request: { title: row.request_title, description: row.request_description, attributes: row.request_attributes ?? {}, quantity: Number(row.request_quantity), unit: row.request_unit, minPrice: number(row.request_min_price), maxPrice: number(row.request_max_price), delivery: row.request_delivery, receiptMethod: row.request_receipt_method, deliveryOptions: row.request_delivery_options, category: { id: row.category_id, name: row.request_category_name, imageIndex: row.request_category_image_index, parentId: null } },
     quantity: Number(row.offered_quantity), acceptedQuantity: Number(row.accepted_quantity), unit: row.unit,
     price: { amount: Number(row.unit_price), currency: row.currency }, delivery: row.delivery, deliveryOptions: row.delivery_options, note: row.note,
     deliveryCompatibility: matchDelivery(
@@ -262,6 +266,7 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     if (!postalTermsDefined(input.deliveryOptions as DeliveryOption[] | undefined)) return invalid(['deliveryOptions'])
     if (Array.isArray(input.photos) && input.photos.some((photo: PhotoUpload) => photo.url)) return invalid(['photos'])
     if (!(await categoryExists(pool, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
+    if (!await validateAttributes(input.categoryId as string, input.attributes === undefined ? {} : input.attributes)) return invalid(['attributes'])
     const assessment = await assessCategory({ title: String(input.title), description: String(input.description ?? ''), categoryId: String(input.categoryId), unit: String(input.unit) })
     const exactPrice = asNumberOrNull(input.exactPrice)
     const minPrice = asNumberOrNull(input.minPrice)
@@ -292,8 +297,8 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
     duplicateNotice = duplicates.notice
     if (duplicates.massAbuse) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'CATEGORY_DUPLICATE_ABUSE', message: 'Однаковий запит уже розміщено в кількох категоріях.', duplicate: duplicates.notice } } }
     const created = await client.query<{ id: string }>(
-        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode, country_code, receipt_method, delivery_options) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id',
-        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'single_seller', input.countryCode ?? 'UA', receiptMethod, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions)],
+        'INSERT INTO buy_requests (buyer_id, category_id, product_id, title, description, requested_quantity, unit, currency, min_unit_price, max_unit_price, delivery_required, preferred_delivery, geo_area, delivery_address, latitude, longitude, deadline, settlement_code, address_visibility, map_location_mode, fulfillment_mode, country_code, receipt_method, delivery_options, attributes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING id',
+        [user.id, input.categoryId, input.productId ?? null, String(input.title).trim(), input.description ?? '', input.quantity, input.unit, input.currency, exactPrice ?? minPrice, exactPrice ?? maxPrice, deliveryRequired, preferredDelivery, String(input.geoArea).trim(), input.address ?? null, latitude, longitude, deadline, input.settlementCode ?? null, input.addressVisibility ?? 'private', input.mapLocationMode ?? 'profile', input.fulfillmentMode ?? 'single_seller', input.countryCode ?? 'UA', receiptMethod, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions), JSON.stringify(input.attributes ?? {})],
     )
     requestId = created.rows[0].id
     if (assessment.level === 'warn') await client.query('INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5)', [user.id, 'listing.category_warning', 'buy_request', requestId, JSON.stringify({ suggestions: assessment.suggestions })])
@@ -365,8 +370,9 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     }
     if (input.exactPrice !== undefined) { normalizedInput.minPrice = input.exactPrice; normalizedInput.maxPrice = input.exactPrice }
     if (input.delivery !== undefined && input.receiptMethod === undefined) { normalizedInput.deliveryRequired = input.delivery !== 'no'; if (input.delivery === 'preferred') normalizedInput.preferredDelivery = input.preferredDelivery ?? 'preferred' }
-    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', countryCode: 'country_code', receiptMethod: 'receipt_method', deliveryOptions: 'delivery_options', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', fulfillmentMode: 'fulfillment_mode', status: 'status' }
+    const allowed: Record<string, string> = { categoryId: 'category_id', productId: 'product_id', title: 'title', description: 'description', attributes: 'attributes', quantity: 'requested_quantity', unit: 'unit', currency: 'currency', minPrice: 'min_unit_price', maxPrice: 'max_unit_price', deliveryRequired: 'delivery_required', preferredDelivery: 'preferred_delivery', geoArea: 'geo_area', countryCode: 'country_code', receiptMethod: 'receipt_method', deliveryOptions: 'delivery_options', settlementCode: 'settlement_code', address: 'delivery_address', addressVisibility: 'address_visibility', mapLocationMode: 'map_location_mode', latitude: 'latitude', longitude: 'longitude', deadline: 'deadline', fulfillmentMode: 'fulfillment_mode', status: 'status' }
     if (normalizedInput.deliveryOptions !== undefined) normalizedInput.deliveryOptions = JSON.stringify(normalizedInput.deliveryOptions)
+    if (normalizedInput.attributes !== undefined) normalizedInput.attributes = JSON.stringify(normalizedInput.attributes)
     const { assignments, values } = buildUpdate(allowed, normalizedInput)
     if (!assignments.length && input.photos === undefined) return invalid(['buyRequest'])
     const client = await pool.connect()
@@ -376,12 +382,13 @@ export const updateBuyRequest = async (user: AuthUser, id: string, input: Record
     let removedPhotos: string[] = []
     try {
     await client.query('BEGIN')
-    const current = await client.query('SELECT category_id, title, description, unit, status, fulfilled_quantity, country_code, settlement_code, geo_area, latitude, longitude, delivery_address, map_location_mode, receipt_method, requested_quantity, selected_quantity, completed_quantity, fulfillment_mode, delivery_options FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
+    const current = await client.query('SELECT category_id, title, description, attributes, unit, status, fulfilled_quantity, country_code, settlement_code, geo_area, latitude, longitude, delivery_address, map_location_mode, receipt_method, requested_quantity, selected_quantity, completed_quantity, fulfillment_mode, delivery_options FROM buy_requests WHERE id = $1 AND buyer_id = $2 FOR UPDATE', [id, user.id])
     if (!current.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const country = 'countryCode' in input ? input.countryCode : current.rows[0].country_code
     const settlement = 'settlementCode' in input ? input.settlementCode : current.rows[0].settlement_code
     if (settlement != null && country != null && country !== 'UA') return invalid(['countryCode'])
     if (input.categoryId !== undefined && !(await categoryExists(client, input.categoryId as string))) return { status: 400, body: { error: 'CATEGORY_NOT_AVAILABLE' } }
+    if ((input.attributes !== undefined || input.categoryId !== undefined) && !await validateAttributes(String(input.categoryId ?? current.rows[0].category_id), input.attributes === undefined ? current.rows[0].attributes : input.attributes, client)) return invalid(['attributes'])
     if (['categoryId', 'title', 'description', 'unit'].some(key => key in input)) {
         const previous = current.rows[0]
         const assessment = await assessCategory({ title: String(input.title ?? previous.title), description: String(input.description ?? previous.description), categoryId: String(input.categoryId ?? previous.category_id), unit: String(input.unit ?? previous.unit) }, client)
@@ -487,7 +494,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
             return { status: 200, body: { offer: await offerDto(result.rows[0]) } }
         }
     }
-    const request = await client.query('SELECT buyer_id, category_id, title, requested_quantity, unit, currency, status, deadline FROM buy_requests WHERE id = $1 FOR UPDATE', [requestId])
+    const request = await client.query('SELECT buyer_id, category_id, title, attributes, requested_quantity, unit, currency, status, deadline FROM buy_requests WHERE id = $1 FOR UPDATE', [requestId])
     if (!request.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     if (request.rows[0].deadline && request.rows[0].deadline <= new Date()) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (request.rows[0].buyer_id === user.id) return { status: 403, body: { error: 'BUYER_CANNOT_OFFER' } }
@@ -495,8 +502,10 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.rows[0].status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (input.unit !== request.rows[0].unit || input.currency !== request.rows[0].currency) return invalid(['unit', 'currency'])
     await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
-    const product = input.productId ? await client.query('SELECT title, description, quantity, reserved_quantity, delivery_options FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
+    const product = input.productId ? await client.query('SELECT title, description, attributes, quantity, reserved_quantity, delivery_options FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
     if (input.productId && !product?.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
+    const attributes = input.attributes === undefined ? (input.creationMode === 'request_terms' ? request.rows[0].attributes : product?.rows[0]?.attributes ?? {}) : input.attributes
+    if (!await validateAttributes(request.rows[0].category_id, attributes, client)) return invalid(['attributes'])
     if (Array.isArray(input.deliveryOptions)) {
         const option = input.deliveryOptions[0] as DeliveryOption
         if (!await verifiedDeliveryOptions([option])) return invalid(['deliveryOptions'])
@@ -508,8 +517,8 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     const description = typeof input.description === 'string' ? input.description : product?.rows[0]?.description ?? ''
     const terms = { note: input.note ?? '', additionalPhotoUrl: input.additionalPhotoUrl ?? null, availableAt: input.availableAt ?? '' }
     const created = await client.query<{ id: string }>(
-        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until, title, description, characteristics, creation_mode, delivery_options, request_key, request_fingerprint) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id',
-        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null, title, description, input.characteristics ?? '', input.creationMode ?? null, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions), requestKey ?? null, requestKey ? fingerprint : null],
+        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until, title, description, characteristics, creation_mode, delivery_options, request_key, request_fingerprint, attributes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id',
+        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null, title, description, input.characteristics ?? '', input.creationMode ?? null, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions), requestKey ?? null, requestKey ? fingerprint : null, JSON.stringify(attributes)],
     )
     const sourcePhotos = input.photos === undefined && input.productId
         ? (await client.query<PhotoUpload>('SELECT url, alt FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id LIMIT 8', [input.productId])).rows
@@ -590,8 +599,8 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
                 photoSnapshot = (await client.query('SELECT url, alt FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order, id', [offerId])).rows
             }
         }
-        const order = await client.query<{ id: string }>('INSERT INTO orders (buy_request_id, offer_id, buyer_id, seller_id, status, currency, subtotal, quantity, unit, unit_price, conditions_snapshot, selection_key, negotiation_proposal_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id', [row.buy_request_id, row.id, user.id, row.seller_id, 'selected', row.currency, subtotal, selectionQuantity, row.unit, unitPrice, JSON.stringify({ offerId: row.id, productTitle: title, description: row.description, characteristics: row.characteristics, photos: photoSnapshot, originalOffer: { price: Number(row.unit_price), quantity: Number(row.offered_quantity), delivery: row.delivery, note: row.note }, terms: row.terms, delivery, goodsTotal, grandTotal: subtotal, negotiated: agreed ? { id: agreed.id, price: unitPrice, quantity: selectionQuantity, delivery } : null }), input.selectionKey ?? null, agreed?.id ?? null])
-        await client.query('INSERT INTO order_items (order_id, offer_id, product_id, quantity, unit, unit_price, currency, product_title_snapshot, offer_terms_snapshot, delivery_terms_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [order.rows[0].id, row.id, row.product_id, selectionQuantity, row.unit, unitPrice, row.currency, title, JSON.stringify({ ...row.terms, description: row.description, characteristics: row.characteristics, photos: photoSnapshot }), JSON.stringify(delivery)])
+        const order = await client.query<{ id: string }>('INSERT INTO orders (buy_request_id, offer_id, buyer_id, seller_id, status, currency, subtotal, quantity, unit, unit_price, conditions_snapshot, selection_key, negotiation_proposal_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id', [row.buy_request_id, row.id, user.id, row.seller_id, 'selected', row.currency, subtotal, selectionQuantity, row.unit, unitPrice, JSON.stringify({ offerId: row.id, productTitle: title, description: row.description, characteristics: row.characteristics, attributes: row.attributes, photos: photoSnapshot, originalOffer: { price: Number(row.unit_price), quantity: Number(row.offered_quantity), delivery: row.delivery, note: row.note }, terms: row.terms, delivery, goodsTotal, grandTotal: subtotal, negotiated: agreed ? { id: agreed.id, price: unitPrice, quantity: selectionQuantity, delivery } : null }), input.selectionKey ?? null, agreed?.id ?? null])
+        await client.query('INSERT INTO order_items (order_id, offer_id, product_id, quantity, unit, unit_price, currency, product_title_snapshot, offer_terms_snapshot, delivery_terms_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [order.rows[0].id, row.id, row.product_id, selectionQuantity, row.unit, unitPrice, row.currency, title, JSON.stringify({ ...row.terms, description: row.description, characteristics: row.characteristics, attributes: row.attributes, photos: photoSnapshot }), JSON.stringify(delivery)])
         await createOrderConversation(client, order.rows[0].id, user.id, row.seller_id, row.id)
         await refreshRequestQuantities(client, row.buy_request_id)
         await audit(client, user.id, 'offer.selected', 'offer', offerId, { quantity: selectionQuantity, orderId: order.rows[0].id })
@@ -606,8 +615,8 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
     const errors = validateOfferInput(input, true)
     if (errors.length) return invalid(errors)
     if (Array.isArray(input.deliveryOptions) && input.deliveryOptions.length !== 1) return invalid(['deliveryOptions'])
-    const allowed: Record<string, string> = { productId: 'product_id', quantity: 'offered_quantity', unit: 'unit', price: 'unit_price', currency: 'currency', delivery: 'delivery', deliveryOptions: 'delivery_options', note: 'note', additionalPhotoUrl: 'additional_photo_url', validUntil: 'valid_until', title: 'title', description: 'description', characteristics: 'characteristics' }
-    const normalizedInput = { ...input, ...(input.deliveryOptions === undefined ? {} : { deliveryOptions: JSON.stringify(input.deliveryOptions) }) }
+    const allowed: Record<string, string> = { productId: 'product_id', quantity: 'offered_quantity', unit: 'unit', price: 'unit_price', currency: 'currency', delivery: 'delivery', deliveryOptions: 'delivery_options', note: 'note', additionalPhotoUrl: 'additional_photo_url', validUntil: 'valid_until', title: 'title', description: 'description', characteristics: 'characteristics', attributes: 'attributes' }
+    const normalizedInput = { ...input, ...(input.deliveryOptions === undefined ? {} : { deliveryOptions: JSON.stringify(input.deliveryOptions) }), ...(input.attributes === undefined ? {} : { attributes: JSON.stringify(input.attributes) }) }
     const { assignments, values } = buildUpdate(allowed, normalizedInput)
     if (input.deliveryPrice !== undefined) assignments.push(`delivery_terms = delivery_terms || jsonb_build_object('price', $${values.push(input.deliveryPrice)}::numeric)`)
     if (input.availableAt !== undefined) assignments.push(`terms = terms || jsonb_build_object('availableAt', $${values.push(input.availableAt)}::text)`)
@@ -622,6 +631,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
         if (!link) return { status: 404, body: { error: 'OFFER_NOT_FOUND' } }
         const request = (await client.query('SELECT * FROM buy_requests WHERE id = $1 FOR UPDATE', [link.buy_request_id])).rows[0]
         const existing = (await client.query('SELECT * FROM offers WHERE id = $1 FOR UPDATE', [offerId])).rows[0]
+        if (input.attributes !== undefined && !await validateAttributes(request.category_id, input.attributes, client)) return invalid(['attributes'])
         if (input.deliveryOptions !== undefined && !postalTermsDefined(input.deliveryOptions as DeliveryOption[], existing.delivery_options)) return invalid(['deliveryOptions'])
         if (existing.status !== 'submitted' || Number(existing.accepted_quantity) > 0) return { status: 409, body: { error: 'OFFER_TERMS_LOCKED' } }
         if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }

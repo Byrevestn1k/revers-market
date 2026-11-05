@@ -1,6 +1,145 @@
 import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 
+for (const width of [390, 1280]) test(`product is created through UI using a confirmed category and attribute hint at ${width}px`, async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5180', viewport: { width, height: 844 } })
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 8)
+    const username = `tester_create_${suffix}`
+    try {
+        expect((await context.request.post('/api/auth/register', { data: { username, email: `${username}@example.com`, countryCode: 'UA', phone: `+38067${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' } })).status()).toBe(201)
+        const settlements = (await (await context.request.get('/api/settlements?q=Рівне')).json()).settlements
+        const rivne = settlements.find((item: any) => item.name === 'Рівне' && item.region === 'Рівненська область')
+        expect((await context.request.patch('/api/profile/me', { data: { location: 'Рівне', settlementCode: rivne.code, mapLocation: { mode: 'pin', latitude: 50.625951, longitude: 26.270642, consent: true } } })).status()).toBe(200)
+        const page = await context.newPage()
+        await page.goto('/my/products/new')
+        await page.getByLabel('Назва товару').fill(`Смартфон Samsung 128 ГБ ${suffix}`)
+        await page.locator('.category-recommendation button').filter({ hasText: 'Смартфони' }).first().click()
+        await page.getByRole('button', { name: 'Застосувати підказку' }).click()
+        await page.getByLabel('Виробник або марка').fill('Samsung')
+        await page.getByLabel('Ціна за одиницю').fill('5000')
+        await page.getByLabel('Можна домовитися', { exact: true }).check()
+        for (const viewportWidth of [320, 390, 768, 1024, 1280, 1440]) {
+            await page.setViewportSize({ width: viewportWidth, height: 844 })
+            await expect(page.getByLabel('Пам’ять (ГБ)')).toBeVisible()
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
+            if (width === 390) await page.screenshot({ path: `docs/qa/step-28/product-create-viewport-${viewportWidth}.png`, fullPage: true })
+        }
+        await page.setViewportSize({ width, height: 844 })
+        await page.screenshot({ path: `docs/qa/step-28/product-create-attributes-${width}.png`, fullPage: true })
+        await page.getByRole('button', { name: 'Опублікувати товар' }).click()
+        await expect(page).toHaveURL(/\/my\/products$/)
+        const listing = (await (await context.request.get(`/api/products?ownerUsername=${username}`)).json()).products.find((item: any) => item.title.endsWith(suffix))
+        expect(listing.attributes).toEqual({ brand: 'Samsung', storage: 128 })
+    } finally { await context.close() }
+})
+
+for (const width of [390, 1280]) test(`product attributes open and save at ${width}px`, async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5180', viewport: { width, height: 844 } })
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 8)
+    try {
+        expect((await context.request.post('/api/auth/register', { data: { username: `tester_product_${suffix}`, email: `tester_product_${suffix}@example.com`, countryCode: 'UA', phone: `+38067${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' } })).status()).toBe(201)
+        const category = (await (await context.request.get('/api/categories')).json()).categories.find((item: any) => item.code === 'market-electronics--telefony-ta-aksesuary--smartfony-mobilni-telefony')
+        const created = await context.request.post('/api/products', { data: { categoryId: category.id, title: `Смартфон ${suffix}`, description: 'Телефон для перевірки', quantity: 1, unit: 'piece', price: 100, currency: 'UAH', deliveryMode: 'pickup', geoZone: 'Рівне', status: 'active', attributes: { brand: 'Samsung', storage: 128 } } })
+        expect(created.status()).toBe(201)
+        const productId = (await created.json()).product.id
+        const page = await context.newPage()
+        await page.goto(`/products/${productId}`)
+        await expect(page.getByText('Samsung')).toBeVisible()
+        await page.getByRole('button', { name: 'Редагувати товар' }).click()
+        await expect(page.getByLabel('Виробник або марка')).toHaveValue('Samsung')
+        await expect(page.getByLabel('Пам’ять (ГБ)')).toHaveValue('128')
+        await page.getByLabel('Пам’ять (ГБ)').fill('256')
+        await page.getByRole('button', { name: 'Зберегти зміни' }).click()
+        await expect.poll(async () => (await (await context.request.get(`/api/products/${productId}`)).json()).product.attributes.storage).toBe(256)
+        await page.goto(`/products/${productId}`)
+        await expect(page.getByText('256 ГБ')).toBeVisible()
+        await page.screenshot({ path: `docs/qa/step-28/product-attributes-${width}.png`, fullPage: true })
+    } finally { await context.close() }
+})
+
+test('recommendations require confirmation and category changes protect entered attributes', async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5180', viewport: { width: 390, height: 844 } })
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 8)
+    try {
+        expect((await context.request.post('/api/auth/register', { data: { username: `tester_hint_${suffix}`, email: `tester_hint_${suffix}@example.com`, countryCode: 'UA', phone: `+38067${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' } })).status()).toBe(201)
+        const page = await context.newPage()
+        await page.goto('/my/requests/new')
+        await page.getByLabel('Назва товару').fill('квізорп 7842')
+        await expect(page.getByText('Категорію не вдалося визначити точно. Оберіть її вручну.')).toBeVisible()
+        const picker = page.getByRole('combobox', { name: 'Пошук або вибір категорії' })
+        await picker.fill('байк')
+        await expect(page.getByRole('option').filter({ hasText: 'Велосипеди' }).filter({ visible: true }).first()).toBeVisible()
+        await picker.press('Escape')
+        await page.getByLabel('Назва товару').fill('Смартфон Samsung 128 ГБ')
+        await expect(picker).toHaveValue('')
+        const recommendation = page.locator('.category-recommendation button').filter({ hasText: 'Смартфони' }).first()
+        await expect(recommendation).toBeVisible()
+        await recommendation.click()
+        await expect(page.getByLabel('Пам’ять (ГБ)')).toHaveValue('')
+        await page.getByRole('button', { name: 'Застосувати підказку' }).click()
+        await expect(page.getByLabel('Пам’ять (ГБ)')).toHaveValue('128')
+        const category = (await (await context.request.get('/api/categories')).json()).categories.find((item: any) => item.code === 'grains')
+        await picker.fill(category.name)
+        page.once('dialog', dialog => dialog.dismiss())
+        const select = page.getByRole('button', { name: `Вибрати категорію ${category.name}` }).filter({ visible: true })
+        if (await select.count()) await select.first().click()
+        else await page.getByRole('option', { name: category.name, exact: true }).filter({ visible: true }).first().click()
+        await expect(page.getByLabel('Пам’ять (ГБ)')).toHaveValue('128')
+        await page.screenshot({ path: 'docs/qa/step-28/attribute-hint-preserved-390.png', fullPage: true })
+        await picker.fill(category.name)
+        page.once('dialog', dialog => dialog.accept())
+        const retrySelect = page.getByRole('button', { name: `Вибрати категорію ${category.name}` }).filter({ visible: true })
+        if (await retrySelect.count()) await retrySelect.first().click()
+        else await page.getByRole('option', { name: category.name, exact: true }).filter({ visible: true }).first().click()
+        await expect(page.getByLabel('Культура або сорт')).toBeVisible()
+        await expect(page.getByLabel('Пам’ять (ГБ)')).toHaveCount(0)
+    } finally { await context.close() }
+})
+
+for (const width of [390, 1280]) test(`category attributes survive request editing at ${width}px`, async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5180', viewport: { width, height: 844 } })
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 8)
+    try {
+        const registered = await context.request.post('/api/auth/register', { data: { username: `tester_attr_${suffix}`, email: `tester_attr_${suffix}@example.com`, countryCode: 'UA', phone: `+38067${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' } })
+        expect(registered.status()).toBe(201)
+        const settlements = (await (await context.request.get('/api/settlements?q=Рівне')).json()).settlements
+        const rivne = settlements.find((item: any) => item.name === 'Рівне' && item.region === 'Рівненська область')
+        expect((await context.request.patch('/api/profile/me', { data: { location: 'Рівне', settlementCode: rivne.code, mapLocation: { mode: 'pin', latitude: 50.625951, longitude: 26.270642, consent: true } } })).status()).toBe(200)
+        const category = (await (await context.request.get('/api/categories')).json()).categories.find((item: any) => item.code === 'grains')
+        const page = await context.newPage()
+        await page.goto('/my/requests/new')
+        await page.getByLabel('Назва товару').fill(`Зерно ${suffix}`)
+        await page.getByRole('combobox', { name: 'Пошук або вибір категорії' }).fill(category.name)
+        const parent = page.getByRole('button', { name: `Вибрати категорію ${category.name}` }).filter({ visible: true })
+        if (await parent.count()) await parent.first().click()
+        else await page.getByRole('option', { name: category.name, exact: true }).filter({ visible: true }).first().click()
+        await page.getByLabel('Культура або сорт').fill('Пшениця')
+        await page.getByLabel('Рік врожаю').fill('2024')
+        for (const viewportWidth of [320, 390, 768, 1024, 1280, 1440]) {
+            await page.setViewportSize({ width: viewportWidth, height: 844 })
+            await expect(page.getByLabel('Культура або сорт')).toBeVisible()
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
+            await page.screenshot({ path: `docs/qa/step-28/attributes-${width}-${viewportWidth}.png`, fullPage: true })
+        }
+        await page.setViewportSize({ width, height: 844 })
+        await page.getByLabel('Кількість', { exact: true }).fill('20')
+        await page.locator('select[name="unit"]').selectOption('kg')
+        await page.getByLabel('Можна домовитися', { exact: true }).check()
+        await page.getByRole('button', { name: 'Опублікувати запит' }).click()
+        await expect(page).toHaveURL(/\/map$/)
+        await page.goto('/my/requests')
+        await page.locator('.buy-request-card').filter({ hasText: `Зерно ${suffix}` }).getByRole('button', { name: 'Редагувати', exact: true }).click()
+        const dialog = page.getByRole('dialog')
+        await expect(dialog.getByLabel('Культура або сорт')).toHaveValue('Пшениця')
+        await expect(dialog.getByLabel('Рік врожаю')).toHaveValue('2024')
+        await dialog.getByLabel('Назва товару').fill(`Зерно оновлено ${suffix}`)
+        await dialog.getByRole('button', { name: 'Зберегти', exact: true }).click()
+        await expect(dialog).toHaveCount(0)
+        const saved = (await (await context.request.get('/api/buy-requests?mine=true')).json()).buyRequests.find((item: any) => item.title === `Зерно оновлено ${suffix}`)
+        expect(saved.attributes).toEqual({ grain_type: 'Пшениця', harvest_year: 2024 })
+    } finally { await context.close() }
+})
+
 for (const width of [390, 1280]) test(`buyer compares and selects offers at ${width}px`, async ({ browser }) => {
     const buyer = await browser.newContext({ baseURL: 'http://127.0.0.1:5180', viewport: { width, height: 844 } })
     const seller = await browser.newContext({ baseURL: 'http://127.0.0.1:5180' })
@@ -142,10 +281,10 @@ test('seller submits all three offer modes through the desktop interface', async
         await register(buyer, 'desk_b'); await register(seller, 'desk_s')
         const categories = (await (await buyer.request.get('/api/categories')).json()).categories
         const categoryId = categories.find((item: any) => item.code === 'grains').id
-        const created = await buyer.request.post('/api/buy-requests', { data: { categoryId, title: `Запит продавцю ${suffix}`, description: 'Тест', quantity: 20, unit: 'kg', currency: 'UAH', maxPrice: 230, countryCode: 'UA', receiptMethod: 'SELF_PICKUP', geoArea: 'Рівне', fulfillmentMode: 'multiple_sellers' } })
+        const created = await buyer.request.post('/api/buy-requests', { data: { categoryId, title: `Запит продавцю ${suffix}`, description: 'Тест', quantity: 20, unit: 'kg', currency: 'UAH', maxPrice: 230, countryCode: 'UA', receiptMethod: 'SELF_PICKUP', geoArea: 'Рівне', fulfillmentMode: 'multiple_sellers', attributes: { grain_type: 'Жито' } } })
         expect(created.status()).toBe(201)
         const requestId = (await created.json()).buyRequest.id
-        const product = await seller.request.post('/api/products', { data: { categoryId, title: `Товар продавця ${suffix}`, description: 'Опис', quantity: 20, unit: 'kg', price: 250, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'FLEXIBLE' }], geoZone: 'Рівне', status: 'active', photos: [] } })
+        const product = await seller.request.post('/api/products', { data: { categoryId, title: `Товар продавця ${suffix}`, description: 'Опис', quantity: 20, unit: 'kg', price: 250, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'FLEXIBLE' }], geoZone: 'Рівне', status: 'active', photos: [], attributes: { grain_type: 'Пшениця' } } })
         expect(product.status()).toBe(201)
         const productId = (await product.json()).product.id
         const page = await seller.newPage()
@@ -158,6 +297,7 @@ test('seller submits all three offer modes through the desktop interface', async
             await expect(page.getByRole('button', { name: 'Запропонувати товар' })).toBeVisible()
         }
         await openForm()
+        await expect(page.getByLabel('Культура або сорт')).toHaveValue('Жито')
         await page.getByLabel('Можна домовитися', { exact: true }).check()
         let loseResponse = true
         await page.route(`**/api/buy-requests/${requestId}/offers`, async route => {
@@ -175,6 +315,7 @@ test('seller submits all three offer modes through the desktop interface', async
         await openForm()
         await page.getByText('Вручну', { exact: true }).click()
         await page.getByLabel('Назва товару').fill(`Ручна пропозиція ${suffix}`)
+        await page.getByLabel('Культура або сорт').fill('Ячмінь')
         await page.getByLabel('Ціна за кг').fill('200')
         await page.getByLabel('Можна домовитися', { exact: true }).check()
         await send()
@@ -194,6 +335,9 @@ test('seller submits all three offer modes through the desktop interface', async
         await send()
         const offers = (await (await buyer.request.get(`/api/buy-requests/${requestId}/offers`)).json()).offers
         expect(offers.map((offer: any) => offer.creationMode).sort()).toEqual(['manual', 'product', 'request_terms'])
+        expect(offers.find((offer: any) => offer.creationMode === 'request_terms').attributes).toEqual({ grain_type: 'Жито' })
+        expect(offers.find((offer: any) => offer.creationMode === 'manual').attributes).toEqual({ grain_type: 'Ячмінь' })
+        expect(offers.find((offer: any) => offer.creationMode === 'product').attributes).toEqual({ grain_type: 'Пшениця' })
         expect(offers.find((offer: any) => offer.creationMode === 'product').price.amount).toBe(210)
         expect((await (await seller.request.get(`/api/products/${productId}`)).json()).product.price.amount).toBe(250)
         const buyerPage = await buyer.newPage()
@@ -237,7 +381,7 @@ for (const width of [390, 1280]) test(`complete buyer and seller flow at ${width
         expect((await buyer.request.patch('/api/profile/me', { data: { location: 'Рівне', settlementCode: rivne.code, mapLocation: { mode: 'pin', latitude: 50.625951, longitude: 26.270642, consent: true } } })).status()).toBe(200)
         const categories = (await (await buyer.request.get('/api/categories')).json()).categories
         const category = categories.find((item: any) => item.code === 'grains')
-        const productResponse = await seller.request.post('/api/products', { data: { categoryId: category.id, title: `Е2Е товар ${suffix}`, description: 'Тестовий товар', quantity: 20, unit: 'kg', price: 250, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'FLEXIBLE' }], geoZone: 'Рівне', status: 'active', photos: [] } })
+        const productResponse = await seller.request.post('/api/products', { data: { categoryId: category.id, title: `Е2Е товар ${suffix}`, description: 'Тестовий товар', quantity: 20, unit: 'kg', price: 250, currency: 'UAH', deliveryMode: 'pickup', deliveryOptions: [{ method: 'FLEXIBLE' }], geoZone: 'Рівне', status: 'active', photos: [], attributes: { grain_type: 'Пшениця' } } })
         expect(productResponse.status()).toBe(201)
         const productId = (await productResponse.json()).product.id
         const buyerPage = await buyer.newPage()
@@ -247,6 +391,7 @@ for (const width of [390, 1280]) test(`complete buyer and seller flow at ${width
         const parent = buyerPage.getByRole('button', { name: `Вибрати категорію ${category.name}` }).filter({ visible: true })
         if (await parent.count()) await parent.first().click()
         else await buyerPage.getByRole('option', { name: category.name, exact: true }).filter({ visible: true }).first().click()
+        await buyerPage.getByLabel('Культура або сорт').fill('Жито')
         await buyerPage.getByLabel('Кількість', { exact: true }).fill('20')
         await buyerPage.locator('select[name="unit"]').selectOption('kg')
         await buyerPage.getByLabel('Ціна до, за одиницю').fill('230')
@@ -282,6 +427,8 @@ for (const width of [390, 1280]) test(`complete buyer and seller flow at ${width
         await sellerPage.getByRole('button', { name: 'Запропонувати товар' }).click()
         await sellerPage.getByText('Свій товар', { exact: true }).click()
         await sellerPage.getByLabel('Мій активний товар').selectOption(productId)
+        await expect(sellerPage.getByLabel('Культура або сорт')).toHaveValue('Пшениця')
+        await sellerPage.getByLabel('Культура або сорт').fill('Ячмінь')
         await sellerPage.getByLabel('Кількість (кг)').fill('8')
         await sellerPage.getByLabel('Ціна за кг').fill('210')
         await sellerPage.getByLabel('Можна домовитися', { exact: true }).check()
@@ -289,6 +436,7 @@ for (const width of [390, 1280]) test(`complete buyer and seller flow at ${width
         await sellerPage.getByRole('button', { name: 'Надіслати пропозицію' }).click()
         await expect(sellerPage.getByRole('button', { name: 'Запропонувати товар' })).toBeVisible()
         expect((await (await seller.request.get(`/api/products/${productId}`)).json()).product.price.amount).toBe(250)
+        expect((await (await seller.request.get(`/api/products/${productId}`)).json()).product.attributes).toEqual({ grain_type: 'Пшениця' })
         await buyerPage.goto('/notifications')
         await buyerPage.getByRole('tab', { name: /Я покупець/ }).click()
         const notice = buyerPage.locator('.notification-row').filter({ hasText: `Е2Е запит оновлено ${suffix}` }).filter({ hasText: 'Нова пропозиція' })
@@ -299,6 +447,8 @@ for (const width of [390, 1280]) test(`complete buyer and seller flow at ${width
         await expect(card).toContainText('1 680')
         await card.locator('summary').click()
         await expect(card.getByText('Порівняння умов')).toBeVisible()
+        await expect(card.getByRole('table', { name: 'Порівняння характеристик' })).toContainText('Ячмінь')
+        await expect(card.getByRole('table', { name: 'Порівняння характеристик' })).toContainText('Жито')
         await card.getByRole('button', { name: 'Написати продавцю' }).click()
         await expect(buyerPage).toHaveURL(/\/messages\//)
         await buyerPage.goto(`/buy-requests/${saved.id}`)

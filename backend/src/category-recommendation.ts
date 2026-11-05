@@ -4,7 +4,7 @@ import { pool } from './db/client.js';
 import { searchTokens } from './smart-search.js';
 
 type Queryable = Pick<PoolClient, 'query'>;
-type Category = { id: string; parent_id: string | null; code: string; name: string };
+type Category = { id: string; parent_id: string | null; code: string; name: string; aliases: string[] };
 export type CategorySuggestion = { id: string; name: string; path: string };
 export type CategoryAssessment = { level: 'allow' | 'warn' | 'block'; certainty: 'identified' | 'uncertain'; reason: string | null; suggestions: CategorySuggestion[] };
 
@@ -119,12 +119,12 @@ function resolveSubject(rawTitle: string): SubjectResolution {
 let categoryCache: { expires: number; items: Category[] } | null = null;
 async function categories(queryable: Queryable): Promise<Category[]> {
   if (categoryCache && categoryCache.expires > Date.now()) return categoryCache.items;
-  const result = await queryable.query<Category>('SELECT id, parent_id, code, name FROM categories WHERE is_active');
+  const result = await queryable.query<Category>('SELECT c.id, c.parent_id, c.code, c.name, ARRAY(SELECT a.alias FROM category_aliases a WHERE a.category_id=c.id) AS aliases FROM categories c WHERE c.is_active');
   categoryCache = { expires: Date.now() + 60_000, items: result.rows };
   return result.rows;
 }
 
-export async function assessCategory(input: { title: string; description?: string; categoryId?: string; unit?: string }, queryable: Queryable = pool): Promise<CategoryAssessment> {
+export async function assessCategory(input: { title: string; description?: string; categoryId?: string; unit?: string; attributeHints?: string[] }, queryable: Queryable = pool): Promise<CategoryAssessment> {
   const items = await categories(queryable);
   const byCode = new Map(items.map(item => [item.code, item]));
   const byId = new Map(items.map(item => [item.id, item]));
@@ -146,6 +146,11 @@ export async function assessCategory(input: { title: string; description?: strin
     return trail.join(' › ');
   };
   const categoryCandidates = detected?.codes.map(code => byCode.get(code)).filter((item): item is Category => Boolean(item)) ?? [];
+  if (!categoryCandidates.length) categoryCandidates.push(...items.filter(item => (item.aliases ?? []).some(alias => normalize(alias) === core)).slice(0, 3));
+  if (!categoryCandidates.length && input.attributeHints?.length) {
+    const hints = new Set(input.attributeHints.map(normalize));
+    categoryCandidates.push(...items.filter(item => (item.aliases ?? []).some(alias => hints.has(normalize(alias)))).slice(0, 3));
+  }
   if (!categoryCandidates.length) {
     const words = searchTokens(resolution.head || input.title).filter(word => word.length >= 4);
     categoryCandidates.push(...items.map(item => {

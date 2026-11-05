@@ -29,6 +29,7 @@ import { deleteDemandSubscription, getDemandSubscriptionMatches, getDemandSubscr
 import { listFavorites, removeFavorite, setFavorite } from './favorites.js'
 import { createSearchRateLimiter } from './search-rate-limit.js'
 import { assessCategory, createCategoryRecommendationRateLimit } from './category-recommendation.js'
+import { attributeDefinitions } from './category-attributes.js'
 import { createCategoryAppeal, listCategoryAppeals, updateCategoryAppeal } from './category-appeals.js'
 
 const mapService = new MapService()
@@ -143,10 +144,16 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
 
     app.get('/api/categories', withResult(() => listCategories()))
     app.get('/api/categories/popular', withResult(() => listPopularCategories()))
+    app.get('/api/categories/:id/attributes', withResult(async (request) => {
+        const id = String(request.params.id)
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return { status: 400, body: { error: 'VALIDATION_ERROR' } }
+        return { status: 200, body: { attributes: await attributeDefinitions(id) } }
+    }))
     app.post('/api/categories/recommend', requireAuth, createCategoryRecommendationRateLimit(), withResult(async (request) => {
-        const { title, description, categoryId, unit } = request.body ?? {}
+        const { title, description, categoryId, unit, attributeHints } = request.body ?? {}
         if (typeof title !== 'string' || title.length > 160 || typeof description !== 'undefined' && (typeof description !== 'string' || description.length > 5000) || typeof categoryId !== 'undefined' && typeof categoryId !== 'string') return { status: 400, body: { error: 'VALIDATION_ERROR' } }
-        return { status: 200, body: await assessCategory({ title, description, categoryId, unit }) }
+        if (attributeHints !== undefined && (!Array.isArray(attributeHints) || attributeHints.length > 30 || attributeHints.some((item: unknown) => typeof item !== 'string' || item.length > 200))) return { status: 400, body: { error: 'VALIDATION_ERROR' } }
+        return { status: 200, body: await assessCategory({ title, description, categoryId, unit, attributeHints }) }
     }))
     app.post('/api/category-appeals', requireAuth, withResult((request) => createCategoryAppeal(request.authUser!, request.body ?? {})))
     app.get('/api/moderation/category-appeals', requireAuth, withResult((request) => listCategoryAppeals(request.authUser!)))
