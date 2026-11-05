@@ -85,26 +85,30 @@ export const listConversations = async (user: AuthUser) => {
     const result = await pool.query(`SELECT c.id, c.order_id AS "orderId", c.offer_id AS "offerId", c.product_id AS "productId", c.buy_request_id AS "buyRequestId",
         COALESCE(o.status, ofr.status, p.status, direct_request.status) AS status,
         CASE WHEN c.order_id IS NOT NULL THEN 'deal' WHEN c.offer_id IS NOT NULL THEN 'offer' ELSE 'direct' END AS "type",
+        CASE WHEN c.order_id IS NOT NULL THEN 'deal' WHEN c.offer_id IS NOT NULL THEN 'offer'
+             WHEN c.product_id IS NOT NULL THEN 'product' WHEN c.buy_request_id IS NOT NULL THEN 'request'
+             WHEN c.profile_user_low IS NOT NULL THEN 'direct' ELSE 'unknown' END AS "contextKind",
         COALESCE(o.conditions_snapshot->>'productTitle', p.title, offer_product.title, direct_request.title, offer_request.title, 'Обговорення') AS title,
         COALESCE(o.unit_price, ofr.unit_price, p.price, offer_product.price, direct_request.max_unit_price, offer_request.max_unit_price) AS price,
         COALESCE(o.currency, ofr.currency, p.currency, offer_product.currency, direct_request.currency, offer_request.currency) AS currency,
+        COALESCE(o.quantity, ofr.offered_quantity, p.quantity, direct_request.requested_quantity, offer_request.requested_quantity) AS quantity,
+        COALESCE(o.unit, ofr.unit, p.unit, direct_request.unit, offer_request.unit) AS unit,
         COALESCE((SELECT pp.url FROM product_photos pp WHERE pp.product_id = COALESCE(p.id, offer_product.id) ORDER BY pp.sort_order, pp.id LIMIT 1), ofr.additional_photo_url) AS "imageUrl",
         COALESCE(direct_category.id, offer_request_category.id) AS "categoryId",
         COALESCE(direct_category.name, offer_request_category.name) AS "categoryName",
         COALESCE(direct_category.image_index, offer_request_category.image_index) AS "categoryImageIndex",
         other_user.id AS "otherUserId", other_user.username AS "otherUsername", other_user.avatar_url AS "otherAvatarUrl",
         CASE mine.role WHEN 'buyer' THEN 'buying' WHEN 'seller' THEN 'selling' END AS "userRole",
-        (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessage",
-        (SELECT sender_id FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageSenderId",
-        COALESCE((SELECT sender_id = $1 FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), false) AS "lastMessageIsMine",
-        (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS "lastMessageAt",
+        last_message.body AS "lastMessage", last_message.sender_id AS "lastMessageSenderId",
+        COALESCE(last_message.sender_id = $1, false) AS "lastMessageIsMine", last_message.created_at AS "lastMessageAt",
         mine.last_read_at AS "lastReadAt", other.last_read_at AS "counterpartLastReadAt",
         mine.pinned_at AS "pinnedAt", mine.archived_at AS "archivedAt", c.created_at AS "createdAt", c.updated_at AS "updatedAt",
-        (SELECT count(*)::integer FROM messages m WHERE m.conversation_id = c.id AND m.sender_id <> $1 AND m.created_at > COALESCE(mine.last_read_at, '-infinity'::timestamptz)) AS "unreadCount"
+        (SELECT count(*)::integer FROM messages m WHERE m.conversation_id = c.id AND m.sender_id <> $1 AND m.created_at > GREATEST(COALESCE(mine.last_read_at, '-infinity'::timestamptz), COALESCE(mine.history_hidden_before, '-infinity'::timestamptz))) AS "unreadCount"
         FROM conversations c
         JOIN conversation_participants mine ON mine.conversation_id = c.id AND mine.user_id = $1 AND mine.deleted_at IS NULL
         JOIN conversation_participants other ON other.conversation_id = c.id AND other.user_id <> $1
         JOIN users other_user ON other_user.id = other.user_id
+        LEFT JOIN LATERAL (SELECT m.body, m.sender_id, m.created_at FROM messages m WHERE m.conversation_id = c.id AND m.created_at > COALESCE(mine.history_hidden_before, '-infinity'::timestamptz) ORDER BY m.created_at DESC, m.id DESC LIMIT 1) last_message ON true
         LEFT JOIN orders o ON o.id = c.order_id
         LEFT JOIN offers ofr ON ofr.id = c.offer_id
         LEFT JOIN products p ON p.id = c.product_id
@@ -113,7 +117,7 @@ export const listConversations = async (user: AuthUser) => {
         LEFT JOIN buy_requests offer_request ON offer_request.id = ofr.buy_request_id
         LEFT JOIN categories direct_category ON direct_category.id = direct_request.category_id
         LEFT JOIN categories offer_request_category ON offer_request_category.id = offer_request.category_id
-        ORDER BY COALESCE((SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), c.created_at) DESC, c.id DESC`, [user.id])
+        ORDER BY COALESCE(last_message.created_at, c.created_at) DESC, c.id DESC`, [user.id])
     return { status: 200, body: { conversations: result.rows } }
 }
 
@@ -130,7 +134,7 @@ export const updateConversationArchived = (user: AuthUser, conversationId: strin
 
 export const deleteConversationForParticipant = async (user: AuthUser, conversationId: string) => {
     const result = await pool.query(`UPDATE conversation_participants
-        SET deleted_at = now(), pinned_at = NULL, archived_at = NULL
+        SET deleted_at = clock_timestamp(), history_hidden_before = clock_timestamp(), pinned_at = NULL, archived_at = NULL
         WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NOT NULL AND deleted_at IS NULL
         RETURNING deleted_at AS "deletedAt"`, [conversationId, user.id])
     if (!result.rowCount) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }

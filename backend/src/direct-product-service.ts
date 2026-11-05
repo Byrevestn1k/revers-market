@@ -103,9 +103,9 @@ export const changeDirectProposal = async (user: AuthUser, conversationId: strin
         }
         await audit(client, user.id, `DIRECT_PROPOSAL_${String(action).toUpperCase()}`, 'product', p.id, { proposalId: proposal.id, orderId, conversationId })
         const title = action === 'accept' ? 'Угоду укладено' : action === 'reject' ? 'Пропозицію відхилено' : action === 'withdraw' ? 'Пропозицію відкликано' : latest?.status === 'pending' ? 'Запропоновано інші умови' : 'Покупець запропонував угоду'
-        await client.query('UPDATE conversation_participants SET deleted_at=NULL, archived_at=NULL, pinned_at=NULL WHERE conversation_id=$1 AND user_id<>$2 AND deleted_at IS NOT NULL', [conversationId, user.id])
+        await client.query('UPDATE conversation_participants SET deleted_at=NULL WHERE conversation_id=$1 AND user_id<>$2 AND deleted_at IS NOT NULL', [conversationId, user.id])
         await createNotification(client, user.id === link.buyer_id ? link.seller_id : link.buyer_id, 'order', title, 'Перегляньте домовленість у чаті', user.id === link.buyer_id ? 'selling' : 'buying', { conversationId, orderId, directProposalId: proposal.id })
-        await client.query("INSERT INTO messages (conversation_id,sender_id,body,kind) VALUES ($1,$2,$3,'system')", [conversationId, user.id, action === 'accept' ? 'Умови погоджено. Угоду створено.' : title])
+        await client.query("INSERT INTO messages (conversation_id,sender_id,body,kind,created_at) VALUES ($1,$2,$3,'system',clock_timestamp())", [conversationId, user.id, action === 'accept' ? 'Умови погоджено. Угоду створено.' : title])
         await client.query('UPDATE conversations SET updated_at=now() WHERE id=$1', [conversationId])
         await client.query('COMMIT')
         return { status: 200, body: { proposal: dto(proposal), orderId } }

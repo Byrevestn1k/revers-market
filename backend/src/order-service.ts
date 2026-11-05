@@ -313,6 +313,7 @@ export const getOrderConversation = async (user: AuthUser, orderId: string) => {
         LEFT JOIN orders o ON o.id = $1
         WHERE (c.order_id = $1 OR c.offer_id = o.offer_id OR EXISTS (SELECT 1 FROM direct_product_proposals dp WHERE dp.order_id = $1 AND dp.conversation_id = c.id)) AND cp.user_id = $2`, [orderId, user.id])
     if (!result.rowCount) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
+    await pool.query('UPDATE conversation_participants SET deleted_at = NULL WHERE conversation_id = $1 AND user_id = $2 AND deleted_at IS NOT NULL', [result.rows[0].id, user.id])
     return { status: 200, body: { conversation: result.rows[0] } }
 }
 
@@ -335,14 +336,15 @@ const conversationForUser = async (user: AuthUser, conversationId: string) => {
 export const listMessages = async (user: AuthUser, conversationId: string) => {
     if (!(await conversationForUser(user, conversationId))) return { status: 404, body: { error: 'CONVERSATION_NOT_FOUND' } }
     const [result, counterpart] = await Promise.all([
-        pool.query('SELECT m.id, m.kind, m.conversation_id AS "conversationId", m.sender_id AS "senderId", u.username AS "senderUsername", u.avatar_url AS "senderAvatarUrl", m.body, m.created_at AS "createdAt" FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at, m.id', [conversationId]),
+        pool.query("SELECT m.id, m.kind, m.conversation_id AS \"conversationId\", m.sender_id AS \"senderId\", u.username AS \"senderUsername\", u.avatar_url AS \"senderAvatarUrl\", m.body, m.created_at AS \"createdAt\" FROM messages m JOIN users u ON u.id = m.sender_id JOIN conversation_participants me ON me.conversation_id = m.conversation_id AND me.user_id = $2 AND me.deleted_at IS NULL WHERE m.conversation_id = $1 AND m.created_at > COALESCE(me.history_hidden_before, '-infinity'::timestamptz) ORDER BY m.created_at, m.id", [conversationId, user.id]),
         pool.query('SELECT last_read_at AS "lastReadAt" FROM conversation_participants WHERE conversation_id = $1 AND user_id <> $2', [conversationId, user.id]),
     ])
     return { status: 200, body: { messages: result.rows, counterpartLastReadAt: counterpart.rows[0]?.lastReadAt ?? null } }
 }
 
-export const createMessage = async (user: AuthUser, conversationId: string, body: unknown) => {
+export const createMessage = async (user: AuthUser, conversationId: string, body: unknown, requestKey?: unknown) => {
     if (typeof body !== 'string' || !body.trim() || body.length > 5000) return { status: 400, body: { error: 'INVALID_MESSAGE' } }
+    if (requestKey !== undefined && (typeof requestKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestKey))) return { status: 400, body: { error: 'INVALID_REQUEST_KEY' } }
     const client = await pool.connect()
     try {
         await client.query('BEGIN')
@@ -357,9 +359,16 @@ export const createMessage = async (user: AuthUser, conversationId: string, body
             await client.query('ROLLBACK')
             return { status: 403, body: { error: 'USER_BLOCKED' } }
         }
-        const result = await client.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim()])
+        if (requestKey) {
+            const existing = await client.query('SELECT id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt" FROM messages WHERE conversation_id=$1 AND sender_id=$2 AND request_key=$3', [conversationId, user.id, requestKey])
+            if (existing.rowCount) {
+                await client.query('COMMIT')
+                return existing.rows[0].body === body.trim() ? { status: 200, body: { message: existing.rows[0] } } : { status: 409, body: { error: 'REQUEST_KEY_REUSED' } }
+            }
+        }
+        const result = await client.query('INSERT INTO messages (conversation_id, sender_id, body, created_at, request_key) VALUES ($1, $2, $3, clock_timestamp(), $4) RETURNING id, conversation_id AS "conversationId", sender_id AS "senderId", body, created_at AS "createdAt"', [conversationId, user.id, body.trim(), requestKey ?? null])
         await client.query(`UPDATE conversation_participants
-            SET deleted_at = NULL, archived_at = NULL, pinned_at = NULL
+            SET deleted_at = NULL
             WHERE conversation_id = $1 AND user_id <> $2 AND deleted_at IS NOT NULL`, [conversationId, user.id])
         for (const participant of counterpart) await createNotification(client, participant.user_id, 'message', 'Нове повідомлення', body.trim().slice(0, 160), participant.role === 'buyer' ? 'buying' : 'selling', { conversationId })
         await client.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversationId])
@@ -395,18 +404,46 @@ export const getOrCreateOfferConversation = async (user: AuthUser, offerId: stri
     if (!row || (row.buyer_id !== user.id && row.seller_id !== user.id)) return { status: 404, body: { error: 'OFFER_NOT_FOUND' } }
     if (await usersAreBlocked(pool, row.buyer_id, row.seller_id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
     const existing = await pool.query<{ id: string }>('SELECT id FROM conversations WHERE offer_id = $1', [offerId])
-    if (existing.rowCount) return { status: 200, body: { conversation: existing.rows[0] } }
+    if (existing.rowCount) {
+        await pool.query('UPDATE conversation_participants SET deleted_at=NULL WHERE conversation_id=$1 AND user_id=$2 AND deleted_at IS NOT NULL', [existing.rows[0].id, user.id])
+        return { status: 200, body: { conversation: existing.rows[0] } }
+    }
     const client = await pool.connect()
     try {
         await client.query('BEGIN')
         await client.query('SELECT id FROM offers WHERE id = $1 FOR UPDATE', [offerId])
         const again = await client.query<{ id: string }>('SELECT id FROM conversations WHERE offer_id = $1 FOR UPDATE', [offerId])
-        if (again.rowCount) { await client.query('COMMIT'); return { status: 200, body: { conversation: again.rows[0] } } }
+        if (again.rowCount) { await client.query('UPDATE conversation_participants SET deleted_at=NULL WHERE conversation_id=$1 AND user_id=$2 AND deleted_at IS NOT NULL', [again.rows[0].id, user.id]); await client.query('COMMIT'); return { status: 200, body: { conversation: again.rows[0] } } }
         const conversation = await client.query<{ id: string }>('INSERT INTO conversations (offer_id) VALUES ($1) RETURNING id', [offerId])
         await client.query(`INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1,$2,'buyer'),($1,$3,'seller')`, [conversation.rows[0].id, row.buyer_id, row.seller_id])
         await auditOrder(client, user.id, 'CONVERSATION_STARTED', 'offer', offerId)
         await client.query('COMMIT')
         return { status: 201, body: { conversation: conversation.rows[0] } }
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+}
+
+export const getOrCreateProfileConversation = async (user: AuthUser, otherId: string) => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(otherId) || user.id.toLowerCase() === otherId.toLowerCase()) return { status: 400, body: { error: 'INVALID_USER' } }
+    otherId = otherId.toLowerCase()
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        const ids = [user.id, otherId].sort()
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', ids)
+        const other = await client.query('SELECT id FROM users WHERE id = $1', [otherId])
+        if (!other.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'USER_NOT_FOUND' } } }
+        if (await usersAreBlocked(client, user.id, otherId)) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'USER_BLOCKED' } } }
+        let conversation = (await client.query<{ id: string }>('SELECT id FROM conversations WHERE profile_user_low = $1 AND profile_user_high = $2', ids)).rows[0]
+        let status = 200
+        if (!conversation) {
+            conversation = (await client.query<{ id: string }>('INSERT INTO conversations (profile_user_low, profile_user_high) VALUES ($1, $2) RETURNING id', ids)).rows[0]
+            await client.query("INSERT INTO conversation_participants (conversation_id, user_id, role) VALUES ($1,$2,'buyer'),($1,$3,'seller')", [conversation.id, ids[0], ids[1]])
+            status = 201
+        } else {
+            await client.query('UPDATE conversation_participants SET deleted_at = NULL WHERE conversation_id = $1 AND user_id = $2', [conversation.id, user.id])
+        }
+        await client.query('COMMIT')
+        return { status, body: { conversation } }
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
 
@@ -431,7 +468,7 @@ export const getOrCreateListingConversation = async (user: AuthUser, listingType
             JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2
             WHERE ${reference} = $1 LIMIT 1 FOR UPDATE OF cp`, [listingId, user.id])
         if (existing.rowCount) {
-            if (isProduct) await client.query('UPDATE conversation_participants SET deleted_at=NULL, archived_at=NULL, pinned_at=NULL WHERE conversation_id=$1 AND user_id=$2 AND deleted_at IS NOT NULL', [existing.rows[0].id, user.id])
+            await client.query('UPDATE conversation_participants SET deleted_at=NULL WHERE conversation_id=$1 AND user_id=$2 AND deleted_at IS NOT NULL', [existing.rows[0].id, user.id])
             await client.query('COMMIT'); return { status: 200, body: { conversation: existing.rows[0] } }
         }
         const conversation = await client.query<{ id: string }>(`INSERT INTO conversations (${isProduct ? 'product_id' : 'buy_request_id'}) VALUES ($1) RETURNING id`, [listingId])

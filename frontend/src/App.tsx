@@ -953,9 +953,18 @@ function PublicProfilePage({ username, user, onAccount, onCreate, favoriteKeys, 
             .catch(error => { if (active) setError(error.message) })
         return () => { active = false }
     }, [username])
+    const [chatBusy, setChatBusy] = useState(false)
+    const [chatError, setChatError] = useState('')
+    const startProfileChat = async () => {
+        if (!profile || chatBusy) return
+        if (!user) { onAccount(); return }
+        setChatBusy(true); setChatError('')
+        try { const result = await request(`/api/users/${profile.id}/conversation`, { method: 'POST', body: '{}' }); openConversationRoute(result.conversation.id) }
+        catch (caught) { setChatError((caught as Error).message) } finally { setChatBusy(false) }
+    }
     const date = (value: string) => new Date(value).toLocaleDateString('uk-UA', { year: 'numeric', month: 'long' })
     const seen = profile?.lastSeenAt ? new Date(profile.lastSeenAt).toLocaleString('uk-UA', { dateStyle: 'medium', timeStyle: 'short' }) : 'ще не заходив'
-    return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate} favoriteKeys={favoriteKeys} onFavorite={onFavorite}>{error ? <p className="form-error">{error}</p> : !profile ? <p>Завантажуємо профіль…</p> : <section className="profile-public-page"><header className="public-profile-header"><div className="public-profile-avatar">{profile.avatarUrl ? <img src={imageUrl(profile.avatarUrl)} alt={'Аватар ' + (profile.nickname || profile.username)} /> : <b>{avatarInitials(profile.nickname || profile.username)}</b>}</div><div className="public-profile-title"><span className="eyebrow">Профіль користувача</span><h1>{profile.nickname || profile.username}</h1><p>@{profile.username} · ⌖ {profile.location || 'Місце не вказано'}</p><small>На сайті з {date(profile.createdAt)} · Був онлайн: {seen}</small></div>{profile.phone && <a className="primary-button profile-call" href={'tel:' + profile.phone}>Зателефонувати</a>}</header><div className="public-profile-stats"><div><b>{profile.ratingSummary.average ?? '—'}</b><span>★ Рейтинг {profile.ratingSummary.count ? `(${profile.ratingSummary.count})` : ''}</span></div><div><b>{profile.statistics.listingsCount}</b><span>Оголошень</span></div><div><b>{profile.statistics.completedDealsCount}</b><span>Підтверджених угод</span></div><div><b>{profile.statistics.responseRate ?? '—'}{profile.statistics.responseRate !== null ? '%' : ''}</b><span>Відповідей</span></div></div>{user && user.id !== profile.id && <ParticipantActions id={profile.id} http={request} notify={message => window.alert(message)} />}<section className="public-profile-bio"><h2>Про себе</h2><p>{profile.bio || 'Користувач ще не додав опис.'}</p></section><div className="public-profile-tabs" role="tablist" aria-label="Вміст профілю"><button role="tab" aria-selected={tab === 'products'} className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Усі товари <small>{products.length}</small></button><button role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>Запити на покупку <small>{buyRequests.length}</small></button><button role="tab" aria-selected={tab === 'reviews'} className={tab === 'reviews' ? 'active' : ''} onClick={() => setTab('reviews')}>Відгуки <small>{reviews.length}</small></button></div><div className="public-profile-content">{tab === 'products' && (products.length ? <div className="product-grid">{products.map(product => <Card key={product.id} product={product} onOpen={() => window.location.assign('/products/' + encodeURIComponent(product.id))} favorite={favoriteKeys.has(favoriteKey('product', product.id))} onFavorite={user ? () => void onFavorite('product', product.id) : undefined} />)}</div> : <Empty text="Активних товарів поки немає" />)}{tab === 'requests' && (buyRequests.length ? <div className="request-list">{buyRequests.map(item => <BuyRequestCard key={item.id} item={item} onOpen={() => window.location.assign('/buy-requests/' + encodeURIComponent(item.id))} favorite={favoriteKeys.has(favoriteKey('buy_request', item.id))} onFavorite={user ? onFavorite : undefined} />)}</div> : <Empty text="Активних запитів поки немає" />)}{tab === 'reviews' && (reviews.length ? <div className="profile-review-list">{reviews.map(review => <article key={review.id} className="profile-review"><div><b>★ {review.rating}/12</b><small>{review.reviewerUsername} · {date(review.createdAt)}</small></div><p>{review.body || 'Без коментаря'}</p></article>)}</div> : <Empty text="Відгуків поки немає" />)}</div></section>}</PublicPage>
+    return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate} favoriteKeys={favoriteKeys} onFavorite={onFavorite}>{error ? <p className="form-error">{error}</p> : !profile ? <p>Завантажуємо профіль…</p> : <section className="profile-public-page"><header className="public-profile-header"><div className="public-profile-avatar">{profile.avatarUrl ? <img src={imageUrl(profile.avatarUrl)} alt={'Аватар ' + (profile.nickname || profile.username)} /> : <b>{avatarInitials(profile.nickname || profile.username)}</b>}</div><div className="public-profile-title"><span className="eyebrow">Профіль користувача</span><h1>{profile.nickname || profile.username}</h1><p>@{profile.username} · ⌖ {profile.location || 'Місце не вказано'}</p><small>На сайті з {date(profile.createdAt)} · Був онлайн: {seen}</small></div>{profile.phone && <a className="primary-button profile-call" href={'tel:' + profile.phone}>Зателефонувати</a>}{user?.id !== profile.id && <button type="button" className="outline-button" disabled={chatBusy} onClick={() => void startProfileChat()}>Написати повідомлення</button>}</header>{chatError && <p role="alert" className="form-error">{chatError}</p>}<div className="public-profile-stats"><div><b>{profile.ratingSummary.average ?? '—'}</b><span>★ Рейтинг {profile.ratingSummary.count ? `(${profile.ratingSummary.count})` : ''}</span></div><div><b>{profile.statistics.listingsCount}</b><span>Оголошень</span></div><div><b>{profile.statistics.completedDealsCount}</b><span>Підтверджених угод</span></div><div><b>{profile.statistics.responseRate ?? '—'}{profile.statistics.responseRate !== null ? '%' : ''}</b><span>Відповідей</span></div></div>{user && user.id !== profile.id && <ParticipantActions id={profile.id} http={request} notify={message => window.alert(message)} />}<section className="public-profile-bio"><h2>Про себе</h2><p>{profile.bio || 'Користувач ще не додав опис.'}</p></section><div className="public-profile-tabs" role="tablist" aria-label="Вміст профілю"><button role="tab" aria-selected={tab === 'products'} className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Усі товари <small>{products.length}</small></button><button role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>Запити на покупку <small>{buyRequests.length}</small></button><button role="tab" aria-selected={tab === 'reviews'} className={tab === 'reviews' ? 'active' : ''} onClick={() => setTab('reviews')}>Відгуки <small>{reviews.length}</small></button></div><div className="public-profile-content">{tab === 'products' && (products.length ? <div className="product-grid">{products.map(product => <Card key={product.id} product={product} onOpen={() => window.location.assign('/products/' + encodeURIComponent(product.id))} favorite={favoriteKeys.has(favoriteKey('product', product.id))} onFavorite={user ? () => void onFavorite('product', product.id) : undefined} />)}</div> : <Empty text="Активних товарів поки немає" />)}{tab === 'requests' && (buyRequests.length ? <div className="request-list">{buyRequests.map(item => <BuyRequestCard key={item.id} item={item} onOpen={() => window.location.assign('/buy-requests/' + encodeURIComponent(item.id))} favorite={favoriteKeys.has(favoriteKey('buy_request', item.id))} onFavorite={user ? onFavorite : undefined} />)}</div> : <Empty text="Активних запитів поки немає" />)}{tab === 'reviews' && (reviews.length ? <div className="profile-review-list">{reviews.map(review => <article key={review.id} className="profile-review"><div><b>★ {review.rating}/12</b><small>{review.reviewerUsername} · {date(review.createdAt)}</small></div><p>{review.body || 'Без коментаря'}</p></article>)}</div> : <Empty text="Відгуків поки немає" />)}</div></section>}</PublicPage>
 }
 
 function App() {
@@ -1398,6 +1407,17 @@ function TrashIcon() {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7m-8.5 0 .8 12.5h9.4L17.5 7M10 11v5m4-5v5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
+function ConversationThumbnail({ conversation }: { conversation: Conversation }) {
+    const [failedUrl, setFailedUrl] = useState<string | null>(null)
+    const direct = conversation.contextKind === 'direct'
+    const url = direct ? conversation.otherAvatarUrl : conversation.imageUrl
+    return <span className="conversation-thumb">{url && url !== failedUrl
+        ? <img src={imageUrl(url)} alt="" onError={() => setFailedUrl(url)} />
+        : !direct && conversation.categoryId
+            ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} />
+            : direct ? avatarInitials({ username: conversation.otherUsername }) : '◫'}</span>
+}
+
 function MessagesView({ notify }: { notify: (message: string) => void }) {
     const params = new URLSearchParams(window.location.search)
     const initialScope = params.get('filter')
@@ -1412,9 +1432,9 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
     const [loadError, setLoadError] = useState('')
 
     const toChat = (conversation?: Conversation) => conversation ? {
-        conversationId: conversation.id,
-        title: conversation.title || conversation.otherUsername,
         ...conversation,
+        conversationId: conversation.id,
+        title: conversation.contextKind === 'direct' ? conversation.otherUsername : conversation.title || conversation.otherUsername,
     } : null
     const isMobileMessagesLayout = () => window.matchMedia('(max-width: 700px)').matches
     const matchesScope = (conversation: Conversation, value: typeof scope) => {
@@ -1422,8 +1442,8 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
         if (conversation.archivedAt) return false
         if (value === 'saved') return Boolean(conversation.pinnedAt)
         if (value === 'all') return true
-        if (value === 'direct') return conversation.type === 'direct'
-        return conversation.userRole === value
+        if (value === 'direct') return conversation.contextKind === 'direct'
+        return conversation.contextKind !== 'direct' && conversation.contextKind !== 'unknown' && conversation.userRole === value
     }
     const matchesSearch = (conversation: Conversation) => (
         (String(conversation.title ?? '') + ' ' + conversation.otherUsername + ' ' + String(conversation.lastMessage ?? ''))
@@ -1451,7 +1471,11 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
 
     useEffect(() => {
         if (loading || !loaded) return
-        const routeConversation = conversations.find((conversation) => conversation.id === conversationIdForPath(window.location.pathname))
+        const routeId = conversationIdForPath(window.location.pathname)
+        const routeConversation = conversations.find((conversation) => conversation.id === routeId)
+        // A freshly created chat may not yet be present in a previous list
+        // refresh. Keep its deep link until the next refresh catches up.
+        if (routeId && !routeConversation) return
         const selected = routeConversation
             ?? visible.find((conversation) => conversation.id === chat?.conversationId)
             ?? (isMobileMessagesLayout() ? null : visible[0])
@@ -1521,24 +1545,21 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
             ? date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' })
             : date.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })
     }
-    const contextLabel = (conversation: Conversation) => conversation.type === 'direct'
-        ? 'Прямий чат'
-        : conversation.type === 'deal'
-            ? 'Угода'
-            : conversation.userRole === 'selling'
-                ? 'Ваша пропозиція'
-                : 'Пропозиція продавця'
-    const currentChat = loading || !loaded || conversations.some((conversation) => conversation.id === chat?.conversationId) ? chat : null
+    const contextLabel = (conversation: Conversation) => ({ direct: 'Прямий чат', product: 'Товар', request: 'Запит на покупку', offer: 'Пропозиція продавця', deal: 'Угода', unknown: 'Обговорення' }[conversation.contextKind] ?? 'Обговорення')
+    const contextStatus = (conversation: Conversation) => ({ sold: 'Товар продано', paused: 'Оголошення призупинено', completed: 'Завершено', cancelled: 'Скасовано', failed: 'Угода не відбулася', withdrawn: 'Пропозицію відкликано', rejected: 'Відхилено', expired: 'Строк минув' } as Record<string, string>)[conversation.status] ?? ''
+    // Keep the dialog mounted while the list catches up with a new deep link;
+    // unmounting here would discard text already entered by the user.
+    const currentChat = chat
     const active = conversations.find((conversation) => conversation.id === currentChat?.conversationId)
     const listContent = loading
         ? <div className="loading">Завантаження повідомлень…</div>
         : loadError && !conversations.length
             ? <div className="empty-state" role="alert"><span>!</span><h3>Не вдалося завантажити повідомлення</h3><p>{loadError}</p><button className="primary-button compact" onClick={() => void load(true)}>Спробувати ще раз</button></div>
         : visible.length
-                ? visible.map((conversation) => <div className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active ' : '') + (conversation.unreadCount ? 'unread' : '')} key={conversation.id} role="button" tabIndex={0} onClick={() => openConversation(conversation)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openConversation(conversation) } }} aria-label={'Відкрити чат: ' + (conversation.title || conversation.otherUsername) + (conversation.unreadCount ? `. Непрочитані повідомлення: ${conversation.unreadCount}` : '')}>
-                    <span className="conversation-thumb">{conversation.imageUrl ? <img src={imageUrl(conversation.imageUrl)} alt="" /> : conversation.categoryId ? <CategoryImage category={{ id: conversation.categoryId, name: conversation.categoryName ?? 'Категорія', parentId: null, imageIndex: conversation.categoryImageIndex ?? null }} /> : conversation.otherAvatarUrl ? <img src={imageUrl(conversation.otherAvatarUrl)} alt="" /> : avatarInitials({ username: conversation.otherUsername })}</span>
-                    <span className="conversation-main"><strong>{conversation.title || 'Обговорення'}</strong><span>{conversation.otherUsername} · {conversation.userRole === 'selling' ? 'покупець' : 'продавець'}</span><em>{scope === 'trash' ? 'У кошику' : contextLabel(conversation)}</em><small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
-                    <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{formatPrice(Number(conversation.price), conversation.currency || '')}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <MessageUnreadBadge count={conversation.unreadCount ?? 0} />}<ChatActions chat={{ ...conversation, id: conversation.id }} http={request} notify={notify} onChanged={refresh} onArchived={() => { if (chat?.conversationId === conversation.id) closeConversation() }} /></span>
+                ? visible.map((conversation) => <div className={'conversation-row ' + (chat?.conversationId === conversation.id ? 'active ' : '') + (conversation.unreadCount ? 'unread' : '')} key={conversation.id} role="button" tabIndex={0} onClick={(event) => { const target = event.target as Element; if (event.currentTarget.contains(target) && !target.closest('.chat-actions')) openConversation(conversation) }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openConversation(conversation) } }} aria-label={'Відкрити чат: ' + (conversation.contextKind === 'direct' ? conversation.otherUsername : conversation.title || conversation.otherUsername) + (conversation.unreadCount ? `. Непрочитані повідомлення: ${conversation.unreadCount}` : '')}>
+                    <ConversationThumbnail conversation={conversation} />
+                    <span className="conversation-main"><strong>{conversation.contextKind === 'direct' ? conversation.otherUsername : conversation.title || 'Обговорення'}</strong><span>{conversation.contextKind === 'direct' || conversation.contextKind === 'unknown' ? '' : `${conversation.otherUsername} · ${conversation.userRole === 'selling' ? 'покупець' : 'продавець'}`}</span><em>{scope === 'trash' ? 'У кошику' : contextLabel(conversation)}</em>{contextStatus(conversation) && <small>{contextStatus(conversation)}</small>}{conversation.quantity != null && conversation.unit && <small>{Number(conversation.quantity)} {unitLabel(conversation.unit)}{conversation.contextKind === 'offer' && conversation.price != null ? ` · Разом: ${formatPrice(Number(conversation.quantity) * Number(conversation.price), conversation.currency || '')}` : ''}</small>}<small>{conversation.lastMessage ? (conversation.lastMessageIsMine ? 'Ви: ' : '') + conversation.lastMessage : 'Повідомлень ще немає'}</small></span>
+                    <span className="conversation-side">{conversation.price !== null && conversation.price !== undefined && <b>{conversation.contextKind === 'request' ? 'до ' : ''}{formatPrice(Number(conversation.price), conversation.currency || '')}{conversation.unit ? ` / ${unitLabel(conversation.unit)}` : ''}</b>}<small>{time(conversation.lastMessageAt)}</small>{Boolean(conversation.unreadCount) && <MessageUnreadBadge count={conversation.unreadCount ?? 0} />}<ChatActions chat={{ ...conversation, id: conversation.id }} http={request} notify={notify} onChanged={refresh} onArchived={() => { if (chat?.conversationId === conversation.id) closeConversation() }} /></span>
                 </div>)
                 : <Empty text={search ? 'Нічого не знайдено' : 'Повідомлень поки немає'} />
 
@@ -1558,13 +1579,13 @@ function MessagesView({ notify }: { notify: (message: string) => void }) {
                     </div>
                 </div>
                 <div className="message-scope-tabs" role="tablist" aria-label="Тип чатів">
-                    {([['all', 'Усі чати'], ['buying', 'Покупки'], ['selling', 'Продажі'], ['direct', 'Прямі чати']] as const).map(([value, label]) => <button key={value} className={scope === value ? 'active' : ''} onClick={() => selectScope(value)} aria-pressed={scope === value}>{label}<small>{conversations.filter((item) => matchesScope(item, value)).length}</small></button>)}
+                    {([['all', 'Усі чати'], ['buying', 'Покупки'], ['selling', 'Продажі'], ['direct', 'Прямі чати']] as const).map(([value, label]) => { const count = conversations.filter((item) => matchesScope(item, value)).length; return <button key={value} className={scope === value ? 'active' : ''} onClick={() => selectScope(value)} aria-pressed={scope === value} aria-label={`${label}, чатів: ${count}`}>{label}<small aria-hidden="true">{count}</small></button> })}
                 </div>
                 {(scope === 'saved' || scope === 'trash') && <div className="message-personal-heading"><strong>{scope === 'saved' ? 'Збережені' : 'Кошик'}</strong><button type="button" className="text-button" onClick={() => selectScope('all')}>До всіх чатів</button></div>}
                 <div className="conversation-list">{listContent}</div>
             </aside>
             <div className="messages-dialog">
-                {loading && !currentChat ? <div className="loading">Завантаження чату…</div> : currentChat ? <DealChat chat={{ ...currentChat, ...(active ?? {}), conversationId: currentChat.conversationId, title: active?.title || currentChat.title }} embedded http={request} notify={notify} onClose={closeConversation} /> : <Empty text="Оберіть чат зі списку" />}
+                {loading && !currentChat ? <div className="loading">Завантаження чату…</div> : currentChat ? <DealChat chat={{ ...currentChat, ...(active ?? {}), conversationId: currentChat.conversationId, title: active?.contextKind === 'direct' ? active.otherUsername : active?.title || currentChat.title }} embedded http={request} notify={notify} onClose={closeConversation} /> : <Empty text="Оберіть чат зі списку" />}
             </div>
         </div>
     </section>

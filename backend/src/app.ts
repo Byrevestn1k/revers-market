@@ -13,7 +13,7 @@ import { changePassword } from './password-change.js'
 import { getPrivateProfile, getPublicProfile, updatePrivacy, updateProfile } from './profiles.js'
 import { createProduct, deleteProduct, getProduct, listCategories, listPopularCategories, listProducts, updateProduct } from './products.js'
 import { acceptOffer, createBuyRequest, createOffer, getBuyRequest, listBuyRequests, listMyOffers, listOffers, rejectOffer, updateBuyRequest, updateOffer, withdrawOffer } from './buy-requests.js'
-import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateListingConversation, getOrCreateOfferConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus, confirmDeal, failDeal, markDealCompleted } from './order-service.js'
+import { createMessage, getOrder, getOrderConversation, getOrderDeliveryAddress, getOrCreateListingConversation, getOrCreateOfferConversation, getOrCreateProfileConversation, listMessages, listOrders, openDispute, resolveDispute, markConversationRead, updateOrderStatus, confirmDeal, failDeal, markDealCompleted } from './order-service.js'
 import { getConversationContext, changeNegotiation } from './negotiation-service.js'
 import { getDirectProposals, changeDirectProposal } from './direct-product-service.js'
 import { getOrderContact } from './order-service.js'
@@ -268,6 +268,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.post('/api/offers/:id/conversation', requireAuth, withResult((request) => getOrCreateOfferConversation(request.authUser!, String(request.params.id))))
     app.post('/api/products/:id/conversation', requireAuth, withResult((request) => getOrCreateListingConversation(request.authUser!, 'product', String(request.params.id))))
     app.post('/api/buy-requests/:id/conversation', requireAuth, withResult((request) => getOrCreateListingConversation(request.authUser!, 'buy-request', String(request.params.id))))
+    app.post('/api/users/:id/conversation', requireAuth, withResult((request) => getOrCreateProfileConversation(request.authUser!, String(request.params.id))))
 
     app.patch('/api/offers/:id', requireAuth, withResult((request) => updateOffer(request.authUser!, String(request.params.id), request.body ?? {})))
 
@@ -304,7 +305,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.get('/api/conversations/:id/direct-proposals', requireAuth, withResult((request) => getDirectProposals(request.authUser!, String(request.params.id))))
     app.post('/api/conversations/:id/direct-proposals', requireAuth, withResult((request) => changeDirectProposal(request.authUser!, String(request.params.id), request.body ?? {})))
 
-    app.post('/api/conversations/:id/messages', requireAuth, withResult((request) => createMessage(request.authUser!, String(request.params.id), request.body?.body)))
+    app.post('/api/conversations/:id/messages', requireAuth, withResult((request) => createMessage(request.authUser!, String(request.params.id), request.body?.body, request.body?.requestKey)))
 
     app.patch('/api/conversations/:id/read', requireAuth, withResult((request) => markConversationRead(request.authUser!, String(request.params.id))))
 

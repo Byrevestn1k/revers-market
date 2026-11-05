@@ -16,9 +16,9 @@ export const dealEvent = async (client: PoolClient, order: any, actorId: string,
     if (conversation) {
         if (order.source === 'direct_product') {
             await client.query('SELECT user_id FROM conversation_participants WHERE conversation_id=$1 ORDER BY user_id FOR UPDATE', [conversation.id])
-            await client.query('UPDATE conversation_participants SET deleted_at=NULL, archived_at=NULL, pinned_at=NULL WHERE conversation_id=$1 AND user_id<>$2 AND deleted_at IS NOT NULL', [conversation.id, actorId])
+            await client.query('UPDATE conversation_participants SET deleted_at=NULL WHERE conversation_id=$1 AND user_id<>$2 AND deleted_at IS NOT NULL', [conversation.id, actorId])
         }
-        await client.query("INSERT INTO messages (conversation_id, sender_id, body, kind) VALUES ($1,$2,$3,'system')", [conversation.id, actorId, `${title}. ${body}`])
+        await client.query("INSERT INTO messages (conversation_id, sender_id, body, kind, created_at) VALUES ($1,$2,$3,'system',clock_timestamp())", [conversation.id, actorId, `${title}. ${body}`])
         await client.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [conversation.id])
     }
     await audit(client, actorId, action, 'order', order.id, { requestId: order.buy_request_id, offerId: order.offer_id })

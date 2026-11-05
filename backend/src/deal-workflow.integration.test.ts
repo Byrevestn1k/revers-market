@@ -218,7 +218,8 @@ if (hasDatabase) {
             expect(revived.unreadCount).toBeGreaterThan(0)
             expect(revived.lastMessage).toBe('Нове повідомлення після персонального видалення')
             const revivedMessages = (await buyer.get(`/api/conversations/${offerConversation}/messages`)).body.messages
-            expect(revivedMessages).toHaveLength(sharedMessageCount + 1)
+            // Personal deletion hides the previous history only for the deleter.
+            expect(revivedMessages).toHaveLength(1)
             expect(revivedMessages.at(-1).body).toBe('Нове повідомлення після персонального видалення')
             expect((await seller.get(`/api/conversations/${offerConversation}/messages`)).body.messages).toHaveLength(sharedMessageCount + 1)
             expect((await seller.get('/api/conversations')).body.conversations.find((item: any) => item.id === offerConversation).archivedAt).toBeNull()
