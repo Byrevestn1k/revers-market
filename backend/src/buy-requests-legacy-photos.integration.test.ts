@@ -1,3 +1,4 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { readFile } from 'node:fs/promises'
@@ -7,6 +8,7 @@ import { ExternalUrlPhotoStorage } from './photo-storage.js'
 if (process.env.DATABASE_URL) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
 
     describe('legacy Offer photo snapshots', () => {
         it('copies Product photos into a selected legacy Offer and respects a later explicit removal', async () => {
@@ -34,7 +36,7 @@ if (process.env.DATABASE_URL) {
                 expect(createdRequest.status).toBe(201)
                 const endpoint = `/api/buy-requests/${createdRequest.body.buyRequest.id}/offers`
                 const base = { creationMode: 'product', productId, quantity: 2, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' }
-                const legacy = await seller.post(endpoint).send(base)
+                const legacy = await seller.post(endpoint).send({ ...base, requestKey: offerTestKey() })
                 expect(legacy.status).toBe(201)
                 const legacyId = legacy.body.offer.id as string
                 const initialKey = (await pool.query('SELECT storage_key FROM offer_photos WHERE offer_id=$1', [legacyId])).rows[0].storage_key
@@ -45,7 +47,7 @@ if (process.env.DATABASE_URL) {
                 const visible = await buyer.get(`/api/buy-requests/${createdRequest.body.buyRequest.id}/offers`)
                 expect(visible.status).toBe(200)
                 expect(visible.body.offers.find((offer: { id: string }) => offer.id === legacyId).photos[0].url).toBe(product.body.product.photos[0].url)
-                const selected = await buyer.post(`/api/offers/${legacyId}/accept`).send({ quantity: 2 })
+                const selected = await buyer.post(`/api/offers/${legacyId}/accept`).send({ expectedRevision: await offerRevision(legacyId), quantity: 2 })
                 expect(selected.status).toBe(201)
                 const copied = (await pool.query('SELECT storage_key, url FROM offer_photos WHERE offer_id=$1', [legacyId])).rows[0]
                 offerKeys.add(copied.storage_key)
@@ -62,7 +64,7 @@ if (process.env.DATABASE_URL) {
                 const after = (await buyer.get(`/api/orders/${selected.body.order.id}`)).body.order
                 expect(after).toMatchObject({ buyer: before.buyer, seller: before.seller, quantity: before.quantity, unit: before.unit, price: before.price, subtotal: before.subtotal, status: before.status })
                 expect(after.conditionsSnapshot).toEqual(before.conditionsSnapshot)
-                const editable = await seller.post(endpoint).send({ ...base, quantity: 1 })
+                const editable = await seller.post(endpoint).send({ requestKey: offerTestKey(), ...base, quantity: 1 })
                 expect(editable.status).toBe(201)
                 const editableKey = (await pool.query('SELECT storage_key FROM offer_photos WHERE offer_id=$1', [editable.body.offer.id])).rows[0].storage_key
                 offerKeys.add(editableKey)

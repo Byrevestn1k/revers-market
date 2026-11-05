@@ -1,3 +1,4 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
@@ -129,8 +130,8 @@ if (process.env.DATABASE_URL) {
       expect(requestResult.status).toBe(201);
       const requestId = requestResult.body.buyRequest.id;
       const terms = { creationMode: 'manual', title: 'Поштова пропозиція', quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Пошта' };
-      expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10, place: { ...place, publicPoint: { latitude: 0, longitude: 0 } } }] })).status).toBe(400);
-      const postal = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }] });
+      expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), ...terms, deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10, place: { ...place, publicPoint: { latitude: 0, longitude: 0 } } }] })).status).toBe(400);
+      const postal = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), ...terms, deliveryOptions: [{ method: 'POSTAL_DELIVERY', nationwide: true, postalOperators: ['NOVA_POSHTA'] }] });
       expect(postal.status, JSON.stringify(postal.body)).toBe(201);
       expect(postal.body.offer.deliveryCompatibility.status).toBe('EXACT_MATCH');
       expect((await pool.query('SELECT count(*)::int AS count FROM offers WHERE buy_request_id=$1', [requestId])).rows[0].count).toBe(1);
@@ -189,14 +190,14 @@ if (process.env.DATABASE_URL) {
 
       const terms = { creationMode: 'manual', title: 'Пропозиція з радіусом', quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Доставка' };
       for (const radiusKm of invalidRadii) {
-        const response = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: sellerOption(radiusKm) });
+        const response = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), ...terms, deliveryOptions: sellerOption(radiusKm) });
         expect(response.status, JSON.stringify({ radiusKm, body: response.body })).toBe(400);
       }
       expect((await pool.query('SELECT count(*)::int AS count FROM offers WHERE buy_request_id=$1', [requestId])).rows[0].count).toBe(0);
-      const offer = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: sellerOption(1) });
+      const offer = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), ...terms, deliveryOptions: sellerOption(1) });
       expect(offer.status, JSON.stringify(offer.body)).toBe(201);
       const offerId = offer.body.offer.id;
-      expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: sellerOption(1.5) })).status).toBe(201);
+      expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), ...terms, deliveryOptions: sellerOption(1.5) })).status).toBe(201);
       expect((await seller.patch(`/api/offers/${offerId}`).send({ deliveryOptions: sellerOption(0.5) })).status).toBe(400);
       expect((await pool.query('SELECT delivery_options FROM offers WHERE id=$1', [offerId])).rows[0].delivery_options[0].radiusKm).toBe(1);
 

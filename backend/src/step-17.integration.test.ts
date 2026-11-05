@@ -1,9 +1,11 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 
 if (process.env.DATABASE_URL) {
   const { createApp } = await import('./app.js');
-  const { pool } = await import('./db/client.js');
+  const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision;
 
   describe('Step 17 currencies and seller modes', () => {
     it('keeps USD amounts and enforces one or several sellers under concurrent selection', async () => {
@@ -29,7 +31,7 @@ if (process.env.DATABASE_URL) {
           return response.body.buyRequest;
         };
         const makeOffer = async (id: string, agent: typeof sellerA, quantity: number) => {
-          const response = await agent.post(`/api/buy-requests/${id}/offers`).send({ quantity, unit: 'kg', price: 100, currency: 'USD', delivery: 'Самовивіз' });
+          const response = await agent.post(`/api/buy-requests/${id}/offers`).send({ requestKey: offerTestKey(), quantity, unit: 'kg', price: 100, currency: 'USD', delivery: 'Самовивіз' });
           expect(response.status).toBe(201);
           return response.body.offer.id as string;
         };
@@ -38,25 +40,25 @@ if (process.env.DATABASE_URL) {
         expect(single.fulfillmentMode).toBe('single_seller');
         expect(single.price).toEqual({ min: 100, max: 100, currency: 'USD' });
         expect((await buyer.patch(`/api/buy-requests/${single.id}`).send({ maxPrice: 110 })).body.buyRequest.price).toEqual({ min: 100, max: 110, currency: 'USD' });
-        expect((await sellerA.post(`/api/buy-requests/${single.id}/offers`).send({ quantity: 8, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' })).status).toBe(400);
+        expect((await sellerA.post(`/api/buy-requests/${single.id}/offers`).send({ requestKey: offerTestKey(), quantity: 8, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' })).status).toBe(400);
         const firstOffer = await makeOffer(single.id, sellerA, 8);
         const secondOffer = await makeOffer(single.id, sellerB, 12);
         expect((await sellerA.patch(`/api/offers/${firstOffer}`).send({ price: 100 })).body.offer.price).toEqual({ amount: 100, currency: 'USD' });
-        const selected = await buyer.post(`/api/offers/${firstOffer}/accept`).send({ quantity: 8 });
+        const selected = await buyer.post(`/api/offers/${firstOffer}/accept`).send({ expectedRevision: await offerRevision(firstOffer), quantity: 8 });
         expect(selected.status).toBe(201);
         expect(selected.body.order).toMatchObject({ quantity: 8 });
-        const otherSeller = await buyer.post(`/api/offers/${secondOffer}/accept`).send({ quantity: 12 });
+        const otherSeller = await buyer.post(`/api/offers/${secondOffer}/accept`).send({ expectedRevision: await offerRevision(secondOffer), quantity: 12 });
         expect(otherSeller).toMatchObject({ status: 409, body: { error: 'REQUEST_ALREADY_ALLOCATED' } });
         const snapshot = (await pool.query('SELECT currency, subtotal, conditions_snapshot FROM orders WHERE id = $1', [selected.body.order.id])).rows[0];
         expect(snapshot.currency).toBe('USD');
         expect(Number(snapshot.subtotal)).toBe(800);
         expect(snapshot.conditions_snapshot.originalOffer.price).toBe(100);
         expect((await buyer.patch(`/api/orders/${selected.body.order.id}/status`).send({ status: 'cancelled', reason: 'Тест скасування' })).status).toBe(200);
-        expect((await buyer.post(`/api/offers/${secondOffer}/accept`).send({ quantity: 12 })).status).toBe(201);
+        expect((await buyer.post(`/api/offers/${secondOffer}/accept`).send({ expectedRevision: await offerRevision(secondOffer), quantity: 12 })).status).toBe(201);
 
         const multiple = await makeRequest(`Кілька продавців USD ${suffix}`, 'multiple_sellers');
         const [offerA, offerB] = await Promise.all([makeOffer(multiple.id, sellerA, 8), makeOffer(multiple.id, sellerB, 12)]);
-        const concurrent = await Promise.all([buyer.post(`/api/offers/${offerA}/accept`).send({ quantity: 8 }), buyer.post(`/api/offers/${offerB}/accept`).send({ quantity: 12 })]);
+        const concurrent = await Promise.all([buyer.post(`/api/offers/${offerA}/accept`).send({ expectedRevision: await offerRevision(offerA), quantity: 8 }), buyer.post(`/api/offers/${offerB}/accept`).send({ expectedRevision: await offerRevision(offerB), quantity: 12 })]);
         expect(concurrent.map(result => result.status)).toEqual([201, 201]);
         expect((await buyer.get(`/api/buy-requests/${multiple.id}`)).body.buyRequest).toMatchObject({ selectedQuantity: 20, remainingQuantity: 0, fulfillmentMode: 'multiple_sellers' });
         const rejectedMode = await buyer.patch(`/api/buy-requests/${multiple.id}`).send({ fulfillmentMode: 'single_seller' });
@@ -66,15 +68,15 @@ if (process.env.DATABASE_URL) {
         const competing = await makeRequest(`Одночасний вибір USD ${suffix}`);
         const [competingA, competingB] = await Promise.all([makeOffer(competing.id, sellerA, 8), makeOffer(competing.id, sellerB, 12)]);
         const competingResults = await Promise.all([
-          buyer.post(`/api/offers/${competingA}/accept`).send({ quantity: 8 }),
-          buyer.post(`/api/offers/${competingB}/accept`).send({ quantity: 12 }),
+          buyer.post(`/api/offers/${competingA}/accept`).send({ expectedRevision: await offerRevision(competingA), quantity: 8 }),
+          buyer.post(`/api/offers/${competingB}/accept`).send({ expectedRevision: await offerRevision(competingB), quantity: 12 }),
         ]);
         expect(competingResults.map(result => result.status).sort()).toEqual([201, 409]);
         expect(competingResults.find(result => result.status === 409)?.body.error).toBe('REQUEST_ALREADY_ALLOCATED');
         const winningSeller = competingResults[0].status === 201 ? sellerA : sellerB;
         const selectedQuantity = competingResults[0].status === 201 ? 8 : 12;
         const sameSellerOffer = await makeOffer(competing.id, winningSeller, 20 - selectedQuantity);
-        expect((await buyer.post(`/api/offers/${sameSellerOffer}/accept`).send({ quantity: 20 - selectedQuantity })).status).toBe(201);
+        expect((await buyer.post(`/api/offers/${sameSellerOffer}/accept`).send({ expectedRevision: await offerRevision(sameSellerOffer), quantity: 20 - selectedQuantity })).status).toBe(201);
         expect((await buyer.get(`/api/buy-requests/${competing.id}`)).body.buyRequest).toMatchObject({ selectedQuantity: 20, remainingQuantity: 0 });
         const competingRows = await pool.query('SELECT DISTINCT seller_id FROM orders WHERE buy_request_id = $1', [competing.id]);
         expect(competingRows.rowCount).toBe(1);
@@ -82,8 +84,8 @@ if (process.env.DATABASE_URL) {
         const overfill = await makeRequest(`Перевищення USD ${suffix}`, 'multiple_sellers');
         const [overfillA, overfillB] = await Promise.all([makeOffer(overfill.id, sellerA, 12), makeOffer(overfill.id, sellerB, 12)]);
         const overfillResults = await Promise.all([
-          buyer.post(`/api/offers/${overfillA}/accept`).send({ quantity: 12 }),
-          buyer.post(`/api/offers/${overfillB}/accept`).send({ quantity: 12 }),
+          buyer.post(`/api/offers/${overfillA}/accept`).send({ expectedRevision: await offerRevision(overfillA), quantity: 12 }),
+          buyer.post(`/api/offers/${overfillB}/accept`).send({ expectedRevision: await offerRevision(overfillB), quantity: 12 }),
         ]);
         expect(overfillResults.map(result => result.status).sort()).toEqual([201, 409]);
         expect(overfillResults.find(result => result.status === 409)?.body.error).toBe('QUANTITY_EXCEEDS_REMAINING');

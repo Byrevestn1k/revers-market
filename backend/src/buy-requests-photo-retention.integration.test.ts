@@ -1,3 +1,4 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { readFile } from 'node:fs/promises'
@@ -7,6 +8,7 @@ import { ExternalUrlPhotoStorage } from './photo-storage.js'
 if (process.env.DATABASE_URL) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
 
     describe('Offer photo retention across Deals', () => {
         it('keeps cancelled and completed snapshots while removing only unreferenced files', async () => {
@@ -37,18 +39,18 @@ if (process.env.DATABASE_URL) {
                 const endpoint = `/api/buy-requests/${createdRequest.body.buyRequest.id}/offers`
                 const base = { quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' }
                 const makeOffer = async (agent: typeof sellerA, marker: string) => {
-                    const response = await agent.post(endpoint).send({ ...base, creationMode: 'manual', title: `Товар ${marker}`, photos: [{ dataUrl: photo(marker) }] })
+                    const response = await agent.post(endpoint).send({ requestKey: offerTestKey(), ...base, creationMode: 'manual', title: `Товар ${marker}`, photos: [{ dataUrl: photo(marker) }] })
                     expect(response.status).toBe(201)
                     track(response.body.offer.photos[0].url)
                     return response.body.offer.id as string
                 }
 
-                const linked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId, photos: [{ url: product.body.product.photos[0].url }] })
+                const linked = await sellerA.post(endpoint).send({ requestKey: offerTestKey(), ...base, creationMode: 'product', productId, photos: [{ url: product.body.product.photos[0].url }] })
                 expect(linked.status).toBe(201)
                 const linkedId = linked.body.offer.id as string
                 const oldUrl = track(linked.body.offer.photos[0].url)
                 const oldBytes = await readFile(path(oldUrl))
-                const cancelledDeal = await buyer.post(`/api/offers/${linkedId}/accept`).send({ quantity: 5 })
+                const cancelledDeal = await buyer.post(`/api/offers/${linkedId}/accept`).send({ expectedRevision: await offerRevision(linkedId), quantity: 5 })
                 expect(cancelledDeal.status).toBe(201)
                 const cancelledId = cancelledDeal.body.order.id as string
                 const cancelledSnapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [cancelledId])).rows[0].conditions_snapshot
@@ -87,15 +89,20 @@ if (process.env.DATABASE_URL) {
                 const racingUrl = track(racingPhoto.body.offer.photos[0].url)
                 const [racingEdit, racingDeal] = await Promise.all([
                     sellerA.patch(`/api/offers/${linkedId}`).send({ photos: [] }),
-                    buyer.post(`/api/offers/${linkedId}/accept`).send({ quantity: 5 }),
+                    buyer.post(`/api/offers/${linkedId}/accept`).send({ expectedRevision: await offerRevision(linkedId), quantity: 5 }),
                 ])
-                expect(racingDeal.status).toBe(201)
-                const racingSnapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [racingDeal.body.order.id])).rows[0].conditions_snapshot
                 if (racingEdit.status === 200) {
+                    expect(racingDeal.status).toBe(409)
+                    expect(racingDeal.body.error).toBe('TERMS_CHANGED')
+                    const refreshedDeal = await buyer.post(`/api/offers/${linkedId}/accept`).send({ expectedRevision: racingEdit.body.offer.revision, quantity: 5 })
+                    expect(refreshedDeal.status).toBe(201)
+                    const racingSnapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [refreshedDeal.body.order.id])).rows[0].conditions_snapshot
                     expect(racingSnapshot.photos).toEqual([])
                     await expect(readFile(path(racingUrl))).rejects.toMatchObject({ code: 'ENOENT' })
                 } else {
                     expect(racingEdit.status).toBe(409)
+                    expect(racingDeal.status).toBe(201)
+                    const racingSnapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [racingDeal.body.order.id])).rows[0].conditions_snapshot
                     expect(racingSnapshot.photos[0].url).toBe(racingUrl)
                     expect(await readFile(path(racingUrl))).toBeTruthy()
                 }
@@ -103,7 +110,7 @@ if (process.env.DATABASE_URL) {
                 const completedOffer = await makeOffer(sellerA, 'completed')
                 const completedPhoto = (await pool.query('SELECT storage_key, url FROM offer_photos WHERE offer_id=$1', [completedOffer])).rows[0]
                 const completedBytes = await readFile(path(completedPhoto.url))
-                const completedDeal = await buyer.post(`/api/offers/${completedOffer}/accept`).send({ quantity: 5 })
+                const completedDeal = await buyer.post(`/api/offers/${completedOffer}/accept`).send({ expectedRevision: await offerRevision(completedOffer), quantity: 5 })
                 expect(completedDeal.status).toBe(201)
                 const completedId = completedDeal.body.order.id as string
                 expect((await sellerA.post(`/api/orders/${completedId}/seller-confirm`)).status).toBe(200)

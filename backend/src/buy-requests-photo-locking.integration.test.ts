@@ -1,9 +1,11 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
 
 if (process.env.DATABASE_URL) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
 
     describe('Offer photo lock ordering', () => {
         it('does not hold a Product lock while waiting to create or accept photo references', async () => {
@@ -59,9 +61,9 @@ if (process.env.DATABASE_URL) {
                     return result
                 }
 
-                const offer = await whilePhotoLockHeld(() => Promise.resolve(seller.post(`/api/buy-requests/${createdRequest.body.buyRequest.id}/offers`).send({ creationMode: 'product', productId, quantity: 2, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' })))
+                const offer = await whilePhotoLockHeld(async () => Promise.resolve(seller.post(`/api/buy-requests/${createdRequest.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), creationMode: 'product', productId, quantity: 2, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' })))
                 expect(offer.status).toBe(201)
-                const selected = await whilePhotoLockHeld(() => Promise.resolve(buyer.post(`/api/offers/${offer.body.offer.id}/accept`).send({ quantity: 2 })))
+                const selected = await whilePhotoLockHeld(async () => Promise.resolve(buyer.post(`/api/offers/${offer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(offer.body.offer.id), quantity: 2 })))
                 expect(selected.status).toBe(201)
             } finally {
                 await pool.query('DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[])) OR seller_id IN (SELECT id FROM users WHERE username_normalized = ANY($1::text[]))', [names])

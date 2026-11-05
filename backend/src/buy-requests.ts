@@ -16,7 +16,7 @@ import { categoryDuplicates } from './category-duplicates.js'
 import { textSearchConditions } from './text-search.js'
 import { listingSearchColumns, smartSearchSql } from './smart-search.js'
 import { notifyDemandSubscriptions } from './demand-subscriptions.js'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { ExternalUrlPhotoStorage, type PhotoUpload, type StoredPhoto } from './photo-storage.js'
 import { matchDelivery, postalTermsDefined, productSupportsOption, type DeliveryOption, type DeliveryPlace } from './delivery-compatibility.js'
 import { verifiedDeliveryOptions, verifiedDeliveryPlace, verifiedInputPoint, verifiedOptionsForMatching } from './delivery-geography.js'
@@ -26,6 +26,7 @@ type Queryable = Pick<PoolClient, 'query'>
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 const number = (value: string | number | null) => value === null ? null : Number(value)
 const invalid = (fields: string[]) => ({ status: 400, body: { error: 'VALIDATION_ERROR', message: 'Перевірте дані запиту', fields } })
+const canonicalJson = (value: unknown): unknown => Array.isArray(value) ? value.map(canonicalJson) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonicalJson(item)])) : value
 const requestPhotoStorage = new ExternalUrlPhotoStorage('buy-requests')
 const offerPhotoStorage = new ExternalUrlPhotoStorage('offers')
 // Serialize reference creation with the final reference check and file removal.
@@ -89,7 +90,7 @@ const requestSelect = `SELECT count(*) OVER() AS total_count, r.*, c.code AS cat
     (SELECT count(*)::int FROM offers ro WHERE ro.buy_request_id = r.id) AS offer_count,
     COALESCE((SELECT jsonb_agg(jsonb_build_object('url', rp.url, 'alt', rp.alt) ORDER BY rp.sort_order, rp.id) FROM buy_request_photos rp WHERE rp.buy_request_id = r.id), '[]'::jsonb) AS photos
     FROM buy_requests r JOIN categories c ON c.id = r.category_id JOIN users u ON u.id = r.buyer_id LEFT JOIN categories parent_c ON parent_c.id = c.parent_id`
-const offerSelect = `SELECT o.*, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.description AS request_description,
+const offerSelect = `SELECT o.*, o.xmin::text AS revision, u.username AS seller_username, p.title AS product_title, r.title AS request_title, r.description AS request_description,
     r.category_id, r.requested_quantity AS request_quantity, r.unit AS request_unit, r.min_unit_price AS request_min_price, r.max_unit_price AS request_max_price,
     r.preferred_delivery AS request_delivery, r.receipt_method AS request_receipt_method, r.delivery_options AS request_delivery_options,
     r.settlement_code AS request_settlement_code, r.latitude AS request_latitude, r.longitude AS request_longitude, r.address_visibility AS request_address_visibility,
@@ -147,6 +148,7 @@ interface BuyRequestRow {
 }
 
 interface OfferRow {
+    revision: string
     delivery_options: import('./delivery-compatibility.js').DeliveryOption[] | null
     offer_photos?: { url: string; alt: string }[]
     title: string | null
@@ -231,7 +233,7 @@ const offerDto = async (row: OfferRow) => ({
     ),
     additionalPhotoUrl: row.additional_photo_url, termsSnapshot: row.terms, deliverySnapshot: row.delivery_terms,
     photos: row.offer_photos ?? [], pendingNegotiation: row.pending_negotiation, waitingConfirmation: row.waiting_confirmation,
-    status: row.status, validUntil: row.valid_until?.toISOString() ?? null, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
+    status: row.status, revision: row.revision, validUntil: row.valid_until?.toISOString() ?? null, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
 })
 
 const categoryExists = async (queryable: Queryable, id: string) => Boolean((await queryable.query('SELECT 1 FROM categories WHERE id = $1 AND is_active', [id])).rowCount)
@@ -463,6 +465,9 @@ export const recordOfferView = async (user: AuthUser, offerId: string) => {
 export const createOffer = async (user: AuthUser, requestId: string, input: Record<string, unknown>) => {
     const errors = validateOfferInput(input)
     if (errors.length) return invalid(errors)
+    if (!uuid(input.requestKey)) return { status: 400, body: { error: 'REQUEST_KEY_REQUIRED', message: 'Оновіть сторінку та повторно надішліть пропозицію.', fields: ['requestKey'] } }
+    const { requestKey, ...offerInput } = input
+    const fingerprint = createHash('sha256').update(JSON.stringify(canonicalJson(offerInput))).digest('hex')
     if (!postalTermsDefined(input.deliveryOptions as DeliveryOption[] | undefined)) return invalid(['deliveryOptions'])
     if (input.creationMode === 'manual' && !input.title) return invalid(['title'])
     if (input.creationMode === 'product' && !input.productId) return invalid(['productId'])
@@ -472,6 +477,16 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     const storedPhotos: StoredPhoto[] = []
     try {
     await client.query('BEGIN')
+    if (requestKey) {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [user.id, requestKey])
+        const previous = (await client.query('SELECT id, buy_request_id, request_fingerprint FROM offers WHERE seller_id=$1 AND request_key=$2', [user.id, requestKey])).rows[0]
+        if (previous) {
+            if (previous.buy_request_id !== requestId || previous.request_fingerprint !== fingerprint) return { status: 409, body: { error: 'REQUEST_KEY_REUSED', message: 'Дані пропозиції змінилися. Надішліть їх як нову пропозицію.' } }
+            const result = await client.query(`${offerSelect} WHERE o.id=$1`, [previous.id])
+            await client.query('COMMIT'); committed = true
+            return { status: 200, body: { offer: await offerDto(result.rows[0]) } }
+        }
+    }
     const request = await client.query('SELECT buyer_id, category_id, title, requested_quantity, unit, currency, status, deadline FROM buy_requests WHERE id = $1 FOR UPDATE', [requestId])
     if (!request.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     if (request.rows[0].deadline && request.rows[0].deadline <= new Date()) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
@@ -493,8 +508,8 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     const description = typeof input.description === 'string' ? input.description : product?.rows[0]?.description ?? ''
     const terms = { note: input.note ?? '', additionalPhotoUrl: input.additionalPhotoUrl ?? null, availableAt: input.availableAt ?? '' }
     const created = await client.query<{ id: string }>(
-        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until, title, description, characteristics, creation_mode, delivery_options) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id',
-        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null, title, description, input.characteristics ?? '', input.creationMode ?? null, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions)],
+        'INSERT INTO offers (buy_request_id, seller_id, product_id, offered_quantity, unit, unit_price, currency, delivery, note, additional_photo_url, terms, delivery_terms, valid_until, title, description, characteristics, creation_mode, delivery_options, request_key, request_fingerprint) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id',
+        [requestId, user.id, input.productId ?? null, input.quantity, input.unit, input.price, input.currency, input.delivery, input.note ?? '', input.additionalPhotoUrl ?? null, JSON.stringify(terms), JSON.stringify({ delivery: input.delivery, price: input.deliveryPrice ?? 0 }), input.validUntil ?? null, title, description, input.characteristics ?? '', input.creationMode ?? null, input.deliveryOptions === undefined ? null : JSON.stringify(input.deliveryOptions), requestKey ?? null, requestKey ? fingerprint : null],
     )
     const sourcePhotos = input.photos === undefined && input.productId
         ? (await client.query<PhotoUpload>('SELECT url, alt FROM product_photos WHERE product_id=$1 ORDER BY sort_order, id LIMIT 8', [input.productId])).rows
@@ -520,7 +535,7 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const linked = (await client.query('SELECT buy_request_id FROM offers WHERE id = $1', [offerId])).rows[0]
         if (!linked) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'OFFER_NOT_FOUND' } } }
         const request = await client.query('SELECT * FROM buy_requests WHERE id = $1 FOR UPDATE', [linked.buy_request_id])
-        const offer = await client.query('SELECT o.*, u.username AS seller_username FROM offers o JOIN users u ON u.id = o.seller_id WHERE o.id = $1 FOR UPDATE OF o', [offerId])
+        const offer = await client.query('SELECT o.*, o.xmin::text AS revision, u.username AS seller_username FROM offers o JOIN users u ON u.id = o.seller_id WHERE o.id = $1 FOR UPDATE OF o', [offerId])
         if (!offer.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'OFFER_NOT_FOUND' } } }
         if (!request.rowCount || request.rows[0].buyer_id !== user.id) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'FORBIDDEN' } } }
         const row = offer.rows[0]
@@ -531,6 +546,9 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
                 if (previous.offer_id !== offerId || (requestedQuantity !== undefined && Number(previous.quantity) !== requestedQuantity)) return { status: 409, body: { error: 'SELECTION_KEY_REUSED' } }
                 return { status: 200, body: { order: { id: previous.id, status: previous.status, quantity: Number(previous.quantity), subtotal: Number(previous.subtotal) } } }
             }
+        }
+        if (typeof input.expectedRevision !== 'string' || input.expectedRevision !== row.revision) {
+            await client.query('ROLLBACK'); return { status: 409, body: { error: 'TERMS_CHANGED', message: 'Пропозицію оновлено. Закрийте це вікно та перегляньте актуальні умови.' } }
         }
         if (request.rows[0].deadline && request.rows[0].deadline <= new Date()) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'BUY_REQUEST_CLOSED', message: 'Строк запиту вже минув.' } } }
         if (typeof requestedQuantity !== 'number' || !Number.isFinite(requestedQuantity) || requestedQuantity <= 0) { await client.query('ROLLBACK'); return invalid(['quantity']) }

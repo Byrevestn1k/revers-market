@@ -4,7 +4,7 @@
 
 **Step 25:** історичний стан та результати перевірок наведено у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Код Step 26 базується на вказаному користувачем commit `1387aa2741ed4c768c1af9f9dddb9b947df20008`.
 
-**Current step:** `STEP 27 — READY FOR RE-REVIEW`. Audit, reviewer corrections and remaining checks: [STEP_27_CHAT_UX.md](STEP_27_CHAT_UX.md); QA protocol: [step-27](qa/step-27/README.md). Do not merge, push or deploy without a successful independent re-review and explicit user approval.
+**Current step:** `STEP 28 — IN PROGRESS, NOT READY FOR REVIEW`. Working audit and remaining checks: [STEP_28_BUY_REQUEST_SELLER_OFFER.md](STEP_28_BUY_REQUEST_SELLER_OFFER.md); QA protocol: [step-28](qa/step-28/README.md). Step 27 history: [STEP_27_CHAT_UX.md](STEP_27_CHAT_UX.md). Do not merge, push or deploy without a successful independent review and explicit user approval.
 
 **Last updated:** 2026-11-04
 

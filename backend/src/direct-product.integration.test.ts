@@ -1,3 +1,4 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { randomUUID } from 'node:crypto'
@@ -5,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 if (process.env.DATABASE_URL) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
     describe('direct product deals', () => {
         const app = createApp()
         const buyer = request.agent(app), seller = request.agent(app), outsider = request.agent(app)
@@ -149,10 +151,10 @@ if (process.env.DATABASE_URL) {
             const direct = await propose(conversationId, { quantity: 7 })
             const created = await outsider.post('/api/buy-requests').send({ categoryId, title: 'Тест спільного залишку', description: 'Потрібен товар', quantity: 7, unit: 'kg', currency: 'UAH', minPrice: 1, maxPrice: 30, receiptMethod: 'SELF_PICKUP', countryCode: 'UA', geoArea: 'Київ', fulfillmentMode: 'multiple_sellers' })
             expect(created.status, JSON.stringify(created.body)).toBe(201)
-            const offer = await seller.post(`/api/buy-requests/${created.body.buyRequest.id}/offers`).send({ creationMode: 'product', productId, quantity: 7, unit: 'kg', price: 20, currency: 'UAH', delivery: 'Самовивіз' })
+            const offer = await seller.post(`/api/buy-requests/${created.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), creationMode: 'product', productId, quantity: 7, unit: 'kg', price: 20, currency: 'UAH', delivery: 'Самовивіз' })
             expect(offer.status, JSON.stringify(offer.body)).toBe(201)
             const [reverse, directResult] = await Promise.all([
-                outsider.post(`/api/offers/${offer.body.offer.id}/accept`).send({ quantity: 7 }),
+                outsider.post(`/api/offers/${offer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(offer.body.offer.id), quantity: 7 }),
                 seller.post(`/api/conversations/${conversationId}/direct-proposals`).send({ action: 'accept', proposalId: direct.body.proposal.id }),
             ])
             expect([reverse.status, directResult.status].sort()).toEqual(reverse.status === 201 ? [201, 409] : [200, 409])

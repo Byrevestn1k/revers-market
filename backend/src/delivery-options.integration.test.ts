@@ -1,10 +1,12 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 if (process.env.DATABASE_URL) {
   const { createApp } = await import('./app.js');
-  const { pool } = await import('./db/client.js');
+  const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision;
 
   describe('structured delivery through Product, Request, Offer and Deal (real DB)', () => {
     it('keeps exact postal terms, rejects an unsupported Product method and locks agreed Request geography', async () => {
@@ -35,7 +37,7 @@ if (process.env.DATABASE_URL) {
         expect((await seller.patch(`/api/products/${productId}`).send({ deliveryMode: 'carrier', deliveryOptions: [pickup] })).status).toBe(400);
         const mismatch = await buyer.post('/api/buy-requests').send({ ...missing, deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['UKRPOSHTA'] }] });
         expect(mismatch.status).toBe(201);
-        const mismatchOffer = await seller.post(`/api/buy-requests/${mismatch.body.buyRequest.id}/offers`).send({ creationMode: 'product', productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштою', deliveryOptions: [postal] });
+        const mismatchOffer = await seller.post(`/api/buy-requests/${mismatch.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), creationMode: 'product', productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштою', deliveryOptions: [postal] });
         expect(mismatchOffer.status).toBe(201);
         expect(mismatchOffer.body.offer.deliveryCompatibility.status).toBe('NO_MATCH');
         const legacy = await buyer.post('/api/buy-requests').send({ ...missing, title: 'Старий поштовий запит', deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA'] }] });
@@ -44,7 +46,7 @@ if (process.env.DATABASE_URL) {
         const legacyId = legacy.body.buyRequest.id;
         expect((await buyer.get(`/api/buy-requests/${legacyId}`)).body.buyRequest.deliveryOptions).toEqual([{ method: 'POSTAL_DELIVERY' }]);
         expect((await buyer.patch(`/api/buy-requests/${legacyId}`).send({ title: 'Оновлений старий запит', deliveryOptions: [{ method: 'POSTAL_DELIVERY' }] })).status).toBe(200);
-        const legacyOffer = await seller.post(`/api/buy-requests/${legacyId}/offers`).send({ creationMode: 'product', productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштою', deliveryOptions: [postal] });
+        const legacyOffer = await seller.post(`/api/buy-requests/${legacyId}/offers`).send({ requestKey: offerTestKey(), creationMode: 'product', productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштою', deliveryOptions: [postal] });
         expect(legacyOffer.status).toBe(201);
         expect(legacyOffer.body.offer.deliveryCompatibility.status).toBe('UNKNOWN');
         const requestResult = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Запит Step 14', description: '', quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Рівне', settlementCode: 'UA56060470010041018', latitude: 50.6199, longitude: 26.2516, mapLocationMode: 'pin', countryCode: 'UA', deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: ['NOVA_POSHTA', 'UKRPOSHTA'] }], fulfillmentMode: 'multiple_sellers' });
@@ -59,8 +61,8 @@ if (process.env.DATABASE_URL) {
         expect(pickupMap.body.markers.some((marker: { id: string }) => marker.id === requestId)).toBe(false);
         expect((await buyer.get(`${mapPath}&deliveryMethod=UNKNOWN`)).status).toBe(400);
         const terms = { creationMode: 'product', productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштова доставка' };
-        expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10 }] })).body.error).toBe('PRODUCT_DELIVERY_MISMATCH');
-        const created = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...terms, deliveryOptions: [postal] });
+        expect((await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), ...terms, deliveryOptions: [{ method: 'SELLER_DELIVERY', radiusKm: 10 }] })).body.error).toBe('PRODUCT_DELIVERY_MISMATCH');
+        const created = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), ...terms, deliveryOptions: [postal] });
         expect(created.status, JSON.stringify(created.body)).toBe(201);
         expect(created.body.offer.deliveryCompatibility).toMatchObject({ status: 'EXACT_MATCH', methods: ['POSTAL_DELIVERY'] });
         const offerId = created.body.offer.id;
@@ -71,7 +73,7 @@ if (process.env.DATABASE_URL) {
         expect(placeConflict.status).toBe(409);
         expect((await pool.query('SELECT title, delivery_options, settlement_code, updated_at FROM buy_requests WHERE id=$1', [requestId])).rows[0]).toEqual(before);
         expect((await seller.patch(`/api/buy-requests/${requestId}`).send({ deliveryOptions: [{ method: 'FLEXIBLE' }] })).status).toBe(404);
-        const deal = await buyer.post(`/api/offers/${offerId}/accept`).send({ quantity: 5 });
+        const deal = await buyer.post(`/api/offers/${offerId}/accept`).send({ expectedRevision: await offerRevision(offerId), quantity: 5 });
         expect(deal.status, JSON.stringify(deal.body)).toBe(201);
         const snapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [deal.body.order.id])).rows[0].conditions_snapshot;
         expect(snapshot.delivery.options).toEqual([postal]);
@@ -86,7 +88,7 @@ if (process.env.DATABASE_URL) {
         const secondId = second.body.buyRequest.id;
         const [edit, concurrentOffer] = await Promise.all([
           buyer.patch(`/api/buy-requests/${secondId}`).send({ deliveryOptions: [{ method: 'FLEXIBLE' }] }),
-          seller.post(`/api/buy-requests/${secondId}/offers`).send({ creationMode: 'manual', title: 'Товар поштою', quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштова доставка', deliveryOptions: [postal] }),
+          seller.post(`/api/buy-requests/${secondId}/offers`).send({ requestKey: offerTestKey(), creationMode: 'manual', title: 'Товар поштою', quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Поштова доставка', deliveryOptions: [postal] }),
         ]);
         expect(concurrentOffer.status).toBe(201);
         expect([200, 409]).toContain(edit.status);

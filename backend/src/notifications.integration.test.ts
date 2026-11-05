@@ -1,3 +1,4 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { randomUUID } from 'node:crypto'
@@ -10,6 +11,7 @@ type NotificationResponse = { notifications: Notification[]; unreadCounts: { tot
 if (hasDatabase) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
 
     describe('notification context and read integration', () => {
         const app = createApp()
@@ -37,7 +39,7 @@ if (hasDatabase) {
             const created = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Запит для сповіщень', description: '', quantity: 10, unit: 'kg', currency: 'UAH', minPrice: 1, maxPrice: 20, delivery: 'no', geoArea: 'Київ', fulfillmentMode: 'multiple_sellers' })
             expect(created.status).toBe(201)
             requestId = created.body.buyRequest.id
-            const offered = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ quantity: 10, unit: 'kg', price: 10, currency: 'UAH', delivery: 'Самовивіз' })
+            const offered = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), quantity: 10, unit: 'kg', price: 10, currency: 'UAH', delivery: 'Самовивіз' })
             expect(offered.status).toBe(201)
             offerId = offered.body.offer.id
         }, 30000)
@@ -49,7 +51,7 @@ if (hasDatabase) {
 
         it('persists structured context and references without classifying legacy history', async () => {
             const buyerNotifications = (await buyer.get('/api/notifications')).body.notifications
-            expect(buyerNotifications.find((item: any) => item.title === 'Нова пропозиція')).toMatchObject({ body: 'Продавець відповів на ваш запит', context: 'buying', buyRequestId: requestId, offerId })
+            expect(buyerNotifications.find((item: any) => item.title === 'Нова пропозиція')).toMatchObject({ body: 'Продавець відповів на ваш запит', context: 'buying', buyRequestId: requestId, offerId, buyRequestPreview: { title: 'Запит для сповіщень', quantity: 10, unit: 'kg' } })
 
             expect((await buyer.post(`/api/offers/${offerId}/reject`)).status).toBe(204)
             const sellerNotifications = (await seller.get('/api/notifications')).body.notifications
@@ -77,9 +79,9 @@ if (hasDatabase) {
 
         it('keeps acceptance, cancellation and completion messages alongside their public Request preview', async () => {
             const selectOffer = async () => {
-                const offered = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ quantity: 5, unit: 'kg', price: 10, currency: 'UAH', delivery: 'Самовивіз' })
+                const offered = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), quantity: 5, unit: 'kg', price: 10, currency: 'UAH', delivery: 'Самовивіз' })
                 expect(offered.status, JSON.stringify(offered.body)).toBe(201)
-                const selected = await buyer.post(`/api/offers/${offered.body.offer.id}/accept`).send({ quantity: 5, selectionKey: randomUUID() })
+                const selected = await buyer.post(`/api/offers/${offered.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(offered.body.offer.id), quantity: 5, selectionKey: randomUUID() })
                 expect(selected.status, JSON.stringify(selected.body)).toBe(201)
                 return selected.body.order.id as string
             }

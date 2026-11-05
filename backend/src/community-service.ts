@@ -35,7 +35,7 @@ export const listNotifications = async (user: AuthUser, params: { context?: unkn
     const [result, unreadResult] = await Promise.all([
         pool.query(`SELECT n.id, n.type, n.title, n.body, n.context, n.order_id AS "orderId", n.conversation_id AS "conversationId", n.buy_request_id AS "buyRequestId", n.offer_id AS "offerId", n.direct_proposal_id AS "directProposalId", n.read_at AS "readAt", n.created_at AS "createdAt",
         to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorCreatedAt",
-        CASE WHEN r.id IS NOT NULL AND n.context = 'selling' THEN json_build_object(
+        CASE WHEN r.id IS NOT NULL AND n.context IN ('buying', 'selling') THEN json_build_object(
             'title', r.title, 'quantity', r.requested_quantity::float8, 'unit', r.unit,
             'minPrice', r.min_unit_price::float8, 'maxPrice', r.max_unit_price::float8, 'currency', trim(r.currency),
             'receiptMethod', r.receipt_method, 'deliveryOptions', r.delivery_options, 'deliveryPreferred', r.preferred_delivery = 'preferred', 'deadline', r.deadline,

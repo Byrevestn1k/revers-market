@@ -8,7 +8,7 @@ export const negotiationDto = (row: any) => ({ id: row.id, createdBy: row.create
     deliveryPrice: Number(row.delivery_price), comment: row.comment, status: row.status, createdAt: row.created_at })
 
 export const getConversationContext = async (user: AuthUser, id: string) => {
-    const row = (await pool.query(`SELECT c.offer_id, o.*, r.title, r.buyer_id, r.status AS request_status,
+    const row = (await pool.query(`SELECT c.offer_id, o.*, o.xmin::text AS offer_revision, r.title, r.buyer_id, r.status AS request_status,
         r.requested_quantity - r.selected_quantity - r.completed_quantity AS remaining,
         r.fulfillment_mode, r.deadline, r.selected_quantity
         FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.deleted_at IS NULL
@@ -19,7 +19,7 @@ export const getConversationContext = async (user: AuthUser, id: string) => {
     const available = openStatuses.includes(row.request_status) && ['submitted','partially_accepted'].includes(row.status)
         && (!row.valid_until || row.valid_until > new Date()) && (!row.deadline || row.deadline > new Date())
     return { status: 200, body: { context: {
-        offerId: row.offer_id, requestId: row.buy_request_id, title: row.title, buyerId: row.buyer_id,
+        offerId: row.offer_id, offerRevision: row.offer_revision, requestId: row.buy_request_id, title: row.title, buyerId: row.buyer_id,
         sellerId: row.seller_id, unit: row.unit, currency: row.currency, price: Number(row.unit_price), offeredQuantity: Number(row.offered_quantity),
         quantity: Number(row.offered_quantity) - Number(row.accepted_quantity), remaining: Number(row.remaining),
         delivery: row.delivery, deliveryPrice: Number(row.delivery_terms?.price ?? 0), fulfillmentMode: row.fulfillment_mode, available,

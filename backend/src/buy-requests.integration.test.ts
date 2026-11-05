@@ -1,14 +1,17 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { ExternalUrlPhotoStorage } from './photo-storage.js'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 
 const hasDatabase = Boolean(process.env.DATABASE_URL)
 
 if (hasDatabase) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
 
     describe('buy requests and offers HTTP integration', () => {
         it('creates three offer variants with owned photo snapshots and locks accepted terms under concurrent selection', async () => {
@@ -44,7 +47,7 @@ if (hasDatabase) {
                 expect(editedProduct.status).toBe(200)
                 const editedPhoto = editedProduct.body.product.photos[2].url as string
                 productKeys.push(...(await pool.query('SELECT storage_key FROM product_photos WHERE product_id=$1', [productId])).rows.map(row => row.storage_key))
-                const linked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId, photos: [{ url: editedPhoto }], note: 'Для запиту' })
+                const linked = await sellerA.post(endpoint).send({ requestKey: offerTestKey(), ...base, creationMode: 'product', productId, photos: [{ url: editedPhoto }], note: 'Для запиту' })
                 expect(linked.status).toBe(201)
                 expect(linked.body.offer).toMatchObject({ title: `Власний товар ${suffix}`, description: 'Первинний опис', creationMode: 'product', photos: [{ url: expect.stringContaining('/uploads/offers/') }] })
                 expect(linked.body.offer.photos[0].url).not.toBe(editedPhoto)
@@ -67,11 +70,20 @@ if (hasDatabase) {
                 expect(trimmed.body.offer.photos.map((item: { url: string }) => item.url)).toEqual([retainedUrl])
                 expect(await readFile(offerFile(retainedUrl))).toEqual(retainedBytes)
                 await expect(readFile(offerFile(insertedUrl))).rejects.toMatchObject({ code: 'ENOENT' })
-                expect((await sellerB.post(endpoint).send({ ...base, creationMode: 'product', productId })).body.error).toBe('PRODUCT_NOT_AVAILABLE')
-                const manual = await sellerB.post(endpoint).send({ ...base, creationMode: 'manual', title: 'Інший товар', description: 'Окремий опис', characteristics: 'Сорт А', photos: [{ dataUrl: photo, alt: 'Інший товар' }] })
-                expect(manual.status).toBe(201)
+                expect((await sellerB.post(endpoint).send({ requestKey: offerTestKey(), ...base, creationMode: 'product', productId })).body.error).toBe('PRODUCT_NOT_AVAILABLE')
+                const withoutKey = await sellerB.post(endpoint).send({ ...base, creationMode: 'manual', title: 'Інший товар' })
+                expect(withoutKey).toMatchObject({ status: 400, body: { error: 'REQUEST_KEY_REQUIRED' } })
+                const manualInput = { ...base, requestKey: randomUUID(), creationMode: 'manual', title: 'Інший товар', description: 'Окремий опис', characteristics: 'Сорт А', photos: [{ dataUrl: photo, alt: 'Інший товар' }] }
+                const submitted = await Promise.all([sellerB.post(endpoint).send(manualInput), sellerB.post(endpoint).send(manualInput)])
+                expect(submitted.map(result => result.status).sort()).toEqual([200, 201])
+                const manual = submitted.find(result => result.status === 201)!, duplicate = submitted.find(result => result.status === 200)!
+                expect(duplicate.body.offer.id).toBe(manual.body.offer.id)
+                expect(Number((await pool.query('SELECT count(*) FROM notifications WHERE offer_id=$1', [manual.body.offer.id])).rows[0].count)).toBe(1)
+                const reorderedInput = Object.fromEntries(Object.entries(manualInput).reverse())
+                expect((await sellerB.post(endpoint).send(reorderedInput)).body.offer.id).toBe(manual.body.offer.id)
+                expect((await sellerB.post(endpoint).send({ ...manualInput, price: 101 })).body.error).toBe('REQUEST_KEY_REUSED')
                 expect((await sellerB.patch(`/api/offers/${manual.body.offer.id}`).send({ photos: [{ url: linked.body.offer.photos[0].url }] })).body.fields).toContain('photos')
-                const terms = await sellerC.post(endpoint).send({ ...base, creationMode: 'request_terms', title: createdRequest.body.buyRequest.title })
+                const terms = await sellerC.post(endpoint).send({ requestKey: offerTestKey(), ...base, creationMode: 'request_terms', title: createdRequest.body.buyRequest.title })
                 expect(terms.status).toBe(201)
                 expect((await buyer.get(endpoint)).body.offers).toEqual(expect.arrayContaining([
                     expect.objectContaining({ id: linked.body.offer.id, title: `Власний товар ${suffix}` }),
@@ -82,9 +94,32 @@ if (hasDatabase) {
                 const edited = await sellerB.patch(`/api/offers/${manual.body.offer.id}`).send({ title: 'Оновлений товар', description: 'Новий опис', photos: [{ url: manual.body.offer.photos[0].url }, { dataUrl: photo }] })
                 expect(edited).toMatchObject({ status: 200, body: { offer: { title: 'Оновлений товар', description: 'Новий опис' } } })
                 expect(edited.body.offer.photos).toHaveLength(2)
+                expect(edited.body.offer.revision).not.toBe(manual.body.offer.revision)
+                const ordersBeforeStale = Number((await pool.query('SELECT count(*) FROM orders WHERE offer_id=$1', [manual.body.offer.id])).rows[0].count)
+                const notificationsBeforeStale = Number((await pool.query('SELECT count(*) FROM notifications WHERE offer_id=$1', [manual.body.offer.id])).rows[0].count)
+                const stale = await buyer.post(`/api/offers/${manual.body.offer.id}/accept`).send({ quantity: 5, expectedRevision: manual.body.offer.revision })
+                expect(stale).toMatchObject({ status: 409, body: { error: 'TERMS_CHANGED' } })
+                const missingRevision = await buyer.post(`/api/offers/${manual.body.offer.id}/accept`).send({ quantity: 5 })
+                expect(missingRevision).toMatchObject({ status: 409, body: { error: 'TERMS_CHANGED' } })
+                const conversation = await buyer.post(`/api/offers/${manual.body.offer.id}/conversation`).send({})
+                const context = await buyer.get(`/api/conversations/${conversation.body.conversation.id}/context`)
+                expect(context.body.context.offerRevision).toBe(edited.body.offer.revision)
+                expect(Number((await pool.query('SELECT count(*) FROM orders WHERE offer_id=$1', [manual.body.offer.id])).rows[0].count)).toBe(ordersBeforeStale)
+                expect(Number((await pool.query('SELECT count(*) FROM notifications WHERE offer_id=$1', [manual.body.offer.id])).rows[0].count)).toBe(notificationsBeforeStale)
+                const raceKey = randomUUID()
+                const [raceEdit, raceAccept] = await Promise.all([
+                    sellerC.patch(`/api/offers/${terms.body.offer.id}`).send({ description: 'Змінені умови' }),
+                    buyer.post(`/api/offers/${terms.body.offer.id}/accept`).send({ quantity: 5, expectedRevision: terms.body.offer.revision, selectionKey: raceKey }),
+                ])
+                expect([[200, 409], [409, 201]]).toContainEqual([raceEdit.status, raceAccept.status])
+                if (raceAccept.status === 201) {
+                    const retry = await buyer.post(`/api/offers/${terms.body.offer.id}/accept`).send({ quantity: 5, expectedRevision: terms.body.offer.revision, selectionKey: raceKey })
+                    expect(retry.status).toBe(200)
+                    expect(retry.body.order.id).toBe(raceAccept.body.order.id)
+                }
                 const original = (await pool.query('SELECT title, description, price FROM products WHERE id=$1', [productId])).rows[0]
                 expect(original).toMatchObject({ title: `Власний товар ${suffix}`, description: 'Первинний опис' })
-                const secondLinked = await sellerA.post(endpoint).send({ ...base, creationMode: 'product', productId })
+                const secondLinked = await sellerA.post(endpoint).send({ requestKey: offerTestKey(), ...base, creationMode: 'product', productId })
                 expect(secondLinked.status).toBe(201)
                 const sharedKey = (await pool.query('SELECT storage_key FROM offer_photos WHERE offer_id=$1 AND url=$2', [linked.body.offer.id, retainedUrl])).rows[0].storage_key as string
                 const replaced = (await pool.query('SELECT id, storage_key FROM offer_photos WHERE offer_id=$1 ORDER BY sort_order LIMIT 1', [secondLinked.body.offer.id])).rows[0]
@@ -93,9 +128,10 @@ if (hasDatabase) {
                 const removedShared = await sellerA.patch(`/api/offers/${secondLinked.body.offer.id}`).send({ photos: [{ url: secondLinked.body.offer.photos[1].url }] })
                 expect(removedShared.status).toBe(200)
                 expect(await readFile(offerFile(retainedUrl))).toEqual(retainedBytes)
-                const results = await Promise.all([linked.body.offer.id, secondLinked.body.offer.id].map(id => buyer.post(`/api/offers/${id}/accept`).send({ quantity: 5 })))
+                const revisions = await pool.query('SELECT id, xmin::text AS revision FROM offers WHERE id = ANY($1::uuid[])', [[linked.body.offer.id, secondLinked.body.offer.id]])
+                const results = await Promise.all(revisions.rows.map(row => buyer.post(`/api/offers/${row.id}/accept`).send({ quantity: 5, expectedRevision: row.revision })))
                 expect(results.map(result => result.status).sort()).toEqual([201, 409])
-                const acceptedId = results[0].status === 201 ? linked.body.offer.id : secondLinked.body.offer.id
+                const acceptedId = revisions.rows[results.findIndex(result => result.status === 201)].id
                 expect((await sellerA.patch(`/api/offers/${acceptedId}`).send({ title: 'Зміна після угоди' })).body.error).toBe('OFFER_TERMS_LOCKED')
                 const orderId = results.find(result => result.status === 201)!.body.order.id
                 const snapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [orderId])).rows[0].conditions_snapshot
@@ -129,7 +165,7 @@ if (hasDatabase) {
                     return response.body.buyRequest.id as string
                 }
                 const createOffer = async (buyRequestId: string) => {
-                    const response = await seller.post(`/api/buy-requests/${buyRequestId}/offers`).send({ quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' })
+                    const response = await seller.post(`/api/buy-requests/${buyRequestId}/offers`).send({ requestKey: offerTestKey(), quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' })
                     expect(response.status).toBe(201)
                     return response.body.offer.id as string
                 }
@@ -145,7 +181,7 @@ if (hasDatabase) {
                 expect(allowed.status).toBe(200)
                 expect(allowed.body.buyRequest).toMatchObject({ title: 'Дозволена зміна', fulfillmentMode: 'multiple_sellers' })
                 expect((await pool.query('SELECT offered_quantity, unit, unit_price, currency, delivery FROM offers WHERE id = $1', [offerId])).rows[0]).toEqual(offerTerms)
-                const deal = await buyer.post(`/api/offers/${offerId}/accept`).send({ quantity: 5 })
+                const deal = await buyer.post(`/api/offers/${offerId}/accept`).send({ expectedRevision: await offerRevision(offerId), quantity: 5 })
                 expect(deal.status).toBe(201)
                 const dealTerms = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id = $1', [deal.body.order.id])).rows[0].conditions_snapshot
                 const changedAfterOneDeal = await buyer.patch(`/api/buy-requests/${buyRequestId}`).send({ fulfillmentMode: 'single_seller', description: 'Дозволена зміна' })
@@ -164,7 +200,7 @@ if (hasDatabase) {
                 const concurrentRequestId = await createRequest(`Одночасні запити ${suffix}`)
                 const [edit, concurrentOffer] = await Promise.all([
                     buyer.patch(`/api/buy-requests/${concurrentRequestId}`).send({ fulfillmentMode: 'single_seller' }),
-                    seller.post(`/api/buy-requests/${concurrentRequestId}/offers`).send({ quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' }),
+                    seller.post(`/api/buy-requests/${concurrentRequestId}/offers`).send({ requestKey: offerTestKey(), quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' }),
                 ])
                 expect(concurrentOffer.status).toBe(201)
                 expect(edit.status).toBe(200)
@@ -217,8 +253,8 @@ if (hasDatabase) {
                 expect(clearMaximum.status).toBe(200)
                 expect(clearMaximum.body.buyRequest.price).toMatchObject({ min: 200, max: null, currency: 'UAH' })
                 expect((await sellerOne.patch(`/api/buy-requests/${requestId}`).send({ title: 'Чужа зміна' })).status).toBe(404)
-                const offerOne = await sellerOne.post(`/api/buy-requests/${requestId}/offers`).send({ productId: baseProduct.id, quantity: 300, unit: 'kg', price: 240, currency: 'UAH', delivery: 'Доставка до складу', note: 'Умова A', additionalPhotoUrl: 'https://cdn.example.com/offer-a.jpg' })
-                const offerTwo = await sellerTwo.post(`/api/buy-requests/${requestId}/offers`).send({ quantity: 200, unit: 'kg', price: 245, currency: 'UAH', delivery: 'Самовивіз', note: 'Умова B' })
+                const offerOne = await sellerOne.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), productId: baseProduct.id, quantity: 300, unit: 'kg', price: 240, currency: 'UAH', delivery: 'Доставка до складу', note: 'Умова A', additionalPhotoUrl: 'https://cdn.example.com/offer-a.jpg' })
+                const offerTwo = await sellerTwo.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), quantity: 200, unit: 'kg', price: 245, currency: 'UAH', delivery: 'Самовивіз', note: 'Умова B' })
                 expect(offerOne.status).toBe(201)
                 expect(offerTwo.status).toBe(201)
                 expect((await buyer.patch(`/api/buy-requests/${requestId}`).send({ quantity: 600 })).status).toBe(409)
@@ -246,8 +282,8 @@ if (hasDatabase) {
                 expect(offerTwo.body.offer).toMatchObject({ quantity: 200, price: { amount: 245 }, note: 'Умова B' })
                 expect(offerOne.body.offer.price).not.toEqual(offerTwo.body.offer.price)
                 expect((await buyer.get(`/api/buy-requests/${requestId}/offers`)).body.offers).toHaveLength(2)
-                const dealOne = await buyer.post(`/api/offers/${offerOne.body.offer.id}/accept`).send({ quantity: 300 })
-                const dealTwo = await buyer.post(`/api/offers/${offerTwo.body.offer.id}/accept`).send({ quantity: 100 })
+                const dealOne = await buyer.post(`/api/offers/${offerOne.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(offerOne.body.offer.id), quantity: 300 })
+                const dealTwo = await buyer.post(`/api/offers/${offerTwo.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(offerTwo.body.offer.id), quantity: 100 })
                 expect(dealOne.status).toBe(201)
                 expect(dealTwo.status).toBe(201)
                 const agreedTerms = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id = $1', [dealOne.body.order.id])).rows[0].conditions_snapshot
@@ -266,13 +302,13 @@ if (hasDatabase) {
                 expect(unchangedProduct).toEqual(expect.objectContaining({ description: baseProduct.description, deliveryMode: baseProduct.deliveryMode, geoZone: baseProduct.geoZone }))
                 const singleRequest = await buyer.post('/api/buy-requests').send({ categoryId: category.id, title: 'Потрібен один продавець', description: '', quantity: 100, unit: 'kg', currency: 'UAH', minPrice: 200, maxPrice: 260, delivery: 'no', geoArea: 'Київська область', fulfillmentMode: 'single_seller' })
                 expect(singleRequest.status).toBe(201)
-                const smallOffer = await sellerOne.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ quantity: 60, unit: 'kg', price: 240, currency: 'UAH', delivery: 'Самовивіз' })
-                const fullOffer = await sellerTwo.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ quantity: 100, unit: 'kg', price: 245, currency: 'UAH', delivery: 'Самовивіз' })
-                const partialSingle = await buyer.post(`/api/offers/${smallOffer.body.offer.id}/accept`).send({ quantity: 60 })
+                const smallOffer = await sellerOne.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), quantity: 60, unit: 'kg', price: 240, currency: 'UAH', delivery: 'Самовивіз' })
+                const fullOffer = await sellerTwo.post(`/api/buy-requests/${singleRequest.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), quantity: 100, unit: 'kg', price: 245, currency: 'UAH', delivery: 'Самовивіз' })
+                const partialSingle = await buyer.post(`/api/offers/${smallOffer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(smallOffer.body.offer.id), quantity: 60 })
                 expect(partialSingle.status).toBe(201)
-                expect((await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({ quantity: 40 })).status).toBe(409)
+                expect((await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(fullOffer.body.offer.id), quantity: 40 })).status).toBe(409)
                 expect((await buyer.patch(`/api/orders/${partialSingle.body.order.id}/status`).send({ status: 'cancelled', reason: 'Тест скасування' })).status).toBe(200)
-                const selectedSingle = await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({ quantity: 100 })
+                const selectedSingle = await buyer.post(`/api/offers/${fullOffer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(fullOffer.body.offer.id), quantity: 100 })
                 expect(selectedSingle.status).toBe(201)
                 expect(selectedSingle.body.order).toMatchObject({ quantity: 100, status: 'selected' })
             } finally {
@@ -302,7 +338,7 @@ if (hasDatabase) {
                     return response.body.buyRequest.id as string
                 }
                 const createOffer = async (agent: typeof sellerOne, requestId: string, quantity = 5) => {
-                    const response = await agent.post(`/api/buy-requests/${requestId}/offers`).send({ quantity, unit: 'kg', price: 150, currency: 'UAH', delivery: 'Самовивіз' })
+                    const response = await agent.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), quantity, unit: 'kg', price: 150, currency: 'UAH', delivery: 'Самовивіз' })
                     expect(response.status).toBe(201)
                     return response.body.offer.id as string
                 }
@@ -312,7 +348,7 @@ if (hasDatabase) {
                 const completedId = await createRequest('Виконаний запит')
                 const completedOfferId = await createOffer(sellerOne, completedId)
                 const selectedOfferId = await createOffer(sellerTwo, completedId, 10)
-                const selected = await buyer.post(`/api/offers/${selectedOfferId}/accept`).send({ quantity: 10 })
+                const selected = await buyer.post(`/api/offers/${selectedOfferId}/accept`).send({ expectedRevision: await offerRevision(selectedOfferId), quantity: 10 })
                 expect(selected.status).toBe(201)
                 expect((await sellerTwo.post(`/api/orders/${selected.body.order.id}/seller-confirm`)).status).toBe(200)
                 expect((await buyer.post(`/api/orders/${selected.body.order.id}/complete`)).status).toBe(200)
@@ -384,7 +420,7 @@ if (hasDatabase) {
                 expect(createdRequest.status).toBe(201)
                 const requestId = createdRequest.body.buyRequest.id
                 const createOffer = async (productId: string) => {
-                    const result = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз', note: 'Початкова примітка' })
+                    const result = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), productId, quantity: 5, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз', note: 'Початкова примітка' })
                     expect(result.status).toBe(201)
                     return result.body.offer.id as string
                 }

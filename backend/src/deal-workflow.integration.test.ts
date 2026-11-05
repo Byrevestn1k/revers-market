@@ -1,3 +1,4 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { randomUUID } from 'node:crypto'
@@ -6,6 +7,7 @@ const hasDatabase = Boolean(process.env.DATABASE_URL)
 if (hasDatabase) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
     const { publishDueReviews } = await import('./community-service.js')
     describe('buyer and seller agreement lifecycle', () => {
         const app = createApp()
@@ -35,12 +37,12 @@ if (hasDatabase) {
             const created = await buyer.post('/api/buy-requests').send({ categoryId, title: 'Потрібен мед', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity, unit: 'kg', currency: 'UAH', geoArea: 'Київська область', fulfillmentMode: mode })
             expect(created.status, JSON.stringify(created.body)).toBe(201)
             const rid = created.body.buyRequest.id
-            const offer = await seller.post(`/api/buy-requests/${rid}/offers`).send({ productId, quantity, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })
+            const offer = await seller.post(`/api/buy-requests/${rid}/offers`).send({ requestKey: offerTestKey(), productId, quantity, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })
             expect(offer.status, JSON.stringify(offer.body)).toBe(201)
             return { rid, oid: offer.body.offer.id, productId }
         }
         const select = async (oid: string, quantity: number) => {
-            const response = await buyer.post(`/api/offers/${oid}/accept`).send({ quantity, selectionKey: randomUUID() })
+            const response = await buyer.post(`/api/offers/${oid}/accept`).send({ expectedRevision: await offerRevision(oid), quantity, selectionKey: randomUUID() })
             expect(response.status, JSON.stringify(response.body)).toBe(201)
             return response.body.order.id as string
         }
@@ -90,7 +92,7 @@ if (hasDatabase) {
             expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating: 1 })).status).toBe(409)
             const nextRequest = await buyer.post('/api/buy-requests').send({ categoryId, title: 'Новий запит на мед', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity: 5, unit: 'kg', currency: 'UAH', geoArea: 'Київська область', fulfillmentMode: 'multiple_sellers' })
             expect(nextRequest.status).toBe(201)
-            expect((await seller.post(`/api/buy-requests/${nextRequest.body.buyRequest.id}/offers`).send({ productId, quantity: 5, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })).status).toBe(201)
+            expect((await seller.post(`/api/buy-requests/${nextRequest.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), productId, quantity: 5, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })).status).toBe(201)
             expect(await snapshot()).toEqual(before)
         }, 120000)
         it('requires positive unreserved quantity for direct activation', async () => {
@@ -277,18 +279,18 @@ if (hasDatabase) {
         },60000)
         it('serializes simultaneous selections and replays the same selection key without a second order',async()=>{
             const {oid,rid}=await setup(20); const key=randomUUID()
-            const pair=await Promise.all([buyer.post(`/api/offers/${oid}/accept`).send({quantity:20,selectionKey:key}),buyer.post(`/api/offers/${oid}/accept`).send({quantity:20,selectionKey:key})])
+            const pair=await Promise.all([buyer.post(`/api/offers/${oid}/accept`).send({ expectedRevision: await offerRevision(oid),quantity:20,selectionKey:key}),buyer.post(`/api/offers/${oid}/accept`).send({ expectedRevision: await offerRevision(oid),quantity:20,selectionKey:key})])
             expect(pair.map(r=>r.status).sort()).toEqual([200,201]); expect(pair[0].body.order.id).toBe(pair[1].body.order.id)
             expect((await buyer.get(`/api/buy-requests/${rid}`)).body.buyRequest.selectedQuantity).toBe(20)
             const other=await setup(20)
-            const second=await outsider.post(`/api/buy-requests/${other.rid}/offers`).send({quantity:20,unit:'kg',price:140,currency:'UAH',delivery:'Самовивіз'})
-            const raced=await Promise.all([buyer.post(`/api/offers/${other.oid}/accept`).send({quantity:20}),buyer.post(`/api/offers/${second.body.offer.id}/accept`).send({quantity:20})])
+            const second=await outsider.post(`/api/buy-requests/${other.rid}/offers`).send({ requestKey: offerTestKey(),quantity:20,unit:'kg',price:140,currency:'UAH',delivery:'Самовивіз'})
+            const raced=await Promise.all([buyer.post(`/api/offers/${other.oid}/accept`).send({ expectedRevision: await offerRevision(other.oid),quantity:20}),buyer.post(`/api/offers/${second.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(second.body.offer.id),quantity:20})])
             expect(raced.map(r=>r.status).sort()).toEqual([201,409]); expect(raced.find(r=>r.status===409)!.body.remainingQuantity).toBe(0)
         },60000)
         it('releases reservations once on cancellation and seller rejection, including SINGLE_SELLER',async()=>{
             const {oid,rid,productId}=await setup(100,'single_seller',true)
-            const small=await outsider.post(`/api/buy-requests/${rid}/offers`).send({quantity:60,unit:'kg',price:140,currency:'UAH',delivery:'Самовивіз'})
-            expect((await buyer.post(`/api/offers/${small.body.offer.id}/accept`).send({})).status).toBe(400)
+            const small=await outsider.post(`/api/buy-requests/${rid}/offers`).send({ requestKey: offerTestKey(),quantity:60,unit:'kg',price:140,currency:'UAH',delivery:'Самовивіз'})
+            expect((await buyer.post(`/api/offers/${small.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(small.body.offer.id) })).status).toBe(400)
             const id=await select(oid,100)
             expect((await buyer.post(`/api/offers/${oid}/accept`).send({})).status).toBeGreaterThanOrEqual(400)
             expect((await seller.post(`/api/orders/${id}/fail`).send({reason:'PRODUCT_UNAVAILABLE'})).body.order.status).toBe('rejected')
@@ -315,7 +317,7 @@ if (hasDatabase) {
             const chat=await buyer.post(`/api/offers/${oid}/conversation`);const cid=chat.body.conversation.id
             expect((await outsider.get(`/api/conversations/${cid}/context`)).status).toBe(404)
             expect((await outsider.post(`/api/conversations/${cid}/messages`).send({body:'Чуже повідомлення'})).status).toBe(404)
-            expect((await outsider.post(`/api/offers/${oid}/accept`).send({quantity:10})).status).toBe(403)
+            expect((await outsider.post(`/api/offers/${oid}/accept`).send({ expectedRevision: await offerRevision(oid),quantity:10})).status).toBe(403)
             const id=await select(oid,30); await seller.post(`/api/orders/${id}/seller-confirm`)
             for(const quantity of [0,-1,31,0.00001,'20']) expect((await buyer.post(`/api/orders/${id}/complete`).send({actualQuantity:quantity})).status).toBe(400)
             const proposal=await buyer.post(`/api/conversations/${cid}/negotiations`).send({price:130,quantity:20})
@@ -354,7 +356,7 @@ if (hasDatabase) {
         },60000)
         it('reserves only the active remainder across independent sellers and completes in parallel without overcounting',async()=>{
             const {oid,rid}=await setup(100)
-            const second=await outsider.post(`/api/buy-requests/${rid}/offers`).send({quantity:50,unit:'kg',price:140,currency:'UAH',delivery:'Самовивіз'})
+            const second=await outsider.post(`/api/buy-requests/${rid}/offers`).send({ requestKey: offerTestKey(),quantity:50,unit:'kg',price:140,currency:'UAH',delivery:'Самовивіз'})
             const firstId=await select(oid,40), secondId=await select(second.body.offer.id,30)
             await seller.post(`/api/orders/${firstId}/seller-confirm`);await outsider.post(`/api/orders/${secondId}/seller-confirm`)
             await buyer.post(`/api/orders/${firstId}/complete`)

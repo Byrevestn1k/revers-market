@@ -1,3 +1,4 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { randomUUID } from 'node:crypto'
@@ -5,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 if (process.env.DATABASE_URL) {
     const { createApp } = await import('./app.js')
     const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision
     describe('step 27 profile chat and personal history', () => {
         const app = createApp()
         const agents = [request.agent(app), request.agent(app), request.agent(app)]
@@ -59,12 +61,12 @@ if (process.env.DATABASE_URL) {
             const requestId = created.body.buyRequest.id
             const requestChat = await agents[1].post(`/api/buy-requests/${requestId}/conversation`)
             expect(requestChat.status).toBe(201)
-            const offer = await agents[1].post(`/api/buy-requests/${requestId}/offers`).send({ quantity: 10, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })
+            const offer = await agents[1].post(`/api/buy-requests/${requestId}/offers`).send({ requestKey: offerTestKey(), quantity: 10, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })
             expect(offer.status).toBe(201)
             const offerId = offer.body.offer.id
             const offerChat = await agents[0].post(`/api/offers/${offerId}/conversation`)
             expect(offerChat.status).toBe(201)
-            const selected = await agents[0].post(`/api/offers/${offerId}/accept`).send({ quantity: 5, selectionKey: randomUUID() })
+            const selected = await agents[0].post(`/api/offers/${offerId}/accept`).send({ expectedRevision: await offerRevision(offerId), quantity: 5, selectionKey: randomUUID() })
             expect(selected.status, JSON.stringify(selected.body)).toBe(201)
             const offerChatId = offerChat.body.conversation.id
             expect((await agents[0].get(`/api/orders/${selected.body.order.id}/conversation`)).body.conversation.id).toBe(offerChatId)
@@ -184,9 +186,9 @@ if (process.env.DATABASE_URL) {
             expect(productChat.status).toBe(201)
             const requestResult = await agents[0].post('/api/buy-requests').send({ categoryId, title: 'Тест чату угоди', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity: 10, unit: 'kg', currency: 'UAH', geoArea: 'Київська область', fulfillmentMode: 'multiple_sellers' })
             expect(requestResult.status).toBe(201)
-            const offer = await agents[1].post(`/api/buy-requests/${requestResult.body.buyRequest.id}/offers`).send({ quantity: 10, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })
+            const offer = await agents[1].post(`/api/buy-requests/${requestResult.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), quantity: 10, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })
             expect(offer.status).toBe(201)
-            const selected = await agents[0].post(`/api/offers/${offer.body.offer.id}/accept`).send({ quantity: 5, selectionKey: randomUUID() })
+            const selected = await agents[0].post(`/api/offers/${offer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(offer.body.offer.id), quantity: 5, selectionKey: randomUUID() })
             expect(selected.status).toBe(201)
             const dealChat = await agents[0].get(`/api/orders/${selected.body.order.id}/conversation`)
             expect(dealChat.status).toBe(200)

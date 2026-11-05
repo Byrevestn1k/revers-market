@@ -1,10 +1,12 @@
+import { randomUUID as offerTestKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 if (process.env.DATABASE_URL) {
   const { createApp } = await import('./app.js');
-  const { pool } = await import('./db/client.js');
+  const { pool } = await import('./db/client.js')
+    const offerRevision = async (id: string) => (await pool.query('SELECT xmin::text AS revision FROM offers WHERE id=$1', [id])).rows[0]?.revision;
   describe('legacy postal edits (real PostgreSQL)', () => {
     it('preserves unchanged legacy Product, Request, Offer and subscription terms', async () => {
       const buyer = request.agent(createApp()), seller = request.agent(createApp());
@@ -27,8 +29,8 @@ if (process.env.DATABASE_URL) {
         const buy = await buyer.post('/api/buy-requests').send(requestBody); expect(buy.status).toBe(201);
         const requestId = buy.body.buyRequest.id;
         const offerBody = { creationMode: 'product', productId, quantity: 1, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Пошта', deliveryOptions: [postal] };
-        const offer = await seller.post(`/api/buy-requests/${requestId}/offers`).send(offerBody); expect(offer.status).toBe(201);
-        const deal = await buyer.post(`/api/offers/${offer.body.offer.id}/accept`).send({ quantity: 1 }); expect(deal.status).toBe(201);
+        const offer = await seller.post(`/api/buy-requests/${requestId}/offers`).send({ ...offerBody, requestKey: offerTestKey() }); expect(offer.status).toBe(201);
+        const deal = await buyer.post(`/api/offers/${offer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(offer.body.offer.id), quantity: 1 }); expect(deal.status).toBe(201);
         const snapshot = (await pool.query('SELECT conditions_snapshot FROM orders WHERE id=$1', [deal.body.order.id])).rows[0].conditions_snapshot;
         await pool.query('UPDATE products SET delivery_options=$1::jsonb WHERE id=$2', [JSON.stringify([oldPostal]), productId]);
         const patch = (body: object) => seller.patch(`/api/products/${productId}`).send(body);
@@ -56,7 +58,7 @@ if (process.env.DATABASE_URL) {
         await pool.query('UPDATE buy_requests SET delivery_options=$1::jsonb WHERE id=$2', [JSON.stringify(legacyBuyer), legacyRequestId]);
         expect((await buyer.patch(`/api/buy-requests/${legacyRequestId}`).send({ title: `Changed ${suffix}`, deliveryOptions: legacyBuyer })).status).toBe(200);
         expect((await buyer.patch(`/api/buy-requests/${legacyRequestId}`).send({ deliveryOptions: [{ method: 'POSTAL_DELIVERY', postalOperators: [] }] })).status).toBe(400);
-        const manual = await seller.post(`/api/buy-requests/${legacyRequestId}/offers`).send({ creationMode: 'manual', title: 'Legacy offer', quantity: 1, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Пошта', deliveryOptions: [postal] });
+        const manual = await seller.post(`/api/buy-requests/${legacyRequestId}/offers`).send({ requestKey: offerTestKey(), creationMode: 'manual', title: 'Legacy offer', quantity: 1, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Пошта', deliveryOptions: [postal] });
         expect(manual.status).toBe(201); const offerId = manual.body.offer.id;
         expect(manual.body.offer.deliveryCompatibility.status).toBe('UNKNOWN');
         await pool.query('UPDATE offers SET delivery_options=$1::jsonb WHERE id=$2', [JSON.stringify([oldPostal]), offerId]);
