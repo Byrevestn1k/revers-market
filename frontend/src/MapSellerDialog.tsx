@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-type Profile = { id: string; username: string; nickname?: string | null; bio?: string | null; avatarUrl?: string | null; location?: string | null; exactAddress?: string | null; phone?: string | null; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; ratingSummary: { average: number | null; count: number } }
+type Profile = { id: string; username: string; nickname?: string | null; bio?: string | null; avatarUrl?: string | null; location?: string | null; exactAddress?: string | null; phone?: string | null; statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }; sellerRating: { average: number | null; count: number } }
 export default function MapSellerDialog({ username, request, imageUrl, onClose }: { username: string; request: (path: string, options?: RequestInit) => Promise<any>; imageUrl: (url: string) => string; onClose: () => void }) {
     const [profile, setProfile] = useState<Profile | null>(null)
     const [error, setError] = useState('')
@@ -29,7 +29,7 @@ export default function MapSellerDialog({ username, request, imageUrl, onClose }
             <header>{profile.avatarUrl && <img src={imageUrl(profile.avatarUrl)} alt="" />}<div><span className="eyebrow">Профіль користувача</span><h2>{profile.nickname || profile.username}</h2><p>@{profile.username}</p></div></header>
             <p>{profile.bio || 'Користувач ще не додав опис.'}</p>
             <p>⌖ {profile.exactAddress || profile.location || 'Місце не вказано'}</p>
-            <dl className="map-preview-facts"><div><dt>Оголошення</dt><dd>{profile.statistics.listingsCount}</dd></div><div><dt>Завершені угоди</dt><dd>{profile.statistics.completedDealsCount}</dd></div><div><dt>Рейтинг</dt><dd>{profile.ratingSummary.count ? `${profile.ratingSummary.average} · ${profile.ratingSummary.count} відгуків` : 'Ще немає відгуків'}</dd></div></dl>
+            <dl className="map-preview-facts"><div><dt>Оголошення</dt><dd>{profile.statistics.listingsCount}</dd></div><div><dt>Завершені угоди</dt><dd>{profile.statistics.completedDealsCount}</dd></div><div><dt>Рейтинг продавця</dt><dd>{profile.sellerRating.count ? `${profile.sellerRating.average} · ${profile.sellerRating.count} відгуків` : 'Ще немає відгуків'}</dd></div></dl>
             {profile.phone && <a className="primary-button compact" href={'tel:' + profile.phone}>Зателефонувати: {profile.phone}</a>}
         </>}
         <button type="button" className="outline-button compact" onClick={onClose}>Повернутися до мапи</button>

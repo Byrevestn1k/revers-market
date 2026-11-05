@@ -7,7 +7,7 @@ export type FavoriteProfileCardData = {
     avatarUrl?: string | null
     bio?: string | null
     location?: string | null
-    ratingSummary?: { average: number | null; count: number }
+    sellerRating?: { average: number | null; count: number }
     statistics?: { listingsCount: number; completedDealsCount: number }
 }
 
@@ -23,7 +23,7 @@ export default function FavoriteProfileCard({ profile, onOpen, favorite = false,
     return <article className="favorite-profile-card listing-card">
         <button type="button" className="favorite-profile-open" onClick={onOpen} aria-label={'Відкрити профіль: ' + name}>
             <span className="favorite-profile-avatar">{profile.avatarUrl ? <img src={imageUrl(profile.avatarUrl)} alt={'Аватар ' + name} /> : initials}</span>
-            <span className="favorite-profile-copy"><strong>{name}</strong><small>@{profile.username}{profile.location ? ' · ⌖ ' + profile.location : ''}</small><p>{profile.bio || 'Користувач ще не додав публічний опис.'}</p><small>★ {profile.ratingSummary?.average ?? '—'} · {profile.statistics?.listingsCount ?? 0} оголошень</small></span>
+            <span className="favorite-profile-copy"><strong>{name}</strong><small>@{profile.username}{profile.location ? ' · ⌖ ' + profile.location : ''}</small><p>{profile.bio || 'Користувач ще не додав публічний опис.'}</p><small>Продавець ★ {profile.sellerRating?.average ?? '—'} · {profile.statistics?.listingsCount ?? 0} оголошень</small></span>
         </button>
         <FavoriteButton targetType="profile" targetId={profile.id} favorite={favorite} onFavorite={onFavorite} />
     </article>

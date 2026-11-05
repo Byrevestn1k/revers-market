@@ -56,8 +56,17 @@ if (hasDatabase) {
             const id = await select(oid, 5)
             await complete(id, 5)
             expect((await seller.get(`/api/products/${productId}`)).body.product).toMatchObject({ status: 'sold', quantity: 0, availableQuantity: 0 })
+            const sellerBefore = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile
+            const buyerBefore = (await buyer.get(`/api/profiles/${names[0]}`)).body.profile
             expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating: 12 })).status).toBe(201)
+            expect((await buyer.get(`/api/profiles/${names[1]}`)).body.profile.sellerRating).toEqual(sellerBefore.sellerRating)
             expect((await seller.post(`/api/orders/${id}/reviews`).send({ rating: 10 })).status).toBe(201)
+            const sellerAfter = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile
+            const buyerAfter = (await buyer.get(`/api/profiles/${names[0]}`)).body.profile
+            expect(sellerAfter.sellerRating).toEqual({ average: 12, count: 1 })
+            expect(sellerAfter.buyerRating).toEqual(sellerBefore.buyerRating)
+            expect(buyerAfter.buyerRating).toEqual({ average: 10, count: 1 })
+            expect(buyerAfter.sellerRating).toEqual(buyerBefore.sellerRating)
             const snapshot = async () => ({
                 order: (await pool.query('SELECT * FROM orders WHERE id=$1', [id])).rows,
                 items: (await pool.query('SELECT * FROM order_items WHERE order_id=$1 ORDER BY id', [id])).rows,
@@ -94,6 +103,23 @@ if (hasDatabase) {
             expect(nextRequest.status).toBe(201)
             expect((await seller.post(`/api/buy-requests/${nextRequest.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), productId, quantity: 5, unit: 'kg', price: 145, currency: 'UAH', delivery: 'Самовивіз' })).status).toBe(201)
             expect(await snapshot()).toEqual(before)
+        }, 120000)
+        it('calculates role averages from published historical reviews exactly once', async () => {
+            const before = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile.sellerRating
+            for (const rating of [3, 8]) {
+                const { oid } = await setup(2)
+                const id = await select(oid, 2)
+                await complete(id, 2)
+                expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating })).status).toBe(201)
+                expect((await seller.post(`/api/orders/${id}/reviews`).send({ rating: 6 })).status).toBe(201)
+                await pool.query("UPDATE reviews SET created_at = '2020-01-01' WHERE order_id = $1", [id])
+            }
+            const profile = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile
+            expect(profile.sellerRating.count).toBe(before.count + 2)
+            expect(profile.sellerRating.average).toBe(Math.round(((before.average ?? 0) * before.count + 11) / (before.count + 2) * 100) / 100)
+            await publishDueReviews()
+            await publishDueReviews()
+            expect((await buyer.get(`/api/profiles/${names[1]}`)).body.profile.sellerRating).toEqual(profile.sellerRating)
         }, 120000)
         it('requires positive unreserved quantity for direct activation', async () => {
             const { oid, productId } = await setup(5, 'multiple_sellers', true, false, 5)

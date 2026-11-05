@@ -98,7 +98,7 @@ const offerSelect = `SELECT o.*, o.xmin::text AS revision, u.username AS seller_
     p.settlement_code AS product_settlement_code, p.latitude AS product_latitude, p.longitude AS product_longitude, p.address_visibility AS product_address_visibility,
     r.status AS request_status,
     c.name AS request_category_name, c.image_index AS request_category_image_index,
-    CASE WHEN u.rating_count > 0 THEN round(u.rating_sum / u.rating_count, 2) ELSE NULL END AS seller_rating,
+    (SELECT round(avg(rv.rating), 2) FROM reviews rv JOIN orders d ON d.id = rv.order_id WHERE rv.reviewee_id = u.id AND rv.published_at IS NOT NULL AND d.seller_id = u.id AND d.buyer_id = rv.reviewer_id) AS seller_rating,
     u.avatar_url AS seller_avatar,
     COALESCE((SELECT jsonb_agg(jsonb_build_object('url', op.url, 'alt', op.alt) ORDER BY op.sort_order, op.id) FROM offer_photos op WHERE op.offer_id = o.id),
         CASE WHEN o.creation_mode IS NULL THEN (SELECT jsonb_agg(jsonb_build_object('url', pp.url, 'alt', pp.alt) ORDER BY pp.sort_order, pp.id) FROM product_photos pp WHERE pp.product_id = o.product_id) ELSE NULL END,

@@ -34,6 +34,10 @@ type ProfileRow = {
     response_rate: string | number | null
     rating_sum: string | number
     rating_count: number
+    seller_rating_average: string | null
+    seller_rating_count: number
+    buyer_rating_average: string | null
+    buyer_rating_count: number
     created_at: Date
     last_seen_at: Date | null
 }
@@ -52,6 +56,8 @@ export type PublicProfileDto = {
     mapLocation?: { mode: 'approximate' | 'address' | 'pin'; latitude: number | null; longitude: number | null; consent?: boolean }
     statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }
     ratingSummary: { average: number | null; count: number }
+    sellerRating: { average: number | null; count: number }
+    buyerRating: { average: number | null; count: number }
     createdAt: string
     lastSeenAt: string | null
 }
@@ -73,7 +79,11 @@ const profileSelect = `
            email, email_verified, pending_email,
            location_display, exact_address, settlement_code, address_settlement_code, address_latitude, address_longitude, phone_visibility, phone_disclosure_consent,
            map_location_mode, public_latitude, public_longitude,
-           listings_count, (SELECT count(*)::int FROM orders o WHERE (o.buyer_id = users.id OR o.seller_id = users.id) AND o.status = 'completed' AND o.buyer_completed_at IS NOT NULL AND o.seller_completed_at IS NOT NULL) AS completed_deals_count, response_rate, rating_sum, rating_count, created_at, last_seen_at
+           listings_count, (SELECT count(*)::int FROM orders o WHERE (o.buyer_id = users.id OR o.seller_id = users.id) AND o.status = 'completed' AND o.buyer_completed_at IS NOT NULL AND o.seller_completed_at IS NOT NULL) AS completed_deals_count, response_rate, rating_sum, rating_count, created_at, last_seen_at,
+           (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_average,
+           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_count,
+           (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_average,
+           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_count
     FROM users`
 
 const toNumberOrNull = (value: string | number | null) => value === null ? null : Number(value)
@@ -96,6 +106,8 @@ export const toPublicProfile = (row: ProfileRow): PublicProfileDto => ({
     phone: row.phone_visibility === 'public' && row.phone_disclosure_consent ? row.phone : null,
     statistics: { listingsCount: row.listings_count, completedDealsCount: row.completed_deals_count, responseRate: toNumberOrNull(row.response_rate) },
     ratingSummary: ratingSummary(row),
+    sellerRating: { average: row.seller_rating_average == null ? null : Number(row.seller_rating_average), count: row.seller_rating_count ?? 0 },
+    buyerRating: { average: row.buyer_rating_average == null ? null : Number(row.buyer_rating_average), count: row.buyer_rating_count ?? 0 },
     createdAt: row.created_at.toISOString(),
     lastSeenAt: row.last_seen_at?.toISOString() ?? null,
 })
