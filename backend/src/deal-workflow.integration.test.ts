@@ -70,6 +70,9 @@ if (hasDatabase) {
             const privacy = await seller.patch('/api/profile/me/privacy').send({ phoneVisibility: 'private', phoneDisclosureConsent: false })
             expect(privacy.status).toBe(200)
             expect(privacy.body.profile.sellerRating).toEqual(sellerAfter.sellerRating)
+            const edited = await seller.patch('/api/profile/me').send({ nickname: 'Seller test' })
+            expect(edited.status).toBe(200)
+            expect(edited.body.profile.sellerRating).toEqual(sellerAfter.sellerRating)
             const snapshot = async () => ({
                 order: (await pool.query('SELECT * FROM orders WHERE id=$1', [id])).rows,
                 items: (await pool.query('SELECT * FROM order_items WHERE order_id=$1 ORDER BY id', [id])).rows,

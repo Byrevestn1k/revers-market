@@ -197,7 +197,7 @@ export const updateProfile = async (user: AuthUser, input: Record<string, unknow
     const assignments = values.map(([field], index) => `${columnNames[field]} = $${index + 1}`)
     const parameters = values.map(([, value]) => value)
     parameters.push(user.id)
-    const result = await pool.query<ProfileRow>(
+    await pool.query<ProfileRow>(
         `UPDATE users SET ${assignments.length ? `${assignments.join(', ')}, ` : ''}updated_at = now()
          WHERE id = $${parameters.length} RETURNING *`, parameters,
     )
@@ -211,10 +211,9 @@ export const updateProfile = async (user: AuthUser, input: Record<string, unknow
         }
         try { emailVerificationSent = await sendVerificationEmail(pendingEmail, token) }
         catch { console.error('Verification email delivery failed') }
-        const updated = await pool.query<ProfileRow>(`${profileSelect} WHERE id = $1`, [user.id])
-        return { status: 200, body: { profile: toPrivateProfile(updated.rows[0]), emailVerificationSent } }
     }
-    return { status: 200, body: { profile: toPrivateProfile(result.rows[0]), emailVerificationSent } }
+    const updated = await pool.query<ProfileRow>(`${profileSelect} WHERE id = $1`, [user.id])
+    return { status: 200, body: { profile: toPrivateProfile(updated.rows[0]), emailVerificationSent } }
 }
 
 export const updatePrivacy = async (user: AuthUser, input: Record<string, unknown>) => {
