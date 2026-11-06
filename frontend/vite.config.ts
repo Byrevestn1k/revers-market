@@ -11,6 +11,7 @@ export default defineConfig({
         proxy: {
             '/api': { target: backendUrl, changeOrigin: true },
             '/uploads': { target: backendUrl, changeOrigin: true },
+            '^/(products|buy-requests|profiles)/[^/?]+(?:\\?.*)?$': { target: backendUrl, changeOrigin: true },
         },
     },
 })

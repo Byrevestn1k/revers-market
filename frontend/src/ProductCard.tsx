@@ -7,6 +7,7 @@ import FavoriteButton from './FavoriteButton'
 import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
 import { photoThumbnailUrl } from './photo-thumbnail'
 import './listing-ui.css'
+import ShareButton from './ShareButton'
 
 export type ProductCardData = {
     id: string; title: string; category: { id: string; name: string; imageIndex?: number | null }
@@ -44,6 +45,7 @@ export default function ProductCard({ product, onOpen, onEdit, onDelete, onStatu
             </div>
         </button>
         {showFavorite && <FavoriteButton targetType="product" targetId={product.id} favorite={favorite} onFavorite={onFavorite ? () => onFavorite() : undefined} />}
+        {status === 'active' && <ShareButton type="product" id={product.id} />}
         {(onChat || onEdit || onDelete || onStatus) && <div className="listing-card-actions">
             {onChat && <button type="button" className="primary-button compact" onClick={onChat}>♧ Написати продавцю</button>}
             {onEdit && <button type="button" className="outline-button compact" onClick={onEdit}>Редагувати</button>}

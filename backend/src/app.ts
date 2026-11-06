@@ -3,6 +3,8 @@ import cors from 'cors'
 import express from 'express'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { getShareAvatar, getSharePayload, injectShareMetadata, type ShareType } from './share.js'
 import sharp from 'sharp'
 import { PhotoValidationError } from './photo-storage.js'
 import { checkDatabase } from './db/client.js'
@@ -95,6 +97,45 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         } catch { response.status(404).end() }
     })
     app.use('/uploads', express.static(fileURLToPath(new URL('../uploads', import.meta.url))))
+    app.get('/api/share-avatar/:username', async (request, response, next) => {
+        try {
+            const bytes = await getShareAvatar(String(request.params.username), request)
+            if (!bytes) { response.sendStatus(404); return }
+            const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata().catch(() => null)
+            if (!metadata?.format || !['png', 'jpeg', 'webp', 'gif'].includes(metadata.format)) { response.sendStatus(404); return }
+            response.set('Cache-Control', 'no-store').type(`image/${metadata.format}`).send(bytes)
+        } catch (error) { next(error) }
+    })
+    app.get('/api/share/:type/:id', async (request, response, next) => {
+        try {
+            const type = String(request.params.type) as ShareType
+            if (!['product', 'buy_request', 'profile', 'review'].includes(type)) { response.sendStatus(404); return }
+            const payload = await getSharePayload(type, String(request.params.id), request, typeof request.query.review === 'string' ? request.query.review : undefined)
+            if (!payload) { response.sendStatus(404); return }
+            response.set('Cache-Control', 'no-store').json(payload)
+        } catch (error) { next(error) }
+    })
+    const frontendRoot = fileURLToPath(new URL('../../frontend/', import.meta.url))
+    const builtRoot = join(frontendRoot, 'dist')
+    app.get(['/products/:id', '/buy-requests/:id', '/profiles/:id'], optionalAuth, async (request, response, next) => {
+        try {
+            const type: ShareType = request.path.startsWith('/products/') ? 'product' : request.path.startsWith('/buy-requests/') ? 'buy_request' : request.query.review ? 'review' : 'profile'
+            const payload = await getSharePayload(type, String(request.params.id), request, typeof request.query.review === 'string' ? request.query.review : undefined)
+            let ownerAccess = false
+            const id = String(request.params.id)
+            if (!payload && request.authUser && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+                if (type === 'product') { const result = await getProduct(id, request.authUser); ownerAccess = 'product' in result.body && result.body.product?.owner.id === request.authUser.id }
+                if (type === 'buy_request') { const result = await getBuyRequest(id, request.authUser); ownerAccess = 'buyRequest' in result.body && result.body.buyRequest?.buyer?.id === request.authUser.id }
+            }
+            if (!payload && !ownerAccess) { response.status(404).set('Cache-Control', 'no-store').type('html').send('<!doctype html><html lang="uk"><meta charset="utf-8"><title>Сторінка недоступна — ДещоТреба</title><p>Сторінка недоступна або більше не публічна.</p><a href="/">На головну</a></html>'); return }
+            const isBuilt = import.meta.url.includes('/dist/') && existsSync(join(builtRoot, 'index.html'))
+            const index = isBuilt ? join(builtRoot, 'index.html') : join(frontendRoot, 'index.html')
+            let html = readFileSync(index, 'utf8')
+            if (!isBuilt) html = html.replace('<head>', `<head><script type="module">import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;</script><script type="module" src="/@vite/client"></script>`)
+            response.status(200).set('Cache-Control', 'no-store').type('html').send(payload ? injectShareMetadata(html, payload) : html)
+        } catch (error) { next(error) }
+    })
+    if (existsSync(builtRoot)) app.use(express.static(builtRoot))
     app.use('/api/auth/external', externalAuthRouter(options.providerExchange))
     app.get(['/api/products', '/api/buy-requests', '/api/map/markers'], createSearchRateLimiter())
 

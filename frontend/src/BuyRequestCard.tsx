@@ -5,6 +5,7 @@ import { receiptLabel, type ReceiptMethod } from './subscription-criteria'
 import { requestBudget, unitLabel } from './listing-options'
 import { ListingPicture } from './ProductCard'
 import { deliveryOptionsLabel, type DeliveryOption } from './DeliveryOptionsFields'
+import ShareButton from './ShareButton'
 
 export type BuyRequestCardData = {
     id: string
@@ -40,5 +41,6 @@ export default function BuyRequestCard({ item, onOpen, favorite = false, onFavor
         </button>
         {children}
         {showFavorite && <FavoriteButton targetType="buy_request" targetId={item.id} favorite={favorite} onFavorite={onFavorite} />}
+        {['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(item.status) && <ShareButton type="buy_request" id={item.id} />}
     </article>
 }
