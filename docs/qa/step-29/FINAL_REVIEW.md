@@ -21,3 +21,9 @@ Public profile GET returns `profile` and a `reviews` array computed in the same 
 ## Remaining review points
 
 The old compatibility field is deliberately still mixed and does not implement the new role-specific cancellation rule. Contextual chat's checked header shows no numerical rating; the buyer screenshot shows a generic counterpart label in the open panel, so role identity in that particular panel remains unverified. The historical fixture reproduces legacy workflow data rather than replaying migration 033 on a pre-033 database. Sol should review these constraints, the status predicate, query cost, privacy and the one-statement snapshot contract.
+
+## Follow-up after Sol review of 2a326887
+
+The profile/reviews snapshot is now opt-in with `?includeReviews=1`; ordinary profile GET and all private profile operations do not load or return review bodies. The profile page requests this snapshot. If an older backend omits `reviews`, the page falls back to the existing reviews endpoint; that compatibility path uses separate requests and cannot promise one snapshot. Both endpoints now order ties by review ID, so the same data yields the same list order.
+
+After this follow-up: `npm run typecheck` passed; the full Deal workflow and profile tests passed (21/21), including the final targeted check that ordinary GET omits reviews. Chromium passed 3/3, including a simulated older API response without embedded reviews. The prior full backend run (310 passed, 1 skipped) was before this narrowly scoped read-path follow-up; no Deal lifecycle or Review-writing logic changed in the follow-up. One intermediate run failed because equal timestamps were ordered differently; it was fixed and rerun successfully.

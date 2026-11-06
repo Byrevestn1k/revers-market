@@ -86,15 +86,16 @@ const profileSelect = `
            (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_average,
            (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_count,
            (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_average,
-           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_count,
-           (SELECT COALESCE(jsonb_agg(to_jsonb(rr) ORDER BY rr."createdAt" DESC), '[]'::jsonb) FROM (
+           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_count
+    FROM users`
+
+const profileWithReviewsSelect = profileSelect.replace('\n    FROM users', `,\n    (SELECT COALESCE(jsonb_agg(to_jsonb(rr) ORDER BY rr."createdAt" DESC, rr.id DESC), '[]'::jsonb) FROM (
              SELECT r.id, r.order_id AS "orderId", r.rating, r.body, r.communication_rating AS "communicationRating", r.compliance_rating AS "complianceRating", r.description_rating AS "descriptionRating", r.created_at AS "createdAt", reviewer.username AS "reviewerUsername"
              FROM reviews r JOIN orders o ON o.id = r.order_id JOIN users reviewer ON reviewer.id = r.reviewer_id
              WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled'
                AND ((o.seller_id = users.id AND o.buyer_id = r.reviewer_id) OR (o.buyer_id = users.id AND o.seller_id = r.reviewer_id))
-             ORDER BY r.created_at DESC LIMIT 100
-           ) rr) AS public_reviews
-    FROM users`
+             ORDER BY r.created_at DESC, r.id DESC LIMIT 100
+           ) rr) AS public_reviews\n    FROM users`)
 
 const toNumberOrNull = (value: string | number | null) => value === null ? null : Number(value)
 const ratingSummary = (row: ProfileRow) => ({
@@ -240,12 +241,13 @@ export const updatePrivacy = async (user: AuthUser, input: Record<string, unknow
 
 export const getPublicProfile = async (username: string, request: Request) => {
     await publishDueReviews()
-    const result = await pool.query<ProfileRow>(`${profileSelect} WHERE username_normalized = $1`, [username.trim().toLowerCase()])
+    const includeReviews = request.query.includeReviews === '1'
+    const result = await pool.query<ProfileRow>(`${includeReviews ? profileWithReviewsSelect : profileSelect} WHERE username_normalized = $1`, [username.trim().toLowerCase()])
     const row = result.rows[0]
     if (!row) return { status: 404, body: { error: 'PROFILE_NOT_FOUND' } }
     const profile = toPublicProfile(row)
     if (row.phone_visibility === 'authenticated' && request.authUser) profile.phone = row.phone
-    return { status: 200, body: { profile, reviews: row.public_reviews ?? [] } }
+    return { status: 200, body: { profile, ...(includeReviews ? { reviews: row.public_reviews ?? [] } : {}) } }
 }
 
 export const getPrivateProfile = async (user: AuthUser) => {

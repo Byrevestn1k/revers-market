@@ -161,12 +161,13 @@ if (hasDatabase) {
             expect((await buyer.get(`/api/profiles/${names[1]}`)).body.profile.sellerRating).toEqual(withBoth.sellerRating)
             expect((await buyer.post(`/api/orders/${id}/dispute/resolve`).send({ outcome: 'cancelled', resolution: 'test cancellation' })).status).toBe(200)
             expect((await seller.post(`/api/orders/${id}/dispute/resolve`).send({ outcome: 'cancelled', resolution: 'test cancellation' })).status).toBe(200)
-            const after = (await buyer.get(`/api/profiles/${names[1]}`)).body
+            const after = (await buyer.get(`/api/profiles/${names[1]}?includeReviews=1`)).body
             expect(after.profile.sellerRating).toEqual(sellerBefore.sellerRating)
             expect(after.profile.buyerRating).toEqual(withBoth.buyerRating)
             expect((await buyer.get(`/api/profiles/${names[0]}`)).body.profile.buyerRating).toEqual(buyerBefore.buyerRating)
             expect(after.reviews.some((review: any) => review.orderId === id)).toBe(false)
-            const parallel = await Promise.all([buyer.get(`/api/profiles/${names[1]}`), buyer.get(`/api/profiles/${names[1]}/reviews`)])
+            expect((await buyer.get(`/api/profiles/${names[1]}`)).body).not.toHaveProperty('reviews')
+            const parallel = await Promise.all([buyer.get(`/api/profiles/${names[1]}?includeReviews=1`), buyer.get(`/api/profiles/${names[1]}/reviews`)])
             expect(parallel[0].body.reviews.map((review: any) => review.id)).toEqual(parallel[1].body.reviews.map((review: any) => review.id))
             expect((await pool.query('SELECT * FROM reviews WHERE order_id=$1 ORDER BY id', [id])).rows).toEqual(rowsBefore)
         }, 120000)

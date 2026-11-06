@@ -958,8 +958,8 @@ function PublicProfilePage({ username, user, onAccount, onCreate, favoriteKeys, 
     useEffect(() => {
         let active = true
         setError(''); setProfile(null)
-        Promise.all([request('/api/profiles/' + encodeURIComponent(username)), request('/api/products?limit=50&ownerUsername=' + encodeURIComponent(username)), request('/api/buy-requests?buyerUsername=' + encodeURIComponent(username))])
-            .then(([profileResult, productsResult, requestsResult]) => { if (active) { setProfile(profileResult.profile); setProducts(productsResult.products); setBuyRequests(requestsResult.buyRequests); setReviews(profileResult.reviews) } })
+        Promise.all([request('/api/profiles/' + encodeURIComponent(username) + '?includeReviews=1'), request('/api/products?limit=50&ownerUsername=' + encodeURIComponent(username)), request('/api/buy-requests?buyerUsername=' + encodeURIComponent(username))])
+            .then(async ([profileResult, productsResult, requestsResult]) => { const profileReviews = profileResult.reviews ?? (await request('/api/profiles/' + encodeURIComponent(username) + '/reviews')).reviews; if (active) { setProfile(profileResult.profile); setProducts(productsResult.products); setBuyRequests(requestsResult.buyRequests); setReviews(profileReviews) } })
             .catch(error => { if (active) setError(error.message) })
         return () => { active = false }
     }, [username])

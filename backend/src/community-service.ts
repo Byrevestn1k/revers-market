@@ -203,7 +203,7 @@ export const publishDueReviews = async () => {
 
 export const listReviews = async (username: string) => {
     await publishDueReviews()
-    const result = await pool.query(`SELECT r.id, r.order_id AS "orderId", r.rating, r.body, r.communication_rating AS "communicationRating", r.compliance_rating AS "complianceRating", r.description_rating AS "descriptionRating", r.created_at AS "createdAt", u.username AS "reviewerUsername" FROM reviews r JOIN users u ON u.id = r.reviewer_id JOIN users target ON target.id = r.reviewee_id JOIN orders o ON o.id = r.order_id WHERE target.username_normalized = $1 AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND ((o.seller_id = target.id AND o.buyer_id = r.reviewer_id) OR (o.buyer_id = target.id AND o.seller_id = r.reviewer_id)) ORDER BY r.created_at DESC LIMIT 100`, [username.trim().toLowerCase()])
+    const result = await pool.query(`SELECT r.id, r.order_id AS "orderId", r.rating, r.body, r.communication_rating AS "communicationRating", r.compliance_rating AS "complianceRating", r.description_rating AS "descriptionRating", r.created_at AS "createdAt", u.username AS "reviewerUsername" FROM reviews r JOIN users u ON u.id = r.reviewer_id JOIN users target ON target.id = r.reviewee_id JOIN orders o ON o.id = r.order_id WHERE target.username_normalized = $1 AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND ((o.seller_id = target.id AND o.buyer_id = r.reviewer_id) OR (o.buyer_id = target.id AND o.seller_id = r.reviewer_id)) ORDER BY r.created_at DESC, r.id DESC LIMIT 100`, [username.trim().toLowerCase()])
     return { status: 200, body: { reviews: result.rows } }
 }
 

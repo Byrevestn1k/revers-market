@@ -116,3 +116,23 @@ test('Product and Buy Request use the relevant participant rating', async ({ bro
     await buyer.close()
     await seller.close()
 })
+
+test('profile works with an older API response without embedded reviews', async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5181', viewport: { width: 390, height: 900 } })
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 8)
+    const username = `tester_legacy_${suffix}`
+    const response = await context.request.post('/api/auth/register', { data: { username, email: `${username}@example.com`, countryCode: 'UA', phone: `+38067${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`, password: 'StrongPassword1', passwordConfirmation: 'StrongPassword1' } })
+    expect(response.status()).toBe(201)
+    const page = await context.newPage()
+    await page.route(`**/api/profiles/${username}?includeReviews=1`, async route => {
+        const upstream = await route.fetch()
+        const data = await upstream.json()
+        delete data.reviews
+        await route.fulfill({ response: upstream, json: data })
+    })
+    await page.goto(`/profiles/${username}`)
+    await expect(page.getByRole('heading', { name: username })).toBeVisible()
+    await page.getByRole('tab', { name: /Відгуки/ }).click()
+    await expect(page.getByText('Відгуків поки немає')).toBeVisible()
+    await context.close()
+})
