@@ -116,6 +116,7 @@ if (hasDatabase) {
                 const { oid } = await setup(2)
                 const id = await select(oid, 2)
                 await complete(id, 2)
+                await pool.query('UPDATE orders SET workflow_version = 1, buyer_completed_at = NULL, seller_completed_at = NULL WHERE id = $1', [id])
                 expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating })).status).toBe(201)
                 expect((await seller.post(`/api/orders/${id}/reviews`).send({ rating: 6 })).status).toBe(201)
                 await pool.query("UPDATE reviews SET created_at = '2020-01-01' WHERE order_id = $1", [id])
@@ -126,6 +127,48 @@ if (hasDatabase) {
             await publishDueReviews()
             await publishDueReviews()
             expect((await buyer.get(`/api/profiles/${names[1]}`)).body.profile.sellerRating).toEqual(profile.sellerRating)
+        }, 120000)
+        it('keeps role ratings separate and excludes reviews only after final cancellation', async () => {
+            const sellerBefore = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile
+            const buyerBefore = (await buyer.get(`/api/profiles/${names[0]}`)).body.profile
+            const { oid } = await setup(4)
+            const id = await select(oid, 4)
+            await complete(id, 4)
+            expect((await buyer.post(`/api/orders/${id}/reviews`).send({ rating: 12 })).status).toBe(201)
+            expect((await seller.post(`/api/orders/${id}/reviews`).send({ rating: 4 })).status).toBe(201)
+            const created = await seller.post('/api/buy-requests').send({ categoryId, title: 'Reverse role test', description: '', delivery: 'no', minPrice: 0, maxPrice: 150, quantity: 4, unit: 'kg', currency: 'UAH', geoArea: 'Kyiv', fulfillmentMode: 'multiple_sellers' })
+            expect(created.status).toBe(201)
+            const reverseOffer = await buyer.post(`/api/buy-requests/${created.body.buyRequest.id}/offers`).send({ requestKey: offerTestKey(), quantity: 4, unit: 'kg', price: 100, currency: 'UAH', delivery: 'pickup' })
+            expect(reverseOffer.status).toBe(201)
+            const accepted = await seller.post(`/api/offers/${reverseOffer.body.offer.id}/accept`).send({ expectedRevision: await offerRevision(reverseOffer.body.offer.id), quantity: 4, selectionKey: randomUUID() })
+            expect(accepted.status).toBe(201)
+            const reverseId = accepted.body.order.id
+            expect((await buyer.post(`/api/orders/${reverseId}/seller-confirm`)).status).toBe(200)
+            expect((await seller.post(`/api/orders/${reverseId}/complete`).send({ actualQuantity: 4 })).status).toBe(200)
+            expect((await buyer.post(`/api/orders/${reverseId}/complete`)).status).toBe(200)
+            expect((await seller.post(`/api/orders/${reverseId}/reviews`).send({ rating: 8 })).status).toBe(201)
+            expect((await buyer.post(`/api/orders/${reverseId}/reviews`).send({ rating: 6 })).status).toBe(201)
+            const withBoth = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile
+            expect(withBoth.sellerRating.count).toBe(sellerBefore.sellerRating.count + 1)
+            expect(withBoth.buyerRating.count).toBe(sellerBefore.buyerRating.count + 1)
+            expect(withBoth.buyerRating.average).toBe(6)
+            const otherAfter = (await buyer.get(`/api/profiles/${names[0]}`)).body.profile
+            expect(otherAfter.buyerRating.count).toBe(buyerBefore.buyerRating.count + 1)
+            expect(otherAfter.sellerRating.average).toBe(8)
+            expect(withBoth.sellerRating.average).not.toBe(withBoth.buyerRating.average)
+            const rowsBefore = (await pool.query('SELECT * FROM reviews WHERE order_id=$1 ORDER BY id', [id])).rows
+            expect((await buyer.post(`/api/orders/${id}/dispute`).send({ reason: 'test dispute' })).status).toBe(200)
+            expect((await buyer.get(`/api/profiles/${names[1]}`)).body.profile.sellerRating).toEqual(withBoth.sellerRating)
+            expect((await buyer.post(`/api/orders/${id}/dispute/resolve`).send({ outcome: 'cancelled', resolution: 'test cancellation' })).status).toBe(200)
+            expect((await seller.post(`/api/orders/${id}/dispute/resolve`).send({ outcome: 'cancelled', resolution: 'test cancellation' })).status).toBe(200)
+            const after = (await buyer.get(`/api/profiles/${names[1]}`)).body
+            expect(after.profile.sellerRating).toEqual(sellerBefore.sellerRating)
+            expect(after.profile.buyerRating).toEqual(withBoth.buyerRating)
+            expect((await buyer.get(`/api/profiles/${names[0]}`)).body.profile.buyerRating).toEqual(buyerBefore.buyerRating)
+            expect(after.reviews.some((review: any) => review.orderId === id)).toBe(false)
+            const parallel = await Promise.all([buyer.get(`/api/profiles/${names[1]}`), buyer.get(`/api/profiles/${names[1]}/reviews`)])
+            expect(parallel[0].body.reviews.map((review: any) => review.id)).toEqual(parallel[1].body.reviews.map((review: any) => review.id))
+            expect((await pool.query('SELECT * FROM reviews WHERE order_id=$1 ORDER BY id', [id])).rows).toEqual(rowsBefore)
         }, 120000)
         it('requires positive unreserved quantity for direct activation', async () => {
             const { oid, productId } = await setup(5, 'multiple_sellers', true, false, 5)

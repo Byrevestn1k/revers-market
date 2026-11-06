@@ -41,6 +41,7 @@ type ProfileRow = {
     buyer_rating_count: number
     created_at: Date
     last_seen_at: Date | null
+    public_reviews?: unknown[]
 }
 
 export type PublicProfileDto = {
@@ -56,6 +57,7 @@ export type PublicProfileDto = {
     exactAddress?: string | null
     mapLocation?: { mode: 'approximate' | 'address' | 'pin'; latitude: number | null; longitude: number | null; consent?: boolean }
     statistics: { listingsCount: number; completedDealsCount: number; responseRate: number | null }
+    /** @deprecated Mixed historical aggregate; use sellerRating and buyerRating. */
     ratingSummary: { average: number | null; count: number }
     sellerRating: { average: number | null; count: number }
     buyerRating: { average: number | null; count: number }
@@ -81,10 +83,17 @@ const profileSelect = `
            location_display, exact_address, settlement_code, address_settlement_code, address_latitude, address_longitude, phone_visibility, phone_disclosure_consent,
            map_location_mode, public_latitude, public_longitude,
            listings_count, (SELECT count(*)::int FROM orders o WHERE (o.buyer_id = users.id OR o.seller_id = users.id) AND o.status = 'completed' AND o.buyer_completed_at IS NOT NULL AND o.seller_completed_at IS NOT NULL) AS completed_deals_count, response_rate, rating_sum, rating_count, created_at, last_seen_at,
-           (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_average,
-           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_count,
-           (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_average,
-           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_count
+           (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_average,
+           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.seller_id = users.id AND o.buyer_id = r.reviewer_id) AS seller_rating_count,
+           (SELECT round(avg(r.rating), 2) FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_average,
+           (SELECT count(*)::int FROM reviews r JOIN orders o ON o.id = r.order_id WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled' AND o.buyer_id = users.id AND o.seller_id = r.reviewer_id) AS buyer_rating_count,
+           (SELECT COALESCE(jsonb_agg(to_jsonb(rr) ORDER BY rr."createdAt" DESC), '[]'::jsonb) FROM (
+             SELECT r.id, r.order_id AS "orderId", r.rating, r.body, r.communication_rating AS "communicationRating", r.compliance_rating AS "complianceRating", r.description_rating AS "descriptionRating", r.created_at AS "createdAt", reviewer.username AS "reviewerUsername"
+             FROM reviews r JOIN orders o ON o.id = r.order_id JOIN users reviewer ON reviewer.id = r.reviewer_id
+             WHERE r.reviewee_id = users.id AND r.published_at IS NOT NULL AND o.status <> 'cancelled'
+               AND ((o.seller_id = users.id AND o.buyer_id = r.reviewer_id) OR (o.buyer_id = users.id AND o.seller_id = r.reviewer_id))
+             ORDER BY r.created_at DESC LIMIT 100
+           ) rr) AS public_reviews
     FROM users`
 
 const toNumberOrNull = (value: string | number | null) => value === null ? null : Number(value)
@@ -236,7 +245,7 @@ export const getPublicProfile = async (username: string, request: Request) => {
     if (!row) return { status: 404, body: { error: 'PROFILE_NOT_FOUND' } }
     const profile = toPublicProfile(row)
     if (row.phone_visibility === 'authenticated' && request.authUser) profile.phone = row.phone
-    return { status: 200, body: { profile } }
+    return { status: 200, body: { profile, reviews: row.public_reviews ?? [] } }
 }
 
 export const getPrivateProfile = async (user: AuthUser) => {

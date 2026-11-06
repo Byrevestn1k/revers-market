@@ -958,8 +958,8 @@ function PublicProfilePage({ username, user, onAccount, onCreate, favoriteKeys, 
     useEffect(() => {
         let active = true
         setError(''); setProfile(null)
-        Promise.all([request('/api/profiles/' + encodeURIComponent(username)), request('/api/products?limit=50&ownerUsername=' + encodeURIComponent(username)), request('/api/buy-requests?buyerUsername=' + encodeURIComponent(username)), request('/api/profiles/' + encodeURIComponent(username) + '/reviews')])
-            .then(([profileResult, productsResult, requestsResult, reviewsResult]) => { if (active) { setProfile(profileResult.profile); setProducts(productsResult.products); setBuyRequests(requestsResult.buyRequests); setReviews(reviewsResult.reviews) } })
+        Promise.all([request('/api/profiles/' + encodeURIComponent(username)), request('/api/products?limit=50&ownerUsername=' + encodeURIComponent(username)), request('/api/buy-requests?buyerUsername=' + encodeURIComponent(username))])
+            .then(([profileResult, productsResult, requestsResult]) => { if (active) { setProfile(profileResult.profile); setProducts(productsResult.products); setBuyRequests(requestsResult.buyRequests); setReviews(profileResult.reviews) } })
             .catch(error => { if (active) setError(error.message) })
         return () => { active = false }
     }, [username])
