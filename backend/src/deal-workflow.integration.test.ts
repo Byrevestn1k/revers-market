@@ -67,6 +67,9 @@ if (hasDatabase) {
             expect(sellerAfter.buyerRating).toEqual(sellerBefore.buyerRating)
             expect(buyerAfter.buyerRating).toEqual({ average: 10, count: 1 })
             expect(buyerAfter.sellerRating).toEqual(buyerBefore.sellerRating)
+            const privacy = await seller.patch('/api/profile/me/privacy').send({ phoneVisibility: 'private', phoneDisclosureConsent: false })
+            expect(privacy.status).toBe(200)
+            expect(privacy.body.profile.sellerRating).toEqual(sellerAfter.sellerRating)
             const snapshot = async () => ({
                 order: (await pool.query('SELECT * FROM orders WHERE id=$1', [id])).rows,
                 items: (await pool.query('SELECT * FROM order_items WHERE order_id=$1 ORDER BY id', [id])).rows,
@@ -298,7 +301,10 @@ if (hasDatabase) {
         it('publishes a single review after the configured deadline exactly once',async()=>{
             const {oid}=await setup(); const id=await select(oid,100); await complete(id)
             expect((await buyer.post(`/api/orders/${id}/reviews`).send({rating:9})).status).toBe(201)
+            const before = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile.sellerRating
             await pool.query("UPDATE reviews SET publish_after=now()-interval '1 minute' WHERE order_id=$1",[id])
+            const refreshed = (await buyer.get(`/api/profiles/${names[1]}`)).body.profile
+            expect(refreshed.sellerRating.count).toBe(before.count + 1)
             await publishDueReviews(); const first=(await buyer.get(`/api/profiles/${names[1]}`)).body.profile.ratingSummary
             await publishDueReviews(); expect((await buyer.get(`/api/profiles/${names[1]}`)).body.profile.ratingSummary).toEqual(first)
             expect((await seller.get(`/api/profiles/${names[1]}/reviews`)).body.reviews.some((r:any)=>r.orderId===id)).toBe(true)

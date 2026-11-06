@@ -4,6 +4,7 @@ import type { AuthUser } from './auth.js'
 import { createEmailVerification, emailTaken, normalizeEmail, sendVerificationEmail } from './email-verification.js'
 import { isValidEmail } from './validation.js'
 import { getSettlement, validateSettlement, type Settlement } from './settlements.js'
+import { publishDueReviews } from './community-service.js'
 
 type ProfileRow = {
     id: string
@@ -221,14 +222,16 @@ export const updatePrivacy = async (user: AuthUser, input: Record<string, unknow
     const consent = input.phoneDisclosureConsent
     if (!['private', 'authenticated', 'public'].includes(String(visibility)) || typeof consent !== 'boolean') return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Некоректні налаштування приватності' } }
     const effectiveVisibility = consent ? visibility : 'private'
-    const result = await pool.query<ProfileRow>(
+    await pool.query<ProfileRow>(
         `UPDATE users SET phone_visibility = $1, phone_disclosure_consent = $2, updated_at = now() WHERE id = $3 RETURNING *`,
         [effectiveVisibility, consent, user.id],
     )
-    return { status: 200, body: { profile: toPrivateProfile(result.rows[0]) } }
+    const profile = await pool.query<ProfileRow>(`${profileSelect} WHERE id = $1`, [user.id])
+    return { status: 200, body: { profile: toPrivateProfile(profile.rows[0]) } }
 }
 
 export const getPublicProfile = async (username: string, request: Request) => {
+    await publishDueReviews()
     const result = await pool.query<ProfileRow>(`${profileSelect} WHERE username_normalized = $1`, [username.trim().toLowerCase()])
     const row = result.rows[0]
     if (!row) return { status: 404, body: { error: 'PROFILE_NOT_FOUND' } }
@@ -238,6 +241,7 @@ export const getPublicProfile = async (username: string, request: Request) => {
 }
 
 export const getPrivateProfile = async (user: AuthUser) => {
+    await publishDueReviews()
     const result = await pool.query<ProfileRow>(`${profileSelect} WHERE id = $1`, [user.id])
     return { status: 200, body: { profile: toPrivateProfile(result.rows[0]) } }
 }
