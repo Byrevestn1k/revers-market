@@ -16,7 +16,7 @@ export type DealRequest = { id: string; title: string; quantity: number; selecte
 export type DealOffer = { id: string; revision?: string; buyRequestId: string; seller: { id: string; username: string; rating?: number | null; completedDeals?: number; avatarUrl?: string }; title?: string; description?: string; characteristics?: string; attributes?: Record<string, string | number | boolean | string[]>; creationMode?: string | null; request?: { title: string; description: string; attributes?: Record<string, string | number | boolean | string[]>; quantity: number; unit: string; minPrice: number | null; maxPrice: number | null; delivery: string | null; receiptMethod: string | null; deliveryOptions?: DeliveryOption[] | null; category?: { id: string; name: string; parentId: null; imageIndex?: number | null } }; quantity: number; acceptedQuantity: number; unit: string; price: { amount: number; currency: string }; delivery: string; deliveryOptions?: DeliveryOption[] | null; deliveryCompatibility?: {status: string; methods: string[]}; note: string; status: string; createdAt?: string; updatedAt?: string; validUntil?: string | null; additionalPhotoUrl?: string; termsSnapshot?: {availableAt?: string}; deliverySnapshot?: {price?: number}; existingProduct?: { title: string }; photos?: { url: string; alt?: string }[] }
 type Proposal = { id: string; createdBy: string; price: number; quantity: number; delivery: string; deliveryPrice: number; status: string; comment: string; createdAt: string }
 type Context = { offerId: string; offerRevision: string; requestId: string; title: string; buyerId: string; sellerId: string; unit: string; currency: string; price: number; offeredQuantity: number; quantity: number; remaining: number; delivery: string; deliveryPrice: number; fulfillmentMode: string; available: boolean }
-type ChatInfo = Partial<Pick<Conversation, 'title' | 'type' | 'contextKind' | 'productId' | 'buyRequestId' | 'imageUrl' | 'categoryName' | 'otherUserId' | 'otherUsername' | 'otherAvatarUrl' | 'price' | 'currency' | 'pinnedAt' | 'archivedAt'>> & { id?: string }
+type ChatInfo = Partial<Pick<Conversation, 'title' | 'type' | 'contextKind' | 'productId' | 'buyRequestId' | 'imageUrl' | 'categoryName' | 'otherUserId' | 'otherUsername' | 'otherAvatarUrl' | 'userRole' | 'price' | 'currency' | 'pinnedAt' | 'archivedAt'>> & { id?: string }
 const chatActionsCloseEvent = 'navpaky:close-chat-actions'
 let chatActionsInstance = 0
 
@@ -312,7 +312,7 @@ export function RequestOffers({ item, http, notify, onRefresh, focusedOfferId }:
 }
 
 export function DealChat({ chat, http, notify, onClose, embedded = false }: { chat: ChatInfo & { conversationId: string; title: string }; http: Http; notify: Notify; onClose: () => void; embedded?: boolean }) {
-    const { refresh: refreshConversations } = useContext(MessagesContext)
+    const { conversations, refresh: refreshConversations } = useContext(MessagesContext)
     const [messages, setMessages] = useState<any[]>([])
     const [proposals, setProposals] = useState<Proposal[]>([])
     const [context, setContext] = useState<Context | null>(null)
@@ -329,6 +329,7 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const [error, setError] = useState('')
     const [readError, setReadError] = useState('')
     const [counterpartLastReadAt, setCounterpartLastReadAt] = useState<string | null>(null)
+    const [counterpartRating, setCounterpartRating] = useState<{ key: string; average: number | null; count: number } | null>(null)
     const sending = useRef(false)
     const loadRevision = useRef(0)
     const messageRetry = useRef<{ text: string; key: string } | null>(null)
@@ -356,6 +357,25 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
         }
     }
     useEffect(() => { activeConversation.current = conversationKey; setReadError(''); setDirectEditing(null); setDirectContext(null); setDirectProposals([]); let alive = true; const refresh = () => { if (alive) void load().catch(caught => { if (alive) setError(caught.message) }) }; refresh(); http('/api/profile/me').then(result => { if (alive) setViewer(result.profile.id) }).catch(caught => setError(caught.message)); const timer = window.setInterval(refresh, 4000); return () => { alive = false; if (activeConversation.current === conversationKey) activeConversation.current = null; clearInterval(timer) } }, [conversationKey])
+    const listedChat = conversations.find(item => item.id === chat.conversationId)
+    const participant = listedChat ?? chat
+    const participantRole = participant.contextKind !== 'direct' && participant.contextKind !== 'unknown'
+        ? participant.userRole === 'buying' ? 'seller' : participant.userRole === 'selling' ? 'buyer' : null
+        : null
+    const participantKey = `${chat.conversationId}:${participant.otherUserId ?? ''}:${participantRole ?? ''}`
+    useEffect(() => {
+        let active = true
+        setCounterpartRating(null)
+        if (!listedChat && (!chat.otherUserId || !chat.userRole) && chat.contextKind !== 'direct') void refreshConversations().catch(() => undefined)
+        if (participantRole && participant.otherUsername && participant.otherUserId && viewer && participant.otherUserId !== viewer) {
+            void http(`/api/profiles/${encodeURIComponent(participant.otherUsername)}`).then(result => {
+                if (!active || result.profile?.id !== participant.otherUserId) return
+                const summary = participantRole === 'seller' ? result.profile.sellerRating : result.profile.buyerRating
+                if (summary && typeof summary.count === 'number') setCounterpartRating({ key: participantKey, average: summary.average, count: summary.count })
+            }).catch(() => undefined)
+        }
+        return () => { active = false }
+    }, [chat.conversationId, participantKey, participant.otherUsername, viewer])
     useEffect(() => { messageRetry.current = null }, [chat.conversationId])
     useEffect(() => {
         const proposalId = new URLSearchParams(window.location.search).get('proposal')
@@ -385,9 +405,9 @@ export function DealChat({ chat, http, notify, onClose, embedded = false }: { ch
     const contextHref = chat.contextKind === 'direct' && chat.otherUsername ? `/profiles/${encodeURIComponent(chat.otherUsername)}` : chat.productId ? `/products/${chat.productId}` : chat.buyRequestId ? `/buy-requests/${chat.buyRequestId}` : context ? `/buy-requests/${context.requestId}` : null
     const contextName = chat.contextKind === 'direct' ? 'Відкрити профіль' : chat.type === 'offer' ? 'Відкрити запит' : chat.type === 'direct' ? 'Відкрити оголошення' : 'Відкрити контекст'
     return <DealDialog title={chat.title} onClose={onClose} busy={busy} embedded={embedded} mobileBackNavigation={!embedded}>
-        <div className="chat-context-header">
+        <div className="chat-context-header" data-testid="open-chat-header">
             <span className="chat-context-image" aria-hidden="true">{chat.imageUrl || (chat.contextKind === 'direct' && chat.otherAvatarUrl) ? <img src={chat.imageUrl || chat.otherAvatarUrl || ''} alt="" /> : chat.contextKind === 'direct' ? chat.otherUsername?.[0]?.toUpperCase() ?? '?' : chat.categoryName?.[0]?.toUpperCase() ?? '◫'}</span>
-            <div><strong>{chat.contextKind === 'direct' ? chat.otherUsername : context?.title ?? chat.title}</strong><span>{chat.contextKind === 'direct' ? 'Прямий чат' : chat.otherUsername ?? 'Співрозмовник'}{context ? ` · ${amount(context.price, context.currency)} / ${unitLabel(context.unit)}` : chat.price != null ? ` · ${amount(chat.price, chat.currency ?? '')}` : ''}</span>{context && <small>Пропозиція: {context.offeredQuantity} {unitLabel(context.unit)} · {context.delivery}</small>}</div>
+            <div><strong>{participant.contextKind === 'direct' ? participant.otherUsername : context?.title ?? chat.title}</strong><span data-testid="chat-counterpart">{participant.contextKind === 'direct' ? 'Прямий чат' : participant.otherUsername ?? 'Співрозмовник'}{participantRole && <> · {participantRole === 'seller' ? 'Продавець' : 'Покупець'} · {counterpartRating?.key === participantKey ? (counterpartRating.count > 0 && counterpartRating.average !== null ? `${counterpartRating.average}/12` : 'Ще немає відгуків') : 'Завантаження рейтингу…'}</>}</span><span>{context ? `${amount(context.price, context.currency)} / ${unitLabel(context.unit)}` : chat.price != null ? amount(chat.price, chat.currency ?? '') : ''}</span>{context && <small>Пропозиція: {context.offeredQuantity} {unitLabel(context.unit)} · {context.delivery}</small>}</div>
             <div className="chat-context-actions">{contextHref && <a className="text-button" href={contextHref}>{contextName}</a>}{chat.id && <ChatActions chat={{ ...chat, id: chat.id }} http={http} notify={notify} onChanged={refreshConversations} onArchived={onClose} />}</div>
         </div>
         {readError && <p className="form-error" role="status">{readError}</p>}

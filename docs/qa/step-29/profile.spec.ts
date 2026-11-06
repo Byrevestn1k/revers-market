@@ -56,6 +56,15 @@ test('Product and Buy Request use the relevant participant rating', async ({ bro
     const offerResponse = await seller.request.post(`/api/buy-requests/${requestId}/offers`, { data: { requestKey: randomUUID(), quantity: 10, unit: 'kg', price: 100, currency: 'UAH', delivery: 'Самовивіз' } })
     expect(offerResponse.status()).toBe(201)
     const offer = (await offerResponse.json()).offer
+    await page.goto(`/buy-requests/${requestId}`)
+    await page.getByRole('button', { name: 'Написати продавцю' }).first().click()
+    for (const width of [390, 1280]) {
+        await page.setViewportSize({ width, height: 900 })
+        const emptyRating = page.getByTestId('open-chat-header').getByTestId('chat-counterpart')
+        await expect(emptyRating).toContainText('Продавець · Ще немає відгуків')
+        await expect(emptyRating).not.toContainText('0/12')
+        await page.screenshot({ path: `docs/qa/step-29/chat-no-reviews-${width}.png`, fullPage: true })
+    }
     const accepted = await buyer.request.post(`/api/offers/${offer.id}/accept`, { data: { expectedRevision: offer.revision, quantity: 10, selectionKey: randomUUID() } })
     expect(accepted.status()).toBe(201)
     const orderId = (await accepted.json()).order.id
@@ -105,12 +114,54 @@ test('Product and Buy Request use the relevant participant rating', async ({ bro
     }
     await page.getByRole('button', { name: 'Написати продавцю' }).first().click()
     await expect(page).toHaveURL(/\/messages\//)
-    await expect(page.getByText(`tester_s_${suffix}`).first()).toBeVisible()
-    await page.screenshot({ path: 'docs/qa/step-29/context-chat-buyer.png', fullPage: true })
     const sellerChat = await seller.newPage()
     await sellerChat.goto(page.url())
-    await expect(sellerChat.getByRole('region', { name: `Next request ${suffix}` })).toContainText(`tester_b_${suffix}`)
-    await sellerChat.screenshot({ path: 'docs/qa/step-29/context-chat-seller.png', fullPage: true })
+    for (const width of [390, 1280]) {
+        for (const [chatPage, username, role, expected, wrong] of [[page, `tester_s_${suffix}`, 'Продавець', '12/12', '7/12'], [sellerChat, `tester_b_${suffix}`, 'Покупець', '7/12', '12/12']] as const) {
+            await chatPage.setViewportSize({ width, height: 900 })
+            const header = chatPage.getByTestId('open-chat-header')
+            const counterpart = header.getByTestId('chat-counterpart')
+            await expect(counterpart).toBeVisible({ timeout: 20000 })
+            await expect(counterpart).toContainText(username)
+            await expect(counterpart).toContainText(`${role} · ${expected}`)
+            await expect(counterpart).not.toContainText(wrong)
+            expect(await counterpart.evaluate(element => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight)).toBeTruthy()
+            await chatPage.screenshot({ path: `docs/qa/step-29/chat-${role}-${width}.png`, fullPage: true })
+        }
+    }
+    const productChat = await buyer.request.post(`/api/products/${productId}/conversation`)
+    const requestChat = await seller.request.post(`/api/buy-requests/${nextId}/conversation`)
+    const dealChat = await buyer.request.get(`/api/orders/${orderId}/conversation`)
+    for (const response of [productChat, requestChat, dealChat]) expect([200, 201]).toContain(response.status())
+    const contextChats = [
+        ['product', (await productChat.json()).conversation.id],
+        ['request', (await requestChat.json()).conversation.id],
+        ['deal', (await dealChat.json()).conversation.id],
+    ] as const
+    for (const [kind, conversationId] of contextChats) {
+        for (const [chatPage, username, role, expected] of [[page, `tester_s_${suffix}`, 'Продавець', '12/12'], [sellerChat, `tester_b_${suffix}`, 'Покупець', '7/12']] as const) {
+            await chatPage.goto(`/messages/${conversationId}`)
+            const counterpart = chatPage.getByTestId('open-chat-header').getByTestId('chat-counterpart')
+            await expect(counterpart, `context ${kind}, ${role}`).toBeVisible({ timeout: 20000 })
+            await expect(counterpart).toContainText(username)
+            await expect(counterpart).toContainText(`${role} · ${expected}`)
+            await chatPage.screenshot({ path: `docs/qa/step-29/chat-${kind}-${role}.png`, fullPage: true })
+        }
+    }
+    const sellerId = (await (await buyer.request.get(`/api/profiles/tester_s_${suffix}`)).json()).profile.id
+    const direct = await buyer.request.post(`/api/users/${sellerId}/conversation`)
+    expect(direct.status()).toBe(201)
+    const directId = (await direct.json()).conversation.id
+    for (const directPage of [page, sellerChat]) {
+        await directPage.goto(`/messages/${directId}`)
+        for (const width of [390, 1280]) {
+            await directPage.setViewportSize({ width, height: 900 })
+            const counterpart = directPage.getByTestId('open-chat-header').getByTestId('chat-counterpart')
+            await expect(counterpart).toHaveText('Прямий чат', { timeout: 20000 })
+            await expect(counterpart).not.toContainText(/Продавець|Покупець|\/12/)
+            await directPage.screenshot({ path: `docs/qa/step-29/chat-direct-${directPage === page ? 'buyer' : 'seller'}-${width}.png`, fullPage: true })
+        }
+    }
     await sellerChat.close()
     await ownPage.close()
     await buyer.close()

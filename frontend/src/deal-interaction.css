@@ -20,3 +20,4 @@
 .seller-offer-gallery>.seller-offer-main-image,.seller-offer-gallery-fallback>.seller-offer-main-image{display:grid;place-items:center;width:100%;height:220px;max-height:360px;object-fit:contain;border-radius:10px;background-color:#f3f6f4}.seller-offer-gallery>img.seller-offer-main-image{height:auto}.seller-offer-gallery button .seller-offer-thumb-image{display:grid;place-items:center;width:60px;height:54px;object-fit:cover;border-radius:4px;font-size:1.5rem}.seller-offer-gallery-fallback>.seller-offer-main-image{max-width:400px}.seller-offer-placeholder.deal-offer-photo{display:grid}
 
 .deal-offer-focused{outline:3px solid var(--green,#25833f);outline-offset:2px;scroll-margin:24px}
+.chat-context-header [data-testid="chat-counterpart"]{white-space:normal;overflow:visible;overflow-wrap:anywhere}
