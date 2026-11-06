@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { categoryChildren, categoryLabels } from './categories'
 import type { Category } from './categories'
+import { useCategoryCatalog } from './category-catalog'
 import './categories.css'
 
 export function CategoryImage({ category, className = '' }: { category: Category; className?: string }) {
@@ -11,6 +12,7 @@ export function CategoryImage({ category, className = '' }: { category: Category
 type Props = { categories: Category[]; value?: string; defaultValue?: string; onChange?: (id: string) => void; name?: string; required?: boolean; allowAll?: boolean; className?: string; label?: string; inlineTree?: boolean; disabled?: boolean }
 
 export default function CategoryPicker({ categories, value, defaultValue = '', onChange, name = 'categoryId', required = false, allowAll = false, className = '', label, inlineTree = false, disabled = false }: Props) {
+    const catalog = useCategoryCatalog()
     const [localValue, setLocalValue] = useState(defaultValue)
     const [query, setQuery] = useState('')
     const [open, setOpen] = useState(false)
@@ -44,6 +46,9 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         }
         document.addEventListener('mousedown', closeOnOutsideClick)
         return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+    }, [])
+    useEffect(() => {
+        if (catalog?.status === 'error' || catalog?.status === 'empty') catalog.retry()
     }, [])
 
     const close = () => { setOpen(false); setQuery(''); setHoveredIds([]); setMobilePath([]) }
@@ -89,6 +94,9 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
             {!compactTree && <div className="category-picker-desktop-tree">{matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}{submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}</div>}
             <div className="category-picker-mobile-tree">{(normalized ? matchingCategories : mobilePath.length ? categoryChildren(categories, mobilePath[mobilePath.length - 1]) : rootCategories).length ? list(normalized ? matchingCategories : mobilePath.length ? categoryChildren(categories, mobilePath[mobilePath.length - 1]) : rootCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}</div>
         </div>}
-        {!categories.length && <small role="status">Список категорій завантажується або недоступний.</small>}
+        {!categories.length && <div className="category-picker-load-state" role="status" aria-live="polite">
+            {(!catalog || catalog.status === 'loading') ? 'Завантажуємо категорії…' : catalog.status === 'empty' ? 'Доступних категорій немає.' : 'Не вдалося завантажити категорії.'}
+            {catalog && (catalog.status === 'error' || catalog.status === 'empty') && <button type="button" onClick={catalog.retry}>Повторити</button>}
+        </div>}
     </div>
 }

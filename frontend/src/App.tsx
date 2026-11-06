@@ -35,6 +35,7 @@ import { addressFields, emptyAddress, validCoordinates } from './address-model'
 import type { AddressValue } from './address-model'
 import { unitLabel, DELIVERY_LABELS, requestBudget, listingPrice } from './listing-options'
 import CategoryPicker, { CategoryImage } from './CategoryPicker'
+import { CategoryCatalogProvider, useCategoryCatalog } from './category-catalog'
 import { canonicalCategoryId, categoryTrail } from './categories'
 import type { Category } from './categories'
 import { groupMapSellers } from './map-sellers'
@@ -987,7 +988,13 @@ function PublicProfilePage({ username, user, onAccount, onCreate, favoriteKeys, 
     return <PublicPage user={user} onAccount={onAccount} onCreate={onCreate} favoriteKeys={favoriteKeys} onFavorite={onFavorite}>{error ? <p className="form-error">{error}</p> : !profile ? <p>Завантажуємо профіль…</p> : <section className="profile-public-page"><header className="public-profile-header"><div className="public-profile-avatar">{profile.avatarUrl ? <img src={imageUrl(profile.avatarUrl)} alt={'Аватар ' + (profile.nickname || profile.username)} /> : <b>{avatarInitials(profile.nickname || profile.username)}</b>}</div><div className="public-profile-title"><span className="eyebrow">Профіль користувача</span><h1>{profile.nickname || profile.username}</h1><p>@{profile.username} · ⌖ {profile.location || 'Місце не вказано'}</p><small>На сайті з {date(profile.createdAt)} · Був онлайн: {seen}</small></div>{profile.phone && <a className="primary-button profile-call" href={'tel:' + profile.phone}>Зателефонувати</a>}{user?.id !== profile.id && <button type="button" className="outline-button" disabled={chatBusy} onClick={() => void startProfileChat()}>Написати повідомлення</button>}</header>{chatError && <p role="alert" className="form-error">{chatError}</p>}<div className="public-profile-stats"><div><b>{profile.sellerRating.average ?? '—'}/12</b><span>★ Продавець ({profile.sellerRating.count})</span></div><div><b>{profile.buyerRating.average ?? '—'}/12</b><span>★ Покупець ({profile.buyerRating.count})</span></div><div><b>{profile.statistics.listingsCount}</b><span>Оголошень</span></div><div><b>{profile.statistics.completedDealsCount}</b><span>Підтверджених угод</span></div><div><b>{profile.statistics.responseRate ?? '—'}{profile.statistics.responseRate !== null ? '%' : ''}</b><span>Відповідей</span></div></div>{user && user.id !== profile.id && <ParticipantActions id={profile.id} http={request} notify={message => window.alert(message)} />}<section className="public-profile-bio"><h2>Про себе</h2><p>{profile.bio || 'Користувач ще не додав опис.'}</p></section><div className="public-profile-tabs" role="tablist" aria-label="Вміст профілю"><button role="tab" aria-selected={tab === 'products'} className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Усі товари <small>{products.length}</small></button><button role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>Запити на покупку <small>{buyRequests.length}</small></button><button role="tab" aria-selected={tab === 'reviews'} className={tab === 'reviews' ? 'active' : ''} onClick={() => setTab('reviews')}>Відгуки <small>{reviews.length}</small></button></div><div className="public-profile-content">{tab === 'products' && (products.length ? <div className="product-grid">{products.map(product => <Card key={product.id} product={product} onOpen={() => window.location.assign('/products/' + encodeURIComponent(product.id))} favorite={favoriteKeys.has(favoriteKey('product', product.id))} onFavorite={user ? () => void onFavorite('product', product.id) : undefined} />)}</div> : <Empty text="Активних товарів поки немає" />)}{tab === 'requests' && (buyRequests.length ? <div className="request-list">{buyRequests.map(item => <BuyRequestCard key={item.id} item={item} onOpen={() => window.location.assign('/buy-requests/' + encodeURIComponent(item.id))} favorite={favoriteKeys.has(favoriteKey('buy_request', item.id))} onFavorite={user ? onFavorite : undefined} />)}</div> : <Empty text="Активних запитів поки немає" />)}{tab === 'reviews' && (reviews.length ? <div className="profile-review-list">{reviews.map(review => <article key={review.id} className="profile-review"><div><b>★ {review.rating}/12</b><small>{review.reviewerUsername} · {date(review.createdAt)}</small></div><p>{review.body || 'Без коментаря'}</p></article>)}</div> : <Empty text="Відгуків поки немає" />)}</div></section>}</PublicPage>
 }
 
+const loadCategoryCatalog = async (signal: AbortSignal): Promise<Category[]> => (await request('/api/categories', { signal })).categories
+
 function App() {
+    return <CategoryCatalogProvider load={loadCategoryCatalog}><AppContent /></CategoryCatalogProvider>
+}
+
+function AppContent() {
     const [user, setUser] = useState<User | null>(null)
     const [authOpen, setAuthOpen] = useState(false)
     const [authReady, setAuthReady] = useState(false)
@@ -997,7 +1004,7 @@ function App() {
     const [mine, setMine] = useState<Product[]>([])
     const [mineLoading, setMineLoading] = useState(true)
     const [mineError, setMineError] = useState('')
-    const [categories, setCategories] = useState<Category[]>([])
+    const { categories } = useCategoryCatalog()!
     const [editing, setEditing] = useState<Product>()
     const [mapFocus, setMapFocus] = useState<HomeCity>()
     const [search, setSearch] = useState('')
@@ -1063,7 +1070,7 @@ function App() {
             throw error
         }
     }
-    useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined).finally(() => setAuthReady(true)); request('/api/categories').then((result) => setCategories(result.categories)).catch(() => undefined) }, [])
+    useEffect(() => { request('/api/auth/me').then((result) => setUser(result.user)).catch(() => undefined).finally(() => setAuthReady(true)) }, [])
     useEffect(() => { if (user || view === 'products') loadProducts(); if (user) { loadMine(); request('/api/profile/me').then((result) => setProfileAvatar(result.profile.avatarUrl ?? null)).catch(() => undefined); request('/api/notifications').then((result) => syncNotificationUnread((result as NotificationListResponse).unreadCounts)).catch(() => undefined); request('/api/favorites').then(result => setFavoriteKeys(favoriteKeysFrom(result.favorites))).catch(() => undefined) } else { setUnreadNotifications(0); setFavoriteKeys(new Set()) } }, [user, view])
     useEffect(() => { if (!user) return; const refresh = () => { if (document.visibilityState === 'visible') void request('/api/notifications?limit=1').then(result => syncNotificationUnread((result as NotificationListResponse).unreadCounts)).catch(() => undefined) }; document.addEventListener('visibilitychange', refresh); return () => document.removeEventListener('visibilitychange', refresh) }, [user])
     useEffect(() => {
@@ -1406,14 +1413,13 @@ function RequestEditDialog({ item, notify, onClose, onDone }: { item: BuyRequest
     const [title, setTitle] = useState(item.title)
     const [photos, setPhotos] = useState<string[]>(() => item.photos?.map(photo => photo.url) ?? [])
     const [photosChanged, setPhotosChanged] = useState(false)
-    const [categories, setCategories] = useState<Category[]>([])
+    const { categories } = useCategoryCatalog()!
     const { categoryId, attributes, setAttributes, changeCategory } = useListingCategory(item.category.id, item.attributes ?? {})
     const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>(item.deliveryOptions ?? [])
     const [fulfillmentMode, setFulfillmentMode] = useState(item.fulfillmentMode)
     const [location, setLocation] = useState<AddressValue>({ address: item.delivery.address ?? '', city: item.geoArea, coordinates: item.coordinates, settlement: item.settlement, addressVisibility: item.addressVisibility ?? 'private', addressVisibilityConsent: item.addressVisibility === 'public', mapLocationMode: item.mapLocationMode })
     const [locationDisplayLabel, setLocationDisplayLabel] = useState('')
     const [busy, setBusy] = useState(false), [locationBusy, setLocationBusy] = useState(false), [error, setError] = useState(''), [errors, setErrors] = useState<Record<string, string>>({})
-    useEffect(() => { void request('/api/categories').then(result => setCategories(result.categories)).catch(() => undefined) }, [])
     const termsLocked = (item.offerCount ?? 0) > 0 || item.selectedQuantity > 0 || item.completedQuantity > 0
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); if (busy || locationBusy || !title.trim() || !location.city.trim()) return

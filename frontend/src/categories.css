@@ -27,6 +27,8 @@
 .category-picker-flyout { position: absolute; top: 0; width: 256px; max-width: calc(100vw - 2rem); background: #fff; border: 1px solid #d6e4dc; border-radius: 8px; box-shadow: 0 8px 20px rgba(33, 71, 58, .16); }
 .category-picker-empty { margin: .6rem .75rem; color: #486357; font-size: .9rem; }
 .category-picker small { display: block; margin-top: .4rem; font-size: .75rem; color: #486357; }
+.category-picker-load-state { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .4rem; color: #486357; font-size: .85rem; }
+.category-picker-load-state button { min-height: 40px; padding: .4rem .75rem; border: 1px solid #90b8a0; border-radius: 6px; color: #12634e; background: #fff; cursor: pointer; }
 .category-picker .category-picker-selected-name { display: none; }
 .filter-row .category-picker { max-width: 420px; }
 .filter-row { align-items: flex-start; }
