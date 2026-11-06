@@ -16,6 +16,8 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
     const [open, setOpen] = useState(false)
     const [hoveredIds, setHoveredIds] = useState<string[]>([])
     const [mobilePath, setMobilePath] = useState<string[]>([])
+    const [compactTree, setCompactTree] = useState(inlineTree)
+    const [menuOffset, setMenuOffset] = useState(0)
     const root = useRef<HTMLDivElement>(null)
     const input = useRef<HTMLInputElement>(null)
     const id = useId()
@@ -25,6 +27,15 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
     const selectedName = categories.find((item) => item.id === selectedId)?.name
     const normalized = query.trim().toLocaleLowerCase('uk-UA')
     const rootCategories = useMemo(() => categoryChildren(categories, null), [categories])
+    const maxDepth = useMemo(() => {
+        const parents = new Map(categories.map(item => [item.id, item.parentId]))
+        return categories.reduce((maximum, item) => {
+            let depth = 1, parent = item.parentId
+            const seen = new Set([item.id])
+            while (parent && parents.has(parent) && !seen.has(parent)) { seen.add(parent); depth++; parent = parents.get(parent) ?? null }
+            return Math.max(maximum, depth)
+        }, 1)
+    }, [categories])
     const matchingCategories = useMemo(() => normalized ? categories.filter((item) => labels.get(item.id)?.toLocaleLowerCase('uk-UA').includes(normalized) || item.synonyms?.some(alias => alias.toLocaleLowerCase('uk-UA').includes(normalized))) : inlineTree ? categories : rootCategories, [categories, labels, normalized, rootCategories, inlineTree])
 
     useEffect(() => {
@@ -37,7 +48,20 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
 
     const close = () => { setOpen(false); setQuery(''); setHoveredIds([]); setMobilePath([]) }
     const choose = (next: string) => { setLocalValue(next); close(); onChange?.(next) }
-    const showMenu = () => { if (categories.length) { setOpen(true); setHoveredIds([]); setMobilePath([]) } }
+    const layoutMenu = () => {
+        const bounds = root.current?.getBoundingClientRect()
+        if (!bounds) return
+        const width = Math.min(window.innerWidth <= 760 ? bounds.width : Math.max(bounds.width, 300), 460, window.innerWidth - 32)
+        const left = Math.max(16, Math.min(bounds.left, window.innerWidth - 16 - width))
+        setMenuOffset(left - bounds.left)
+        setCompactTree(inlineTree || window.innerWidth <= 760 || left + width + Math.max(0, maxDepth - 1) * 264 + 8 > window.innerWidth - 16)
+    }
+    useEffect(() => {
+        if (!open) return
+        window.addEventListener('resize', layoutMenu)
+        return () => window.removeEventListener('resize', layoutMenu)
+    }, [open, inlineTree, maxDepth])
+    const showMenu = () => { if (categories.length) { layoutMenu(); setOpen(true); setHoveredIds([]); setMobilePath([]) } }
     const setHover = (categoryId: string, level: number) => setHoveredIds((current) => [...current.slice(0, level), categoryId])
     const submenus = hoveredIds.reduce<Category[][]>((items, parentId) => {
         const children = categoryChildren(categories, parentId)
@@ -48,11 +72,11 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
         {!flyout && allowAll && !normalized && <button type="button" role="option" aria-selected={!selectedId} className="category-picker-all" onMouseDown={(event) => event.preventDefault()} onClick={() => choose('')}>Усі категорії</button>}
         {items.map((item) => {
             const hasChildren = categoryChildren(categories, item.id).length > 0
-            return <div className="category-picker-row" key={item.id}><button type="button" role="option" aria-selected={item.id === selectedId} className={hoveredIds[level] === item.id ? 'is-hovered' : ''} onMouseEnter={() => setHover(item.id, level)} onFocus={() => setHover(item.id, level)} onMouseDown={(event) => event.preventDefault()} onClick={() => hasChildren ? (setQuery(''), window.matchMedia('(max-width: 760px)').matches || inlineTree ? setMobilePath(path => [...path, item.id]) : setHover(item.id, level)) : choose(item.id)}><span>{itemLabel(item)}</span>{hasChildren && <b aria-hidden="true">›</b>}</button>{hasChildren && <button type="button" className="category-picker-select-parent" onClick={() => choose(item.id)} aria-label={`Вибрати категорію ${item.name}`}>Вибрати</button>}</div>
+            return <div className="category-picker-row" key={item.id}><button type="button" role="option" aria-selected={item.id === selectedId} className={hoveredIds[level] === item.id ? 'is-hovered' : ''} onMouseEnter={() => setHover(item.id, level)} onFocus={() => setHover(item.id, level)} onMouseDown={(event) => event.preventDefault()} onClick={() => hasChildren ? (setQuery(''), compactTree ? setMobilePath(path => [...path, item.id]) : setHover(item.id, level)) : choose(item.id)}><span>{itemLabel(item)}</span>{hasChildren && <b aria-hidden="true">›</b>}</button>{hasChildren && <button type="button" className="category-picker-select-parent" onClick={() => choose(item.id)} aria-label={`Вибрати категорію ${item.name}`}>Вибрати</button>}</div>
         })}
     </div>
 
-    return <div className={`category-picker ${inlineTree ? 'category-picker-inline' : ''} ${className}`} ref={root}>
+    return <div className={`category-picker ${compactTree ? 'category-picker-inline' : ''} ${className}`} ref={root}>
         <input type="hidden" name={name} value={selectedId} />
         {label && <label htmlFor={`${id}-search`}>{label}</label>}
         <div className="category-picker-control">
@@ -60,9 +84,9 @@ export default function CategoryPicker({ categories, value, defaultValue = '', o
             <button type="button" className={`category-picker-toggle ${open ? 'is-open' : ''}`} onClick={() => open ? close() : (showMenu(), input.current?.focus())} aria-label={open ? 'Закрити список категорій' : 'Відкрити список категорій'} aria-expanded={open} disabled={disabled || !categories.length}><span aria-hidden="true" /></button>
         </div>
         {!open && selectedName && <small className="category-picker-selected-name" aria-hidden="true">{selectedName}</small>}
-        {open && <div id={`${id}-menu`} className="category-picker-menu">
+        {open && <div id={`${id}-menu`} className="category-picker-menu" style={{ left: menuOffset }}>
             {mobilePath.length > 0 && !normalized && <button type="button" className="category-picker-back" onClick={() => setMobilePath(path => path.slice(0, -1))}>← Назад</button>}
-            <div className="category-picker-desktop-tree">{matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}{!inlineTree && submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}</div>
+            {!compactTree && <div className="category-picker-desktop-tree">{matchingCategories.length ? list(matchingCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}{submenus.map((items, level) => <div className="category-picker-flyout" key={hoveredIds[level]} style={{ left: `calc(100% + ${8 + level * 264}px)` }}>{list(items, level + 1, true)}</div>)}</div>}
             <div className="category-picker-mobile-tree">{(normalized ? matchingCategories : mobilePath.length ? categoryChildren(categories, mobilePath[mobilePath.length - 1]) : rootCategories).length ? list(normalized ? matchingCategories : mobilePath.length ? categoryChildren(categories, mobilePath[mobilePath.length - 1]) : rootCategories, 0) : <p className="category-picker-empty">Категорій не знайдено</p>}</div>
         </div>}
         {!categories.length && <small role="status">Список категорій завантажується або недоступний.</small>}

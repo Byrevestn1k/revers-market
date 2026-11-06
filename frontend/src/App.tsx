@@ -676,12 +676,24 @@ const listingErrorMessages: Record<string, string> = {
 }
 const listingErrors = (error: ApiError) => Object.fromEntries((error.fields ?? []).map((field) => [field, listingErrorMessages[field] || 'Перевірте це поле']))
 
+function useListingCategory(initialCategory: string, initialAttributes: Record<string, unknown>) {
+    const [categoryId, setCategoryId] = useState(initialCategory)
+    const [attributes, setAttributes] = useState(initialAttributes)
+    const savedByCategory = useRef<Record<string, Record<string, unknown>>>({})
+    const changeCategory = (next: string) => {
+        if (next === categoryId) return
+        if (Object.keys(attributes).length && !window.confirm('Характеристики цієї категорії можна відновити, повернувшись до неї до закриття форми. Після збереження іншої категорії вони не збережуться. Продовжити?')) return
+        savedByCategory.current[categoryId] = attributes
+        setAttributes(savedByCategory.current[next] ?? {})
+        setCategoryId(next)
+    }
+    return { categoryId, attributes, setAttributes, changeCategory }
+}
+
 function ProductEditor({ categories, product, onSaved, onCancel }: { categories: Category[]; product?: Product; onSaved: (location?: AddressValue) => void; onCancel: () => void }) {
     const [duplicateNotice, setDuplicateNotice] = useState<{ message: string; existing: { id: string }[] } | null>(null)
     const [title, setTitle] = useState(product?.title ?? '')
-    const [categoryId, setCategoryId] = useState(product?.category.id ?? '')
-    const [attributes, setAttributes] = useState(product?.attributes ?? {})
-    const changeCategory = (next: string) => { if (next !== categoryId && Object.keys(attributes).length && !window.confirm('Зміна категорії очистить введені характеристики. Продовжити?')) return; if (next !== categoryId) setAttributes({}); setCategoryId(next) }
+    const { categoryId, attributes, setAttributes, changeCategory } = useListingCategory(product?.category.id ?? '', product?.attributes ?? {})
     const [photos, setPhotos] = useState(() => product?.photos.map((photo) => photo.url) ?? [])
     const [photoChanged, setPhotoChanged] = useState(false)
     const [location, setLocation] = useState<AddressValue>({ address: product?.address ?? '', city: product?.geoZone ?? '', coordinates: product?.coordinates ?? null, settlement: product?.settlement ?? null, addressVisibility: product?.addressVisibility ?? 'private', addressVisibilityConsent: product?.addressVisibility === 'public', mapLocationMode: product?.mapLocationMode })
@@ -753,9 +765,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
     const [duplicateNotice, setDuplicateNotice] = useState<{ message: string; existing: { id: string }[] } | null>(null)
     const [title, setTitle] = useState('')
     const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([])
-    const [categoryId, setCategoryId] = useState('')
-    const [attributes, setAttributes] = useState({})
-    const changeCategory = (next: string) => { if (next !== categoryId && Object.keys(attributes).length && !window.confirm('Зміна категорії очистить введені характеристики. Продовжити?')) return; if (next !== categoryId) setAttributes({}); setCategoryId(next) }
+    const { categoryId, attributes, setAttributes, changeCategory } = useListingCategory('', {})
     const [photos, setPhotos] = useState<string[]>([])
     const [location, setLocation] = useState<AddressValue>(emptyAddress)
     const [locationDisplayLabel, setLocationDisplayLabel] = useState('')
@@ -1397,9 +1407,7 @@ function RequestEditDialog({ item, notify, onClose, onDone }: { item: BuyRequest
     const [photos, setPhotos] = useState<string[]>(() => item.photos?.map(photo => photo.url) ?? [])
     const [photosChanged, setPhotosChanged] = useState(false)
     const [categories, setCategories] = useState<Category[]>([])
-    const [categoryId, setCategoryId] = useState(item.category.id)
-    const [attributes, setAttributes] = useState(item.attributes ?? {})
-    const changeCategory = (next: string) => { if (next !== categoryId && Object.keys(attributes).length && !window.confirm('Зміна категорії очистить введені характеристики. Продовжити?')) return; if (next !== categoryId) setAttributes({}); setCategoryId(next) }
+    const { categoryId, attributes, setAttributes, changeCategory } = useListingCategory(item.category.id, item.attributes ?? {})
     const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>(item.deliveryOptions ?? [])
     const [fulfillmentMode, setFulfillmentMode] = useState(item.fulfillmentMode)
     const [location, setLocation] = useState<AddressValue>({ address: item.delivery.address ?? '', city: item.geoArea, coordinates: item.coordinates, settlement: item.settlement, addressVisibility: item.addressVisibility ?? 'private', addressVisibilityConsent: item.addressVisibility === 'public', mapLocationMode: item.mapLocationMode })
