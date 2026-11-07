@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
         ;(window as any).__pushTest = state
         Object.defineProperty(window, 'PushManager', { configurable: true, value: function () {} })
         Object.defineProperty(window, 'Notification', { configurable: true, value: { requestPermission: async () => { state.prompt++; return state.granted } } })
-        const registration = { getNotifications: async () => [{ close: () => { state.closed++ } }], pushManager: { getSubscription: async () => state.subscription, subscribe: async () => {
+        const registration = { getNotifications: async () => [{ data: { binding: 'binding-a' }, close: () => { state.closed++ } }], pushManager: { getSubscription: async () => state.subscription, subscribe: async () => {
             state.subscription = { endpoint: 'https://push.example/sub', toJSON: () => ({ endpoint: 'https://push.example/sub', keys: { p256dh: 'test', auth: 'test' } }), unsubscribe: async () => { state.subscription = null; return true } }
             return state.subscription
         } } }
@@ -15,9 +15,9 @@ test.beforeEach(async ({ page }) => {
     await page.route('**/api/**', async route => {
         const path = new URL(route.request().url()).pathname
         if (path === '/api/push/config') return route.fulfill({ json: { enabled: true, publicKey: 'BA' } })
-        if (path === '/api/auth/me') return route.fulfill({ json: { user: { id: 'user-a' } } })
-        if (path === '/api/push/status') return route.fulfill({ json: { active: await page.evaluate(() => (window as any).__pushTest.serverActive) } })
-        if (path === '/api/push/subscriptions') { if (route.request().method() === 'DELETE') await page.evaluate(() => { (window as any).__pushTest.deleted++; (window as any).__pushTest.serverActive = false }); else await page.evaluate(() => { (window as any).__pushTest.registrations++; (window as any).__pushTest.serverActive = true }); return route.fulfill({ json: { ok: true } }) }
+        if (path === '/api/push/session') return route.fulfill({ json: { userId: 'user-a' } })
+        if (path === '/api/push/status') return route.fulfill({ json: { active: await page.evaluate(() => (window as any).__pushTest.serverActive), binding: 'binding-a' } })
+        if (path === '/api/push/subscriptions') { if (route.request().method() === 'DELETE') await page.evaluate(() => { (window as any).__pushTest.deleted++; (window as any).__pushTest.serverActive = false }); else await page.evaluate(() => { (window as any).__pushTest.registrations++; (window as any).__pushTest.serverActive = true }); return route.fulfill({ json: { binding: 'binding-a' } }) }
         return route.fulfill({ json: {} })
     })
     await page.route('**/push-fixture', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><body><div id="root"></div>
@@ -41,7 +41,7 @@ test('enable, disable and account mismatch revoke the old subscription', async (
     await expect(page.getByRole('button', { name: 'Вимкнути сповіщення' })).toBeVisible()
     await page.evaluate(async () => { localStorage.setItem('deshchotreba.push.owner', 'other-user'); const load = new Function('return import("/src/push-notifications.tsx")'); await (await load()).reconcilePushOwner('user-a') })
     expect(await page.evaluate(() => (window as any).__pushTest.deleted)).toBe(1)
-    expect(await page.evaluate(() => (window as any).__pushTest.subscription)).toBeNull()
+    expect(await page.evaluate(() => (window as any).__pushTest.subscription)).not.toBeNull()
     expect(await page.evaluate(() => (window as any).__pushTest.closed)).toBe(1)
 })
 
@@ -52,14 +52,14 @@ test('unsupported device does not offer push', async ({ page }) => {
     await expect(page.getByRole('button', { name: 'Увімкнути сповіщення' })).toHaveCount(0)
 })
 
-test('logout disconnect revokes and unsubscribes the device', async ({ page }) => {
+test('logout disconnect revokes server delivery and closes its notification', async ({ page }) => {
     await page.goto('/push-fixture')
     await page.evaluate(() => { (window as any).__pushTest.granted = 'granted' })
     await page.getByRole('button', { name: 'Увімкнути сповіщення' }).click()
     await expect(page.getByRole('button', { name: 'Вимкнути сповіщення' })).toBeVisible()
-    await page.evaluate(async () => { const load = new Function('return import("/src/push-notifications.tsx")'); await (await load()).disconnectPush() })
+    await page.evaluate(async () => { const load = new Function('return import("/src/push-notifications.tsx")'); await (await load()).disconnectPush('user-a') })
     expect(await page.evaluate(() => (window as any).__pushTest.deleted)).toBe(1)
-    expect(await page.evaluate(() => (window as any).__pushTest.subscription)).toBeNull()
+    expect(await page.evaluate(() => (window as any).__pushTest.subscription)).not.toBeNull()
     expect(await page.evaluate(() => (window as any).__pushTest.closed)).toBe(1)
 })
 
@@ -74,4 +74,179 @@ test('expired session subscription does not appear enabled and requires explicit
     await page.getByRole('button', { name: 'Увімкнути сповіщення' }).click()
     await expect(page.getByRole('button', { name: 'Вимкнути сповіщення' })).toBeVisible()
     expect(await page.evaluate(() => (window as any).__pushTest.registrations)).toBe(2)
+})
+
+test('stale tab cannot remove another account subscription or close its notification', async ({ page, context }) => {
+    await page.goto('/push-fixture')
+    await expect(page.getByRole('button', { name: 'Увімкнути сповіщення' })).toBeVisible()
+    const second = await context.newPage()
+    await second.route('**/push-second', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Second tab</title>' }))
+    await second.goto('/push-second')
+    await context.addCookies([{ name: 'qa-session', value: 'user-b', url: new URL(page.url()).origin }])
+    await second.evaluate(() => { localStorage.setItem('deshchotreba.push.owner', 'user-b'); localStorage.setItem('deshchotreba.push.binding.user-b', 'binding-b') })
+    await page.evaluate(() => {
+        const state = (window as any).__pushTest
+        state.subscription = { endpoint: 'https://push.example/sub', toJSON: () => ({ endpoint: 'https://push.example/sub', keys: { p256dh: 'test', auth: 'test' } }), unsubscribe: async () => { state.subscription = null } }
+        const worker = { getNotifications: async () => [{ data: { binding: 'binding-b' }, close: () => { state.closed++ } }], pushManager: { getSubscription: async () => state.subscription } }
+        Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: async () => worker } })
+    })
+    await page.route('**/api/push/session', async route => {
+        const cookie = route.request().headers().cookie || ''
+        return route.fulfill({ json: { userId: cookie.includes('qa-session=user-b') ? 'user-b' : 'user-a' } })
+    })
+    await page.evaluate(async () => { const load = new Function('return import("/src/push-notifications.tsx")'); await (await load()).reconcilePushOwner('user-a').catch(() => undefined) })
+    expect(await page.evaluate(() => (window as any).__pushTest.deleted)).toBe(0)
+    expect(await page.evaluate(() => (window as any).__pushTest.closed)).toBe(0)
+    expect(await page.evaluate(() => (window as any).__pushTest.subscription)).not.toBeNull()
+    expect(await second.evaluate(() => localStorage.getItem('deshchotreba.push.owner'))).toBe('user-b')
+    await second.close()
+})
+
+test('missing local subscription still closes notifications for the current account', async ({ page }) => {
+    await page.goto('/push-fixture')
+    await expect(page.getByRole('button', { name: 'Увімкнути сповіщення' })).toBeVisible()
+    await page.evaluate(async () => {
+        localStorage.setItem('deshchotreba.push.owner', 'user-a')
+        localStorage.setItem('deshchotreba.push.binding.user-a', 'binding-a')
+        const load = new Function('return import("/src/push-notifications.tsx")')
+        await (await load()).reconcilePushOwner('user-a')
+    })
+    expect(await page.evaluate(() => (window as any).__pushTest.closed)).toBe(1)
+})
+
+test('in-flight old account deletion cannot close new account notifications', async ({ page, context }) => {
+    await page.goto('/push-fixture')
+    await page.evaluate(() => { (window as any).__pushTest.granted = 'granted' })
+    await page.getByRole('button', { name: 'Увімкнути сповіщення' }).click()
+    await expect(page.getByRole('button', { name: 'Вимкнути сповіщення' })).toBeVisible()
+    const second = await context.newPage()
+    await second.route('**/push-second', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Second tab</title>' }))
+    await second.goto('/push-second')
+    await page.evaluate(() => {
+        const state = (window as any).__pushTest
+        const worker = { getNotifications: async () => [{ data: { binding: 'binding-b' }, close: () => { state.closed++ } }], pushManager: { getSubscription: async () => state.subscription } }
+        Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: async () => worker } })
+    })
+    let pending = false
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+    await page.route('**/api/push/subscriptions', async route => {
+        if (route.request().method() !== 'DELETE') return route.fallback()
+        expect(route.request().postDataJSON()).toMatchObject({ expectedUserId: 'user-a', expectedBinding: 'binding-a' })
+        pending = true
+        await released
+        await route.fulfill({ json: { binding: null } }) // CAS did not match after B registered.
+    })
+    const deleting = page.evaluate(async () => { const load = new Function('return import("/src/push-notifications.tsx")'); await (await load()).disconnectPush('user-a') })
+    await expect.poll(() => pending).toBe(true)
+    await context.addCookies([{ name: 'qa-session', value: 'user-b', url: new URL(page.url()).origin }])
+    await second.evaluate(() => { localStorage.setItem('deshchotreba.push.binding.user-b', 'binding-b'); localStorage.setItem('deshchotreba.push.owner', 'user-b') })
+    release()
+    await deleting
+    expect(await page.evaluate(() => (window as any).__pushTest.closed)).toBe(0)
+    expect(await page.evaluate(() => (window as any).__pushTest.subscription)).not.toBeNull()
+    expect(await second.evaluate(() => localStorage.getItem('deshchotreba.push.owner'))).toBe('user-b')
+    await second.close()
+})
+
+test('late status for an old session cannot close the same account’s new binding', async ({ page, context }) => {
+    await page.goto('/push-fixture')
+    await page.evaluate(() => { (window as any).__pushTest.granted = 'granted' })
+    await page.getByRole('button', { name: 'Увімкнути сповіщення' }).click()
+    await expect(page.getByRole('button', { name: 'Вимкнути сповіщення' })).toBeVisible()
+    const second = await context.newPage()
+    await second.route('**/push-second', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Second tab</title>' }))
+    await second.goto('/push-second')
+    await page.evaluate(() => {
+        const state = (window as any).__pushTest
+        state.closedNew = 0
+        const worker = { getNotifications: async () => [
+            { data: { binding: 'binding-a' }, close: () => { state.closed++ } },
+            { data: { binding: 'binding-new' }, close: () => { state.closedNew++ } },
+        ], pushManager: { getSubscription: async () => state.subscription } }
+        Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: async () => worker } })
+    })
+    let pending = false
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+    await page.route('**/api/push/status', async route => {
+        if (pending) return route.fulfill({ json: { active: true, binding: 'binding-new' } })
+        pending = true
+        await released
+        return route.fulfill({ json: { active: false, binding: null } })
+    })
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect.poll(() => pending).toBe(true)
+    await second.evaluate(() => localStorage.setItem('deshchotreba.push.binding.user-a', 'binding-new'))
+    release()
+    await expect.poll(() => page.evaluate(() => (window as any).__pushTest.closed)).toBe(1)
+    expect(await page.evaluate(() => (window as any).__pushTest.closedNew)).toBe(0)
+    expect(await second.evaluate(() => localStorage.getItem('deshchotreba.push.binding.user-a'))).toBe('binding-new')
+    await second.close()
+})
+
+test('missing binding is omitted from deletion request', async ({ page }) => {
+    await page.goto('/push-fixture')
+    await expect(page.getByRole('button', { name: 'Увімкнути сповіщення' })).toBeVisible()
+    await page.evaluate(() => {
+        const state = (window as any).__pushTest
+        state.subscription = { endpoint: 'https://push.example/sub', toJSON: () => ({ endpoint: 'https://push.example/sub', keys: { p256dh: 'test', auth: 'test' } }) }
+        localStorage.setItem('deshchotreba.push.owner', 'user-a')
+        localStorage.removeItem('deshchotreba.push.binding.user-a')
+    })
+    let body: Record<string, unknown> | undefined
+    await page.route('**/api/push/subscriptions', async route => { body = route.request().postDataJSON(); await route.fulfill({ json: { binding: null } }) })
+    await page.evaluate(async () => { const load = new Function('return import("/src/push-notifications.tsx")'); await (await load()).disconnectPush('user-a') })
+    expect(body).toMatchObject({ expectedUserId: 'user-a' })
+    expect(body).not.toHaveProperty('expectedBinding')
+})
+
+test('late delete preserves a newer binding for the same account', async ({ page, context }) => {
+    await page.goto('/push-fixture')
+    await page.evaluate(() => { (window as any).__pushTest.granted = 'granted' })
+    await page.getByRole('button', { name: 'Увімкнути сповіщення' }).click()
+    await expect(page.getByRole('button', { name: 'Вимкнути сповіщення' })).toBeVisible()
+    const second = await context.newPage()
+    await second.route('**/push-second', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Second tab</title>' }))
+    await second.goto('/push-second')
+    await page.route('**/api/push/status', route => route.fulfill({ json: { active: true, binding: 'binding-new' } }))
+    let pending = false
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+    await page.route('**/api/push/subscriptions', async route => { pending = true; await released; await route.fulfill({ json: { binding: null } }) })
+    const deleting = page.evaluate(async () => { const load = new Function('return import("/src/push-notifications.tsx")'); await (await load()).disconnectPush('user-a') })
+    await expect.poll(() => pending).toBe(true)
+    await second.evaluate(() => localStorage.setItem('deshchotreba.push.binding.user-a', 'binding-new'))
+    release()
+    await deleting
+    expect(await second.evaluate(() => localStorage.getItem('deshchotreba.push.owner'))).toBe('user-a')
+    expect(await second.evaluate(() => localStorage.getItem('deshchotreba.push.binding.user-a'))).toBe('binding-new')
+    await second.close()
+})
+
+test('late registration response cannot overwrite a newer account binding', async ({ page, context }) => {
+    await page.goto('/push-fixture')
+    await expect(page.getByRole('button', { name: 'Увімкнути сповіщення' })).toBeVisible()
+    await page.evaluate(() => { (window as any).__pushTest.granted = 'granted' })
+    const second = await context.newPage()
+    await second.route('**/push-second', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Second tab</title>' }))
+    await second.goto('/push-second')
+    let pending = false
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+    await page.route('**/api/push/subscriptions', async route => {
+        expect(route.request().method()).toBe('POST')
+        pending = true
+        await released
+        await route.fulfill({ json: { binding: 'binding-a' } })
+    })
+    await page.getByRole('button', { name: 'Увімкнути сповіщення' }).click()
+    await expect.poll(() => pending).toBe(true)
+    await context.addCookies([{ name: 'qa-session', value: 'user-b', url: new URL(page.url()).origin }])
+    await second.evaluate(() => { localStorage.setItem('deshchotreba.push.binding.user-b', 'binding-b'); localStorage.setItem('deshchotreba.push.owner', 'user-b') })
+    release()
+    await expect(page.getByRole('status')).toContainText('Не вдалося увімкнути')
+    expect(await second.evaluate(() => localStorage.getItem('deshchotreba.push.owner'))).toBe('user-b')
+    expect(await second.evaluate(() => localStorage.getItem('deshchotreba.push.binding.user-b'))).toBe('binding-b')
+    await second.close()
 })

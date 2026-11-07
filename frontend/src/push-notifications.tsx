@@ -20,35 +20,37 @@ async function registration(): Promise<ServiceWorkerRegistration> {
     return existing ?? navigator.serviceWorker.register('/sw.js')
 }
 
-async function closePushNotifications(worker: ServiceWorkerRegistration) {
-    if (typeof worker.getNotifications !== 'function') return
+async function closePushNotifications(worker: ServiceWorkerRegistration, binding: string | null) {
+    if (!binding || typeof worker.getNotifications !== 'function') return
     const notifications = await worker.getNotifications()
-    for (const notification of notifications) notification.close()
+    for (const notification of notifications) if (notification.data?.binding === binding) notification.close()
 }
 
 function read(key: string) { try { return localStorage.getItem(key) } catch { return null } }
 function write(key: string, value: string) { try { localStorage.setItem(key, value) } catch { /* unavailable storage */ } }
 function remove(key: string) { try { localStorage.removeItem(key) } catch { /* unavailable storage */ } }
+const bindingKey = (userId: string) => `deshchotreba.push.binding.${userId}`
 
-/** Revoke before logging out so a subscription cannot follow another account. */
-export async function disconnectPush() {
-    if (!supported()) return
-    const worker = await registration()
-    await closePushNotifications(worker)
-    const subscription = await worker.pushManager.getSubscription()
-    if (!subscription) { remove(ownerKey); return }
-    await call('/api/push/subscriptions', 'DELETE', { subscription: subscription.toJSON() })
-    await subscription.unsubscribe()
-    remove(ownerKey)
+async function assertUser(userId: string) {
+    const session = await call('/api/push/session') as { userId: string }
+    if (session.userId !== userId) throw new Error('Акаунт змінився')
 }
 
-export async function unsubscribeLocalPush() {
+/** Revoke before logging out so a subscription cannot follow another account. */
+export async function disconnectPush(userId: string) {
     if (!supported()) return
     const worker = await registration()
-    await closePushNotifications(worker)
+    await assertUser(userId)
+    const owner = read(ownerKey)
     const subscription = await worker.pushManager.getSubscription()
-    if (subscription) await subscription.unsubscribe()
-    remove(ownerKey)
+    const expectedBinding = owner ? read(bindingKey(owner)) : null
+    let binding = owner === userId ? read(bindingKey(userId)) : null
+    if (subscription) {
+        const result = await call('/api/push/subscriptions', 'DELETE', { expectedUserId: userId, ...(expectedBinding ? { expectedBinding } : {}), subscription: subscription.toJSON() }) as { binding: string | null }
+        binding = result.binding ?? binding
+    }
+    await closePushNotifications(worker, binding)
+    if (owner && (owner === userId || binding) && read(ownerKey) === owner && read(bindingKey(owner)) === expectedBinding) { remove(ownerKey); remove(bindingKey(owner)) }
 }
 
 /** An account changed in another tab: revoke using proof of subscription ownership. */
@@ -57,8 +59,7 @@ export function reconcilePushOwner(userId: string) {
     const next = reconciliation.catch(() => undefined).then(async () => {
         if (!supported()) return
         const subscription = await (await registration()).pushManager.getSubscription()
-        if (!subscription) { remove(ownerKey); return }
-        if (read(ownerKey) !== userId) await disconnectPush()
+        if (!subscription || read(ownerKey) !== userId) await disconnectPush(userId)
     })
     reconciliation = next
     return next
@@ -85,9 +86,11 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
         const current = await worker.pushManager.getSubscription()
         let subscribed = false
         if (current && read(ownerKey) === userId) {
-            const status = await call('/api/push/status', 'POST', { endpoint: current.endpoint }) as { active: boolean }
+            const previousBinding = read(bindingKey(userId))
+            const status = await call('/api/push/status', 'POST', { endpoint: current.endpoint, expectedUserId: userId }) as { active: boolean; binding: string | null }
             subscribed = status.active === true
-            if (!subscribed) await closePushNotifications(worker)
+            if (subscribed && status.binding && read(bindingKey(userId)) === previousBinding && read(ownerKey) === userId) write(bindingKey(userId), status.binding)
+            if (!subscribed) await closePushNotifications(worker, previousBinding)
         }
         if (version === statusVersion.current) { setEnabled(subscribed); setError('') }
     }
@@ -113,15 +116,16 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
             // This call is deliberately made only in response to the button.
             const permission = await Notification.requestPermission()
             if (permission !== 'granted') { setError('Дозвіл не надано. Внутрішні сповіщення залишаються доступними.'); return }
-            const session = await call('/api/auth/me') as { user: { id: string } | null }
-            if (session.user?.id !== userId) throw new Error('Акаунт змінився')
+            await assertUser(userId)
             const worker = await registration()
             const existing = await worker.pushManager.getSubscription()
             const subscription = existing ?? await worker.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationKey(publicKey) })
-            try { await call('/api/push/subscriptions', 'POST', { expectedUserId: userId, subscription: subscription.toJSON() }) }
-            catch (caught) { if (!existing) await subscription.unsubscribe(); throw caught }
+            const previousOwner = read(ownerKey)
+            const previousBinding = previousOwner ? read(bindingKey(previousOwner)) : null
+            const result = await call('/api/push/subscriptions', 'POST', { expectedUserId: userId, subscription: subscription.toJSON() }) as { binding: string }
+            if (read(ownerKey) !== previousOwner || (previousOwner && read(bindingKey(previousOwner)) !== previousBinding)) throw new Error('Акаунт або підписка змінилися')
             ++statusVersion.current
-            write(ownerKey, userId); setEnabled(true); setDismissed(false)
+            write(bindingKey(userId), result.binding); write(ownerKey, userId); setEnabled(true); setDismissed(false)
             window.dispatchEvent(new Event('push-settings-changed'))
         } catch { setError('Не вдалося увімкнути сповіщення. Спробуйте ще раз.') }
         finally { setBusy(false) }
@@ -129,7 +133,7 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
 
     async function disable() {
         setBusy(true); setError('')
-        try { await disconnectPush(); ++statusVersion.current; setEnabled(false); window.dispatchEvent(new Event('push-settings-changed')) }
+        try { await disconnectPush(userId); ++statusVersion.current; setEnabled(false); window.dispatchEvent(new Event('push-settings-changed')) }
         catch { setError('Не вдалося вимкнути сповіщення. Перевірте з’єднання та спробуйте ще раз.') }
         finally { setBusy(false) }
     }

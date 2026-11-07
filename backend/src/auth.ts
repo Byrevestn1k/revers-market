@@ -57,7 +57,7 @@ export const requestSessionHash = (request: Request) => {
     return token ? hashToken(token) : null
 }
 
-const resolveSessionUser = async (request: Request): Promise<AuthUser | null> => {
+const resolveSessionUser = async (request: Request, updateActivity = true): Promise<AuthUser | null> => {
     const token = getCookie(request)
     if (!token) return null
     const result = await pool.query(
@@ -66,7 +66,7 @@ const resolveSessionUser = async (request: Request): Promise<AuthUser | null> =>
          WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`
         , [hashToken(token)],
     )
-    if (result.rowCount) await pool.query("UPDATE users SET last_seen_at = now() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '5 minutes')", [result.rows[0].id])
+    if (result.rowCount && updateActivity) await pool.query("UPDATE users SET last_seen_at = now() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '5 minutes')", [result.rows[0].id])
     return result.rowCount ? publicUser(result.rows[0]) : null
 }
 
@@ -88,6 +88,14 @@ export const requireAuth: RequestHandler = async (request, response, next: NextF
 export const optionalAuth: RequestHandler = async (request, _response, next: NextFunction) => {
     try {
         const user = await resolveSessionUser(request)
+        if (user) request.authUser = user
+        next()
+    } catch (error) { next(error) }
+}
+
+export const readOnlyAuth: RequestHandler = async (request, _response, next: NextFunction) => {
+    try {
+        const user = await resolveSessionUser(request, false)
         if (user) request.authUser = user
         next()
     } catch (error) { next(error) }
@@ -178,16 +186,28 @@ export const confirmEmail = async (token: string) => {
 
 export const logout = async (request: Request, response: Response) => {
     const token = getCookie(request)
+    const expected = request.body?.expectedUserId
+    if (expected !== undefined && (typeof expected !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expected))) return { status: 400, body: { error: 'INVALID_USER' } }
+    if (expected !== undefined && !token) return { status: 401, body: { error: 'AUTH_REQUIRED' } }
     if (token) {
         const client = await pool.connect()
         try {
             await client.query('BEGIN')
+            if (expected !== undefined) {
+                const active = await client.query('SELECT user_id FROM user_sessions WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()', [hashToken(token)])
+                if (!active.rowCount) { await client.query('ROLLBACK'); return { status: 401, body: { error: 'AUTH_REQUIRED' } } }
+                if (active.rows[0].user_id !== expected) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } } }
+            }
             await client.query('DELETE FROM push_subscriptions WHERE session_hash = $1', [hashToken(token)])
-            await client.query('UPDATE user_sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL', [hashToken(token)])
+            const revoked = await client.query('UPDATE user_sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL AND ($2::uuid IS NULL OR (user_id=$2 AND expires_at > now())) RETURNING user_id', [hashToken(token), expected ?? null])
+            if (expected !== undefined && !revoked.rowCount) { await client.query('ROLLBACK'); return { status: 401, body: { error: 'AUTH_REQUIRED' } } }
             await client.query('COMMIT')
         } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
     }
-    clearSessionCookie(response)
+    // New clients retain the revoked cookie so a delayed response cannot clear
+    // a different account's newer cookie. Old clients retain existing behavior.
+    if (expected === undefined) clearSessionCookie(response)
+    return { status: 204 }
 }
 
 export const authCookieName = SESSION_COOKIE

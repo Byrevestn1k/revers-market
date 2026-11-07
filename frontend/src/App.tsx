@@ -59,7 +59,7 @@ import { listingState, listingStateLabel, activityGroup, activityGroups, activit
 import { ExternalAuthOptions, ExternalSignup, LoginMethods, externalAuthMessage, safeClientReturn } from './external-auth-ui'
 import { buildOfferUpdatePayload } from './offer-update'
 import { saveOfferDraft } from './offer-draft'
-import { PushSettings, disconnectPush, reconcilePushOwner, unsubscribeLocalPush } from './push-notifications'
+import { PushSettings, disconnectPush, reconcilePushOwner } from './push-notifications'
 import { PwaInstallMenu } from './pwa-install'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
@@ -1055,7 +1055,7 @@ function AppContent() {
     const loadMine = async () => { setMineLoading(true); setMineError(''); try { setMine(await loadActivityPages<Product>('/api/products/mine?limit=50', 'products')) } catch (error) { setMineError((error as Error).message) } finally { setMineLoading(false) } }
     const go = (next: View) => { setView(next); setEditing(undefined); const destination = viewRoutes[next]; if (window.location.pathname !== destination) navigate(destination) }
     const openProductEdit = (product: Product) => { setEditing(product); navigate(productEditPath(product.id)) }
-    const logout = async () => { try { await disconnectPush().catch(() => undefined); await request('/api/auth/logout', { method: 'POST' }); await unsubscribeLocalPush().catch(() => undefined); setUser(null); setView('find'); setAuthOpen(false); setPendingCreate(false); setMine([]); setProfileAvatar(null); navigate('/discover', true) } catch { notify('Не вдалося вийти. Перевірте з’єднання та спробуйте ще раз.') } }
+    const logout = async () => { try { if (!user) return; await disconnectPush(user.id).catch(() => undefined); await request('/api/auth/logout', { method: 'POST', body: JSON.stringify({ expectedUserId: user.id }) }); setUser(null); setView('find'); setAuthOpen(false); setPendingCreate(false); setMine([]); setProfileAvatar(null); navigate('/discover', true) } catch { notify('Не вдалося вийти. Перевірте з’єднання та спробуйте ще раз.') } }
     const rememberLocation = (location?: AddressValue) => { if (validCoordinates(location?.coordinates)) setMapFocus({ name: location!.city, ...location!.coordinates!, settlement: location!.settlement }) }
     const saved = (location?: AddressValue) => { rememberLocation(location); setEditing(undefined); loadProducts(page); loadMine(); go('mine'); notify('Товар збережено') }
     const requestSaved = (location?: AddressValue) => { rememberLocation(location); go('map'); notify('Запит опубліковано на мапі') }

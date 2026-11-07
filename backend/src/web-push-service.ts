@@ -38,6 +38,10 @@ export const savePushSubscription = async (userId: string, sessionHash: string, 
     await client.query('BEGIN')
     // Serialize registrations per user so concurrent requests cannot bypass the cap.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`push-subscriptions:${userId}`])
+    // Expired or revoked browser sessions cannot receive pushes and must not
+    // consume the user's active-device limit indefinitely.
+    await client.query(`DELETE FROM push_subscriptions p WHERE p.user_id=$1 AND NOT EXISTS (
+        SELECT 1 FROM user_sessions s WHERE s.token_hash=p.session_hash AND s.user_id=p.user_id AND s.revoked_at IS NULL AND s.expires_at > now())`, [userId])
     const count = await client.query('SELECT count(*)::int AS count, bool_or(endpoint=$2) AS existing FROM push_subscriptions WHERE user_id=$1', [userId,s.endpoint])
     if (count.rows[0].count >= 10 && !count.rows[0].existing) { await client.query('ROLLBACK'); return { status: 429, body: { error: 'PUSH_SUBSCRIPTION_LIMIT' } } }
     const result = await client.query(`INSERT INTO push_subscriptions (endpoint,user_id,session_hash,p256dh,auth)
@@ -46,28 +50,33 @@ export const savePushSubscription = async (userId: string, sessionHash: string, 
             created_at=CASE WHEN push_subscriptions.session_hash=excluded.session_hash THEN push_subscriptions.created_at ELSE now() END,
             binding_id=CASE WHEN push_subscriptions.session_hash=excluded.session_hash THEN push_subscriptions.binding_id ELSE gen_random_uuid() END
         WHERE push_subscriptions.p256dh=excluded.p256dh AND push_subscriptions.auth=excluded.auth
-        RETURNING endpoint`, [s.endpoint,userId,sessionHash,s.keys.p256dh,s.keys.auth])
+        RETURNING binding_id`, [s.endpoint,userId,sessionHash,s.keys.p256dh,s.keys.auth])
     await client.query('COMMIT')
-    return result.rowCount ? { status: 204 } : { status: 409, body: { error: 'SUBSCRIPTION_CONFLICT' } }
+    return result.rowCount ? { status: 200, body: { binding: result.rows[0].binding_id } } : { status: 409, body: { error: 'SUBSCRIPTION_CONFLICT' } }
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
 
-export const deletePushSubscription = async (userId: string, sessionHash: string, input: { endpoint?: unknown; subscription?: unknown }) => {
+export const deletePushSubscription = async (userId: string, sessionHash: string, input: { endpoint?: unknown; subscription?: unknown; expectedBinding?: unknown }) => {
+    let binding: string | null = null
     if (validSubscription(input.subscription)) {
         const s = input.subscription
-        await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1 AND p256dh=$2 AND auth=$3', [s.endpoint,s.keys.p256dh,s.keys.auth])
+        if (input.expectedBinding !== undefined && (typeof input.expectedBinding !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.expectedBinding))) return { status: 400, body: { error: 'INVALID_BINDING' } }
+        const result = await pool.query(`DELETE FROM push_subscriptions WHERE endpoint=$1 AND p256dh=$2 AND auth=$3
+            AND (($4::uuid IS NOT NULL AND binding_id=$4) OR ($4::uuid IS NULL AND user_id=$5 AND session_hash=$6)) RETURNING binding_id`, [s.endpoint,s.keys.p256dh,s.keys.auth,input.expectedBinding ?? null,userId,sessionHash])
+        binding = result.rows[0]?.binding_id ?? null
     } else if (typeof input.endpoint === 'string' && input.endpoint.length <= 2048) {
-        await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2 AND session_hash=$3', [input.endpoint,userId,sessionHash])
+        const result = await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2 AND session_hash=$3 RETURNING binding_id', [input.endpoint,userId,sessionHash])
+        binding = result.rows[0]?.binding_id ?? null
     } else return { status: 400, body: { error: 'INVALID_SUBSCRIPTION' } }
-    return { status: 204 }
+    return { status: 200, body: { binding } }
 }
 
 export const pushSubscriptionStatus = async (userId: string, sessionHash: string, endpoint: unknown) => {
     if (typeof endpoint !== 'string' || endpoint.length < 1 || endpoint.length > 2048) return { status: 400, body: { error: 'INVALID_SUBSCRIPTION' } }
-    const result = await pool.query(`SELECT 1 FROM push_subscriptions p JOIN user_sessions s ON s.token_hash=p.session_hash
+    const result = await pool.query(`SELECT p.binding_id FROM push_subscriptions p JOIN user_sessions s ON s.token_hash=p.session_hash
         WHERE p.endpoint=$1 AND p.user_id=$2 AND p.session_hash=$3 AND s.user_id=p.user_id
           AND s.revoked_at IS NULL AND s.expires_at > now()`, [endpoint,userId,sessionHash])
-    return { status: 200, body: { active: Boolean(result.rowCount) } }
+    return { status: 200, body: { active: Boolean(result.rowCount), binding: result.rows[0]?.binding_id ?? null } }
 }
 
 export const pushBindingStatus = async (userId: string, sessionHash: string, binding: unknown) => {
