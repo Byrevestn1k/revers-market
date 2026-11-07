@@ -78,7 +78,6 @@ export const requireAuth: RequestHandler = async (request, response, next: NextF
     try {
         const user = await resolveSessionUser(request)
         if (!user) {
-            clearSessionCookie(response)
             response.status(401).json({ error: 'AUTH_REQUIRED', message: 'Потрібно увійти в обліковий запис' })
             return
         }

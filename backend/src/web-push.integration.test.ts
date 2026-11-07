@@ -99,6 +99,11 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             expect(removed.body).toEqual({binding:newOwner.body.binding})
         })
         it('does not clear a newer cookie or alter activity from push session checks', async () => {
+            // A delayed protected-API 401 from an old tab must not erase a
+            // newer account's cookie installed while the request was in flight.
+            const protectedApi = await request(app).get('/api/notifications').set('Cookie',cookie('invalid'))
+            expect(protectedApi.status).toBe(401)
+            expect(protectedApi.headers['set-cookie']).toBeUndefined()
             for (const path of ['/api/auth/me','/api/push/session','/api/push/config']) {
                 const result = await request(app).get(path).set('Cookie',cookie('invalid'))
                 expect(result.status).toBe(401)

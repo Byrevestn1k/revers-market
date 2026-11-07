@@ -44,21 +44,28 @@ export async function disconnectPush(userId: string, sessionId: string, snapshot
     if (!supported()) return
     const worker = await registration()
     await assertUser(userId, sessionId)
-    const { owner, binding: expectedBinding } = snapshot
+    const { owner, binding: snapshotBinding } = snapshot
+    let expectedBinding = snapshotBinding
     const subscription = await worker.pushManager.getSubscription()
     let binding = expectedBinding
     if (subscription) {
-        const result = await call('/api/push/subscriptions', 'DELETE', { expectedUserId: userId, expectedSessionId: sessionId, ...(expectedBinding ? { expectedBinding } : {}), subscription: subscription.toJSON() }) as { binding: string | null }
+        if (!expectedBinding) {
+            const status = await call('/api/push/status', 'POST', { endpoint: subscription.endpoint, expectedUserId: userId, expectedSessionId: sessionId }) as { active: boolean; binding: string | null }
+            if (!status.active || !status.binding) throw new Error('Неможливо безпечно визначити підписку')
+            expectedBinding = status.binding
+        }
+        const result = await call('/api/push/subscriptions', 'DELETE', { expectedUserId: userId, expectedSessionId: sessionId, expectedBinding, subscription: subscription.toJSON() }) as { binding: string | null }
         binding = result.binding ?? binding
     }
     await closePushNotifications(worker, binding)
-    if (owner && (owner === userId || binding) && read(ownerKey) === owner && read(bindingKey(owner)) === expectedBinding) { remove(ownerKey); remove(bindingKey(owner)) }
+    if (owner && (owner === userId || binding) && read(ownerKey) === owner && read(bindingKey(owner)) === snapshotBinding) { remove(ownerKey); remove(bindingKey(owner)) }
 }
 
 /** An account changed in another tab: revoke using proof of subscription ownership. */
 let reconciliation: Promise<void> = Promise.resolve()
 export function reconcilePushOwner(userId: string, sessionId: string) {
     const snapshot = ownerSnapshot()
+    if (!snapshot.binding) return Promise.resolve()
     const next = reconciliation.catch(() => undefined).then(async () => {
         if (!supported()) return
         const subscription = await (await registration()).pushManager.getSubscription()
