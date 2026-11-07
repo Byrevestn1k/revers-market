@@ -1,0 +1,7 @@
+.share-control { position: relative; display: inline-block; margin: 8px; text-align: left; }
+.share-trigger { min-height: 40px; padding: 8px 12px; border: 1px solid #bdd4c3; border-radius: 8px; background: #fff; color: #155b2a; cursor: pointer; }
+.share-trigger svg { vertical-align: middle; }
+.share-menu { position: fixed; z-index: 1000; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(280px, calc(100vw - 32px)); max-height: min(65vh, 430px); overflow-y: auto; padding: 8px; border: 1px solid #d7e3d8; border-radius: 10px; background: #fff; box-shadow: 0 8px 24px #0003; }
+.share-menu button, .share-menu a { display: block; width: 100%; min-height: 40px; padding: 9px; border: 0; border-radius: 6px; background: transparent; color: #174c26; text-align: left; text-decoration: none; cursor: pointer; }
+.share-menu button:hover, .share-menu a:hover, .share-menu :focus-visible { background: #e8f4ea; }
+.share-menu small, .share-menu p { display: block; margin: 8px; color: #405448; }
