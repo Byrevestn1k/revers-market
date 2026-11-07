@@ -181,4 +181,4 @@ Step 21: READY FOR INDEPENDENT REVIEW; виправлення Seller Offer пе�
 
 ## Step 32 — підготовлено до незалежного огляду
 
-Вступ, контекстна допомога і статичні FAQ реалізовані в `codex/step-32-onboarding-help`; платний AI не підключено. Статус — **READY FOR SOL REVIEW** за умови результатів, зазначених у [STEP_32_ONBOARDING_HELP.md](STEP_32_ONBOARDING_HELP.md). Незалежний огляд ще не проведено.
+Вступ, контекстна допомога і статичні FAQ реалізовані в `codex/step-32-onboarding-help`; платний AI не підключено. Після Sol REVIEW FAIL виправлено захист незбережених форм і запуск підказок гостю після авторизації. Статус — **READY FOR SOL RE-REVIEW**; перевірки та їхні межі наведено в [STEP_32_ONBOARDING_HELP.md](STEP_32_ONBOARDING_HELP.md).

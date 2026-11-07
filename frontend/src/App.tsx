@@ -61,7 +61,8 @@ import { buildOfferUpdatePayload } from './offer-update'
 import { saveOfferDraft } from './offer-draft'
 import { PushSettings, disconnectPush, reconcilePushOwner } from './push-notifications'
 import { PwaInstallMenu } from './pwa-install'
-import { HelpButton } from './help-center'
+import { HelpAuthContext, HelpButton } from './help-center'
+import { clearUnsavedListing, confirmListingNavigation, hasUnsavedListing, restoreUnsavedListing } from './unsaved-listing'
 
 export type User = { id: string; username: string; countryCode: string; phone: string; email: string | null; emailVerified: boolean }
 export type Product = { publicAddress?: string; addressVisibility?: 'private' | 'public'; mapLocationMode?: 'profile' | 'pin' | 'address' | 'approximate'; id: string; title: string; description: string; photos: { url: string; alt: string }[]; quantity: number; availableQuantity?: number; unit: string; price: { amount: number; currency: string }; deliveryMode: string; deliveryOptions?: DeliveryOption[] | null; geoZone: string; settlement?: Settlement | null; address?: string | null; coordinates?: MapPoint | null; status: string; createdAt?: string; updatedAt?: string; owner: { id: string; username?: string }; category: { id: string; name: string } }
@@ -741,7 +742,7 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
         }
         if (product && !Object.keys(payload).length) { setError('Змін немає.'); return }
         setBusy(true)
-        try { const result = await request(product ? '/api/products/' + product.id : '/api/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); if (result.duplicate) setDuplicateNotice(result.duplicate); else onSaved(location) }
+        try { const result = await request(product ? '/api/products/' + product.id : '/api/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); clearUnsavedListing(); if (result.duplicate) setDuplicateNotice(result.duplicate); else onSaved(location) }
         catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)) }
         finally { setBusy(false) }
     }
@@ -796,7 +797,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
             photos: photos.map(dataUrl => ({ dataUrl, alt: title.trim() })),
         }
         setBusy(true)
-        try { const result = await request('/api/buy-requests', { method: 'POST', body: JSON.stringify(payload) }); if (result.duplicate) setDuplicateNotice(result.duplicate); else onSaved(location) }
+        try { const result = await request('/api/buy-requests', { method: 'POST', body: JSON.stringify(payload) }); clearUnsavedListing(); if (result.duplicate) setDuplicateNotice(result.duplicate); else onSaved(location) }
         catch (caught) { setError((caught as Error).message); setErrors(listingErrors(caught as ApiError)) }
         finally { setBusy(false) }
     }
@@ -1000,10 +1001,12 @@ function App() {
 }
 
 function AppContent() {
+    const updateHelpAuth = useContext(HelpAuthContext)
     const [user, setUser] = useState<User | null>(null)
     const [sessionId, setSessionId] = useState<string | null>(null)
     const [authOpen, setAuthOpen] = useState(false)
     const [authReady, setAuthReady] = useState(false)
+    useEffect(() => { updateHelpAuth(authReady, Boolean(user)) }, [authReady, user, updateHelpAuth])
     const [pendingCreate, setPendingCreate] = useState(false)
     const [view, setView] = useState<View>(() => viewForPath(window.location.pathname) ?? (new URLSearchParams(window.location.search).get('view') as View) ?? 'home')
     const [products, setProducts] = useState<Product[]>([]) // This line is unchanged
@@ -1045,7 +1048,7 @@ function AppContent() {
     const [path, setPath] = useState(() => window.location.pathname)
     useEffect(() => { const sync = () => { setPath(window.location.pathname); const nextView = viewForPath(window.location.pathname); if (nextView) setView(nextView) }; window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync) }, [])
     useEffect(() => { const destination = legacyDestination(window.location.search); if (destination) { window.history.replaceState(window.history.state, '', destination); setPath(window.location.pathname); setView(viewForPath(window.location.pathname) ?? 'home') } }, [])
-    const navigate = (next: string, replace = false) => { window.history[replace ? 'replaceState' : 'pushState']({}, '', next); setPath(window.location.pathname); const nextView = viewForPath(window.location.pathname); if (nextView) setView(nextView); window.dispatchEvent(new Event('help:location')); window.scrollTo(0, 0) }
+    const navigate = (next: string, replace = false) => { if (!confirmListingNavigation(next)) return false; window.history[replace ? 'replaceState' : 'pushState']({}, '', next); setPath(window.location.pathname); const nextView = viewForPath(window.location.pathname); if (nextView) setView(nextView); window.dispatchEvent(new Event('help:location')); window.scrollTo(0, 0); return true }
     useEffect(() => { if (path !== '/discover' && path !== '/products' && !/^\/products\/[^/]+$/.test(path)) releaseRateSet() }, [path])
     const editingProductId = productEditIdForPath(path)
     const syncNotificationUnread = (counts: NotificationUnreadCounts) => setUnreadNotifications(counts.total)
@@ -1055,9 +1058,9 @@ function AppContent() {
     const notify = (message: string) => { if (message === 'Нових повідомлень немає') { go('notifications'); return }; setToast(message); window.setTimeout(() => setToast(''), 3000) }
     const loadProducts = async (nextPage = 1) => { setLoading(true); try { const params = new URLSearchParams({ page: String(nextPage), limit: '8' }); if (search) params.set('geoZone', search); const result = await request(`/api/products?${params}`); setProducts(result.products); setPage(result.pagination.page); setPages(result.pagination.pages) } catch (error) { notify((error as Error).message) } finally { setLoading(false) } }
     const loadMine = async () => { setMineLoading(true); setMineError(''); try { setMine(await loadActivityPages<Product>('/api/products/mine?limit=50', 'products')) } catch (error) { setMineError((error as Error).message) } finally { setMineLoading(false) } }
-    const go = (next: View) => { setView(next); setEditing(undefined); const destination = viewRoutes[next]; if (window.location.pathname !== destination) navigate(destination) }
+    const go = (next: View) => { const destination = viewRoutes[next]; if (window.location.pathname !== destination && !navigate(destination)) return; setView(next); setEditing(undefined) }
     const openProductEdit = (product: Product) => { setEditing(product); navigate(productEditPath(product.id)) }
-    const logout = async () => { try { if (!user || !sessionId) return; await disconnectPush(user.id, sessionId).catch(() => undefined); await request('/api/auth/logout', { method: 'POST', body: JSON.stringify({ expectedUserId: user.id, expectedSessionId: sessionId }) }); setUser(null); setSessionId(null); setView('find'); setAuthOpen(false); setPendingCreate(false); setMine([]); setProfileAvatar(null); navigate('/discover', true) } catch { notify('Не вдалося вийти. Перевірте з’єднання та спробуйте ще раз.') } }
+    const logout = async () => { if (!user || !sessionId) return; const wasDirty = hasUnsavedListing(); if (!confirmListingNavigation('/discover')) return; try { await disconnectPush(user.id, sessionId).catch(() => undefined); await request('/api/auth/logout', { method: 'POST', body: JSON.stringify({ expectedUserId: user.id, expectedSessionId: sessionId }) }); setUser(null); setSessionId(null); setView('find'); setAuthOpen(false); setPendingCreate(false); setMine([]); setProfileAvatar(null); navigate('/discover', true) } catch { if (wasDirty) restoreUnsavedListing(); notify('Не вдалося вийти. Перевірте з’єднання та спробуйте ще раз.') } }
     const rememberLocation = (location?: AddressValue) => { if (validCoordinates(location?.coordinates)) setMapFocus({ name: location!.city, ...location!.coordinates!, settlement: location!.settlement }) }
     const saved = (location?: AddressValue) => { rememberLocation(location); setEditing(undefined); loadProducts(page); loadMine(); go('mine'); notify('Товар збережено') }
     const requestSaved = (location?: AddressValue) => { rememberLocation(location); go('map'); notify('Запит опубліковано на мапі') }

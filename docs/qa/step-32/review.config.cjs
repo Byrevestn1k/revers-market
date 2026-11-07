@@ -1,0 +1,1 @@
+module.exports = { testDir: '.', testMatch: 'review.spec.cjs', timeout: 60000, expect: { timeout: 12000 }, workers: 1, reporter: [['list']], use: { baseURL: 'http://127.0.0.1:5192', browserName: 'chromium', headless: true, actionTimeout: 12000, launchOptions: { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' }, screenshot: 'only-on-failure' } }
