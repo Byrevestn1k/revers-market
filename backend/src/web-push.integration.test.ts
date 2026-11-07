@@ -40,10 +40,20 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
     }, 30000)
     afterAll(async () => { if (chat) await pool.query('DELETE FROM conversations WHERE id=$1', [chat]); if (ids.length) await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [ids]); await pool.end() })
     beforeEach(() => { mocked.send.mockReset(); mocked.send.mockResolvedValue({ statusCode: 201 }) })
-    const add = (token: string, subscription: unknown = valid) => request(app).post('/api/push/subscriptions').set('Cookie',cookie(token)).send({ subscription })
+    const add = (token: string, subscription: unknown = valid) => request(app).post('/api/push/subscriptions').set('Cookie',cookie(token)).send({ expectedUserId: token === tokenB ? ids[1] : ids[0], subscription })
     const notification = async (id: string) => pool.query("INSERT INTO notifications(user_id,type,title,body,conversation_id) VALUES ($1,'message','Нове повідомлення','СЕКРЕТНА АДРЕСА',$2)", [id,chat])
 
     describe('Web Push isolation', () => {
+        it('rejects a subscription when the account changes after consent but before POST', async () => {
+            const before = await request(app).get('/api/auth/me').set('Cookie',cookie(tokenA))
+            expect(before.body.user.id).toBe(ids[0])
+            const response = await request(app).post('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({ expectedUserId:before.body.user.id, subscription:valid })
+            expect(response.status).toBe(409)
+            expect(response.body.error).toBe('PUSH_ACCOUNT_CHANGED')
+            expect((await pool.query('SELECT 1 FROM push_subscriptions WHERE endpoint=$1',[valid.endpoint])).rowCount).toBe(0)
+            const missing = await request(app).post('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({subscription:valid})
+            expect(missing.status).toBe(409)
+        })
         it('requires auth, rejects SSRF and prevents endpoint takeover without both keys', async () => {
             expect((await request(app).post('/api/push/subscriptions').send({subscription:valid})).status).toBe(401)
             expect((await add(tokenA, {...valid,endpoint:'https://127.0.0.1/private'})).status).toBe(400)
@@ -51,6 +61,63 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             expect((await add(tokenB, {...valid,keys:{...valid.keys,auth:randomBytes(16).toString('base64url')}})).status).toBe(409)
             expect((await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({endpoint:valid.endpoint})).status).toBe(204)
             expect((await pool.query('SELECT user_id FROM push_subscriptions WHERE endpoint=$1',[valid.endpoint])).rows[0].user_id).toBe(ids[0])
+        })
+        it('reports device status only for the current active session', async () => {
+            const status = (token: string, endpoint: string = valid.endpoint) => request(app).post('/api/push/status').set('Cookie',cookie(token)).send({ endpoint })
+            expect((await request(app).post('/api/push/status').send({endpoint:valid.endpoint})).status).toBe(401)
+            const owner = await status(tokenA)
+            expect(owner.body).toEqual({active:true})
+            expect(owner.headers['cache-control']).toBe('no-store')
+            expect((await status(tokenB)).body).toEqual({active:false})
+            expect((await status(tokenA, 'missing')).body).toEqual({active:false})
+            expect((await status(tokenA, '')).status).toBe(400)
+            const otherToken = randomBytes(32).toString('base64url')
+            const otherHash = createHash('sha256').update(otherToken).digest('hex')
+            await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day')", [ids[0],otherHash])
+            expect((await status(otherToken)).body).toEqual({active:false})
+            await pool.query('UPDATE user_sessions SET revoked_at=now() WHERE token_hash=$1', [otherHash])
+            expect((await status(otherToken)).status).toBe(401)
+        })
+        it('invalidates a queued binding on account reassignment or logout', async () => {
+            const temp = {...valid,endpoint:`https://fcm.googleapis.com/fcm/send/${randomUUID()}`}
+            const binding = async () => (await pool.query('SELECT binding_id FROM push_subscriptions WHERE endpoint=$1',[temp.endpoint])).rows[0].binding_id as string
+            const check = (token:string, value:string) => request(app).post('/api/push/binding').set('Cookie',cookie(token)).send({binding:value})
+            expect((await add(tokenA,temp)).status).toBe(204)
+            const old = await binding()
+            expect((await check(tokenA,old)).body).toEqual({active:true})
+            expect((await check(tokenB,old)).body).toEqual({active:false})
+            expect((await add(tokenB,temp)).status).toBe(204)
+            const next = await binding()
+            expect(next).not.toBe(old)
+            expect((await check(tokenB,old)).body).toEqual({active:false})
+            expect((await check(tokenB,next)).body).toEqual({active:true})
+            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({endpoint:temp.endpoint})
+            expect((await check(tokenB,next)).body).toEqual({active:false})
+            expect((await check(tokenA,'invalid')).status).toBe(400)
+        })
+        it('limits simultaneous device registrations and prunes old outbox rows even without VAPID', async () => {
+            const attempts = Array.from({length:12}, () => ({...valid,endpoint:`https://fcm.googleapis.com/fcm/send/${randomUUID()}`}))
+            const results = await Promise.all(attempts.map(s => add(tokenB,s)))
+            expect(results.filter(r => r.status === 204)).toHaveLength(10)
+            expect(results.filter(r => r.status === 429)).toHaveLength(2)
+            await pool.query('DELETE FROM push_subscriptions WHERE user_id=$1', [ids[1]])
+            await notification(ids[0])
+            const item = (await pool.query('SELECT id FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1',[ids[0]])).rows[0].id
+            await pool.query("UPDATE push_outbox SET created_at=now()-interval '2 days' WHERE notification_id=$1",[item])
+            const key = process.env.VAPID_PRIVATE_KEY
+            try { delete process.env.VAPID_PRIVATE_KEY; await dispatchPushBatch() } finally { process.env.VAPID_PRIVATE_KEY = key }
+            expect((await pool.query('SELECT 1 FROM push_outbox WHERE notification_id=$1',[item])).rowCount).toBe(0)
+            expect(mocked.send).not.toHaveBeenCalled()
+        }, 30000)
+        it('serves the SPA at push destinations without exposing API routes as HTML', async () => {
+            for (const path of [`/messages/${chat}`, '/my/requests?request=x&offer=y', '/notifications']) {
+                const response = await request(app).get(path)
+                expect(response.status).toBe(200)
+                expect(response.headers['content-type']).toContain('text/html')
+                expect(response.headers['cache-control']).toBe('no-store')
+                expect(response.text).toContain('<div id="root"></div>')
+            }
+            expect((await request(app).get('/api/does-not-exist')).status).toBe(404)
         })
         it('delivers only to the recipient after commit, with generic data, without duplicates', async () => {
             const client = await pool.connect()

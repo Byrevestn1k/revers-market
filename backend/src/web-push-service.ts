@@ -33,13 +33,23 @@ export const savePushSubscription = async (userId: string, sessionHash: string, 
     const s = input
     // A different session may claim an existing endpoint only by proving possession
     // of both browser-provided keys. A bare endpoint is never enough to reassign it.
-    const result = await pool.query(`INSERT INTO push_subscriptions (endpoint,user_id,session_hash,p256dh,auth)
+    const client = await pool.connect()
+    try {
+    await client.query('BEGIN')
+    // Serialize registrations per user so concurrent requests cannot bypass the cap.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`push-subscriptions:${userId}`])
+    const count = await client.query('SELECT count(*)::int AS count, bool_or(endpoint=$2) AS existing FROM push_subscriptions WHERE user_id=$1', [userId,s.endpoint])
+    if (count.rows[0].count >= 10 && !count.rows[0].existing) { await client.query('ROLLBACK'); return { status: 429, body: { error: 'PUSH_SUBSCRIPTION_LIMIT' } } }
+    const result = await client.query(`INSERT INTO push_subscriptions (endpoint,user_id,session_hash,p256dh,auth)
         SELECT $1,$2,s.token_hash,$4,$5 FROM user_sessions s WHERE s.token_hash=$3 AND s.user_id=$2 AND s.revoked_at IS NULL AND s.expires_at > now()
         ON CONFLICT (endpoint) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash,
-            created_at=CASE WHEN push_subscriptions.session_hash=excluded.session_hash THEN push_subscriptions.created_at ELSE now() END
+            created_at=CASE WHEN push_subscriptions.session_hash=excluded.session_hash THEN push_subscriptions.created_at ELSE now() END,
+            binding_id=CASE WHEN push_subscriptions.session_hash=excluded.session_hash THEN push_subscriptions.binding_id ELSE gen_random_uuid() END
         WHERE push_subscriptions.p256dh=excluded.p256dh AND push_subscriptions.auth=excluded.auth
         RETURNING endpoint`, [s.endpoint,userId,sessionHash,s.keys.p256dh,s.keys.auth])
+    await client.query('COMMIT')
     return result.rowCount ? { status: 204 } : { status: 409, body: { error: 'SUBSCRIPTION_CONFLICT' } }
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
 
 export const deletePushSubscription = async (userId: string, sessionHash: string, input: { endpoint?: unknown; subscription?: unknown }) => {
@@ -52,15 +62,34 @@ export const deletePushSubscription = async (userId: string, sessionHash: string
     return { status: 204 }
 }
 
+export const pushSubscriptionStatus = async (userId: string, sessionHash: string, endpoint: unknown) => {
+    if (typeof endpoint !== 'string' || endpoint.length < 1 || endpoint.length > 2048) return { status: 400, body: { error: 'INVALID_SUBSCRIPTION' } }
+    const result = await pool.query(`SELECT 1 FROM push_subscriptions p JOIN user_sessions s ON s.token_hash=p.session_hash
+        WHERE p.endpoint=$1 AND p.user_id=$2 AND p.session_hash=$3 AND s.user_id=p.user_id
+          AND s.revoked_at IS NULL AND s.expires_at > now()`, [endpoint,userId,sessionHash])
+    return { status: 200, body: { active: Boolean(result.rowCount) } }
+}
+
+export const pushBindingStatus = async (userId: string, sessionHash: string, binding: unknown) => {
+    if (typeof binding !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(binding)) return { status: 400, body: { error: 'INVALID_BINDING' } }
+    const result = await pool.query(`SELECT 1 FROM push_subscriptions p JOIN user_sessions s ON s.token_hash=p.session_hash
+        WHERE p.binding_id=$1 AND p.user_id=$2 AND p.session_hash=$3 AND s.user_id=p.user_id
+          AND s.revoked_at IS NULL AND s.expires_at > now()`, [binding,userId,sessionHash])
+    return { status: 200, body: { active: Boolean(result.rowCount) } }
+}
+
 export const pushPayload = (n: { type: string; conversation_id: string | null; buy_request_id: string | null; offer_id: string | null }) => {
-    if (n.type === 'message' && n.conversation_id) return { title: 'Нове повідомлення', body: 'Відкрийте чат у ДещоТреба.', url: `/messages/${n.conversation_id}` }
-    if (n.type === 'order' && n.buy_request_id && n.offer_id) return { title: 'Нова пропозиція', body: 'Продавець відповів на ваш запит.', url: `/my/requests?request=${n.buy_request_id}&offer=${n.offer_id}` }
+    const generic = { title: 'ДещоТреба', body: 'Відкрийте застосунок, щоб переглянути сповіщення.' }
+    if (n.type === 'message' && n.conversation_id) return { ...generic, url: `/messages/${n.conversation_id}` }
+    if (n.type === 'order' && n.buy_request_id && n.offer_id) return { ...generic, url: `/my/requests?request=${n.buy_request_id}&offer=${n.offer_id}` }
     return null
 }
 
 // At-most-once attempts: never replay an ambiguous network failure. Notification
 // Center remains the durable source of truth when the process or provider fails.
 export const dispatchPushBatch = async () => {
+    // Bound retention even when VAPID configuration is absent or invalid.
+    await pool.query("DELETE FROM push_outbox WHERE created_at < now() - interval '1 day'")
     if (!pushConfig()) return
     const claimed = await pool.query(`UPDATE push_outbox SET claimed_at=now() WHERE notification_id IN (
         SELECT notification_id FROM push_outbox WHERE claimed_at IS NULL AND created_at > now() - interval '1 day'
@@ -76,18 +105,17 @@ export const dispatchPushBatch = async () => {
             const client = await pool.connect()
             try {
                 await client.query('BEGIN')
-                const locked = await client.query(`SELECT p.endpoint,p.p256dh,p.auth FROM push_subscriptions p
+                const locked = await client.query(`SELECT p.endpoint,p.p256dh,p.auth,p.binding_id FROM push_subscriptions p
                     JOIN user_sessions s ON s.token_hash=p.session_hash
                     WHERE p.endpoint=$1 AND p.user_id=$2 AND p.created_at <= $3 AND s.user_id=p.user_id
                     AND s.revoked_at IS NULL AND s.expires_at > now() FOR UPDATE OF p`, [endpoint,n.user_id,n.enqueued_at])
                 if (locked.rowCount) {
                     const s = locked.rows[0]
-                    try { await webpush.sendNotification({ endpoint:s.endpoint, keys:{p256dh:s.p256dh,auth:s.auth} }, JSON.stringify(payload), { TTL: 60, timeout: 10000 }) }
+                    try { await webpush.sendNotification({ endpoint:s.endpoint, keys:{p256dh:s.p256dh,auth:s.auth} }, JSON.stringify({ ...payload, binding:s.binding_id }), { TTL: 60, timeout: 10000 }) }
                     catch (error) { const status = (error as { statusCode?: number }).statusCode; if (status === 404 || status === 410) await client.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [endpoint]) }
                 }
                 await client.query('COMMIT')
             } catch { await client.query('ROLLBACK') } finally { client.release() }
         }
     }
-    await pool.query("DELETE FROM push_outbox WHERE created_at < now() - interval '1 day'")
 }

@@ -9,7 +9,7 @@ import sharp from 'sharp'
 import { PhotoValidationError } from './photo-storage.js'
 import { checkDatabase } from './db/client.js'
 import { confirmEmail, login, logout, optionalAuth, register, resendVerification, requireAuth, requestSessionHash } from './auth.js'
-import { pushConfig, savePushSubscription, deletePushSubscription } from './web-push-service.js'
+import { pushConfig, savePushSubscription, deletePushSubscription, pushSubscriptionStatus, pushBindingStatus } from './web-push-service.js'
 import { confirmEmailCode, sendEmailCode } from './email-verification.js'
 import { requestPasswordReset, resetPassword, verifyPasswordResetCode } from './password-reset.js'
 import { changePassword } from './password-change.js'
@@ -137,6 +137,17 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         } catch (error) { next(error) }
     })
     if (existsSync(builtRoot)) app.use(express.static(builtRoot))
+    // The Web Push destinations are SPA routes. Public share routes above keep
+    // their own server-rendered OG metadata and authorization handling.
+    app.get(['/messages/:id', '/my/requests', '/notifications'], (_request, response, next) => {
+        try {
+            const isBuilt = import.meta.url.includes('/dist/') && existsSync(join(builtRoot, 'index.html'))
+            const index = isBuilt ? join(builtRoot, 'index.html') : join(frontendRoot, 'index.html')
+            let html = readFileSync(index, 'utf8')
+            if (!isBuilt) html = html.replace('<head>', `<head><script type="module">import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;</script><script type="module" src="/@vite/client"></script>`)
+            response.set('Cache-Control', 'no-store').type('html').send(html)
+        } catch (error) { next(error) }
+    })
     app.use('/api/auth/external', externalAuthRouter(options.providerExchange))
     app.get(['/api/products', '/api/buy-requests', '/api/map/markers'], createSearchRateLimiter())
 
@@ -170,7 +181,14 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.get('/api/auth/me', requireAuth, (request, response) => response.json({ user: request.authUser }))
 
     app.get('/api/push/config', requireAuth, (_request, response) => { const config = pushConfig(); response.set('Cache-Control', 'no-store').json({ enabled: Boolean(config), publicKey: config?.publicKey ?? null }) })
-    app.post('/api/push/subscriptions', requireAuth, withResult(request => savePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body?.subscription)))
+    app.post('/api/push/status', requireAuth, withResult((request, response) => { response.set('Cache-Control', 'no-store'); return pushSubscriptionStatus(request.authUser!.id, requestSessionHash(request)!, request.body?.endpoint) }))
+    app.post('/api/push/binding', requireAuth, withResult((request, response) => { response.set('Cache-Control', 'no-store'); return pushBindingStatus(request.authUser!.id, requestSessionHash(request)!, request.body?.binding) }))
+    app.post('/api/push/subscriptions', requireAuth, withResult(request => {
+        // The expected identity records whose consent the UI obtained; the
+        // authenticated session remains the sole source of authority.
+        if (request.body?.expectedUserId !== request.authUser!.id) return Promise.resolve({ status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } })
+        return savePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body?.subscription)
+    }))
     app.delete('/api/push/subscriptions', requireAuth, withResult(request => deletePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body ?? {})))
 
     app.get('/api/profiles/:username', withResult((request) => getPublicProfile(String(request.params.username), request)))

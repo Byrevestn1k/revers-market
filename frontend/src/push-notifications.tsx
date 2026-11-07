@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './push-notifications.css'
 
 const api = import.meta.env.VITE_API_URL ?? ''
@@ -20,6 +20,12 @@ async function registration(): Promise<ServiceWorkerRegistration> {
     return existing ?? navigator.serviceWorker.register('/sw.js')
 }
 
+async function closePushNotifications(worker: ServiceWorkerRegistration) {
+    if (typeof worker.getNotifications !== 'function') return
+    const notifications = await worker.getNotifications()
+    for (const notification of notifications) notification.close()
+}
+
 function read(key: string) { try { return localStorage.getItem(key) } catch { return null } }
 function write(key: string, value: string) { try { localStorage.setItem(key, value) } catch { /* unavailable storage */ } }
 function remove(key: string) { try { localStorage.removeItem(key) } catch { /* unavailable storage */ } }
@@ -27,7 +33,9 @@ function remove(key: string) { try { localStorage.removeItem(key) } catch { /* u
 /** Revoke before logging out so a subscription cannot follow another account. */
 export async function disconnectPush() {
     if (!supported()) return
-    const subscription = await (await registration()).pushManager.getSubscription()
+    const worker = await registration()
+    await closePushNotifications(worker)
+    const subscription = await worker.pushManager.getSubscription()
     if (!subscription) { remove(ownerKey); return }
     await call('/api/push/subscriptions', 'DELETE', { subscription: subscription.toJSON() })
     await subscription.unsubscribe()
@@ -36,7 +44,9 @@ export async function disconnectPush() {
 
 export async function unsubscribeLocalPush() {
     if (!supported()) return
-    const subscription = await (await registration()).pushManager.getSubscription()
+    const worker = await registration()
+    await closePushNotifications(worker)
+    const subscription = await worker.pushManager.getSubscription()
     if (subscription) await subscription.unsubscribe()
     remove(ownerKey)
 }
@@ -67,6 +77,20 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
     const [error, setError] = useState('')
     const [dismissed, setDismissed] = useState(() => read(dismissedKey + userId) === 'yes')
     const [publicKey, setPublicKey] = useState('')
+    const statusVersion = useRef(0)
+
+    async function refreshStatus() {
+        const version = ++statusVersion.current
+        const worker = await registration()
+        const current = await worker.pushManager.getSubscription()
+        let subscribed = false
+        if (current && read(ownerKey) === userId) {
+            const status = await call('/api/push/status', 'POST', { endpoint: current.endpoint }) as { active: boolean }
+            subscribed = status.active === true
+            if (!subscribed) await closePushNotifications(worker)
+        }
+        if (version === statusVersion.current) { setEnabled(subscribed); setError('') }
+    }
 
     useEffect(() => {
         let active = true
@@ -76,8 +100,8 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
                 const config = await call('/api/push/config') as { enabled: boolean; publicKey: string | null }
                 if (!config.enabled || !config.publicKey) return
                 await reconcilePushOwner(userId)
-                const current = await (await registration()).pushManager.getSubscription()
-                if (active) { setPublicKey(config.publicKey); setAvailable(true); setEnabled(Boolean(current && read(ownerKey) === userId)) }
+                await refreshStatus()
+                if (active) { setPublicKey(config.publicKey); setAvailable(true) }
             } catch { if (active) setError('Сповіщення зараз недоступні. Спробуйте пізніше.') }
         })()
         return () => { active = false }
@@ -94,25 +118,28 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
             const worker = await registration()
             const existing = await worker.pushManager.getSubscription()
             const subscription = existing ?? await worker.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationKey(publicKey) })
-            try { await call('/api/push/subscriptions', 'POST', { subscription: subscription.toJSON() }) }
+            try { await call('/api/push/subscriptions', 'POST', { expectedUserId: userId, subscription: subscription.toJSON() }) }
             catch (caught) { if (!existing) await subscription.unsubscribe(); throw caught }
+            ++statusVersion.current
             write(ownerKey, userId); setEnabled(true); setDismissed(false)
+            window.dispatchEvent(new Event('push-settings-changed'))
         } catch { setError('Не вдалося увімкнути сповіщення. Спробуйте ще раз.') }
         finally { setBusy(false) }
     }
 
     async function disable() {
         setBusy(true); setError('')
-        try { await disconnectPush(); setEnabled(false) }
+        try { await disconnectPush(); ++statusVersion.current; setEnabled(false); window.dispatchEvent(new Event('push-settings-changed')) }
         catch { setError('Не вдалося вимкнути сповіщення. Перевірте з’єднання та спробуйте ще раз.') }
         finally { setBusy(false) }
     }
 
     useEffect(() => {
-        const refresh = () => { if (supported()) void registration().then(worker => worker.pushManager.getSubscription()).then(current => setEnabled(Boolean(current && read(ownerKey) === userId))).catch(() => undefined) }
+        const refresh = () => { if (supported()) void refreshStatus().catch(() => { setEnabled(false); setError('Не вдалося перевірити стан сповіщень. Спробуйте пізніше.') }) }
         window.addEventListener('storage', refresh)
         window.addEventListener('focus', refresh)
-        return () => { window.removeEventListener('storage', refresh); window.removeEventListener('focus', refresh) }
+        window.addEventListener('push-settings-changed', refresh)
+        return () => { statusVersion.current++; window.removeEventListener('storage', refresh); window.removeEventListener('focus', refresh); window.removeEventListener('push-settings-changed', refresh) }
     }, [userId])
 
     if (compact && (!available || enabled || dismissed)) return null
