@@ -3,4 +3,4 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { PushSettings } from './src/push-notifications'
 
-createRoot(document.getElementById('root')!).render(React.createElement(PushSettings, { userId: 'user-a' }))
+createRoot(document.getElementById('root')!).render(React.createElement(PushSettings, { userId: 'user-a', sessionId: 'session-a' }))

@@ -21,6 +21,7 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
     const names = [`pwa_a_${suffix}`, `pwa_b_${suffix}`]
     const tokenA = randomBytes(32).toString('base64url')
     const tokenB = randomBytes(32).toString('base64url')
+    const sessionIds: Record<string,string> = {}
     const cookie = (token: string) => `navpaky_session=${token}`
     let chat: string
     beforeAll(async () => {
@@ -34,13 +35,14 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             const user = await pool.query('INSERT INTO users (username,username_normalized,country_code,phone,password_hash) VALUES ($1,$1,$2,$3,$4) RETURNING id', [name,'UA',phone,hashed])
             ids.push(user.rows[0].id)
             const token = index ? tokenB : tokenA
-            await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 day')", [ids[index], createHash('sha256').update(token).digest('hex')])
+            const session = await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 day') RETURNING id", [ids[index], createHash('sha256').update(token).digest('hex')])
+            sessionIds[token] = session.rows[0].id
         }
         chat = (await pool.query('INSERT INTO conversations (profile_user_low,profile_user_high) VALUES ($1,$2) RETURNING id', [...ids].sort())).rows[0].id
     }, 30000)
     afterAll(async () => { if (chat) await pool.query('DELETE FROM conversations WHERE id=$1', [chat]); if (ids.length) await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [ids]); await pool.end() })
     beforeEach(() => { mocked.send.mockReset(); mocked.send.mockResolvedValue({ statusCode: 201 }) })
-    const add = (token: string, subscription: unknown = valid) => request(app).post('/api/push/subscriptions').set('Cookie',cookie(token)).send({ expectedUserId: token === tokenB ? ids[1] : ids[0], subscription })
+    const add = (token: string, subscription: unknown = valid) => request(app).post('/api/push/subscriptions').set('Cookie',cookie(token)).send({ expectedUserId: token === tokenB ? ids[1] : ids[0], expectedSessionId:sessionIds[token], subscription })
     const notification = async (id: string) => pool.query("INSERT INTO notifications(user_id,type,title,body,conversation_id) VALUES ($1,'message','Нове повідомлення','СЕКРЕТНА АДРЕСА',$2)", [id,chat])
 
     describe('Web Push isolation', () => {
@@ -59,11 +61,11 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             expect((await add(tokenA, {...valid,endpoint:'https://127.0.0.1/private'})).status).toBe(400)
             expect((await add(tokenA)).status).toBe(200)
             expect((await add(tokenB, {...valid,keys:{...valid.keys,auth:randomBytes(16).toString('base64url')}})).status).toBe(409)
-            expect((await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],endpoint:valid.endpoint})).status).toBe(200)
+            expect((await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],expectedSessionId:sessionIds[tokenB],endpoint:valid.endpoint})).status).toBe(200)
             expect((await pool.query('SELECT user_id FROM push_subscriptions WHERE endpoint=$1',[valid.endpoint])).rows[0].user_id).toBe(ids[0])
         })
         it('reports device status only for the current active session', async () => {
-            const status = (token: string, endpoint: string = valid.endpoint) => request(app).post('/api/push/status').set('Cookie',cookie(token)).send({ expectedUserId:token === tokenB ? ids[1] : ids[0], endpoint })
+            const status = (token: string, endpoint: string = valid.endpoint) => request(app).post('/api/push/status').set('Cookie',cookie(token)).send({ expectedUserId:token === tokenB ? ids[1] : ids[0], expectedSessionId:sessionIds[token], endpoint })
             expect((await request(app).post('/api/push/status').send({endpoint:valid.endpoint})).status).toBe(401)
             const owner = await status(tokenA)
             expect(owner.body).toEqual({active:true,binding:expect.any(String)})
@@ -73,7 +75,7 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             expect((await status(tokenA, '')).status).toBe(400)
             const otherToken = randomBytes(32).toString('base64url')
             const otherHash = createHash('sha256').update(otherToken).digest('hex')
-            await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day')", [ids[0],otherHash])
+            sessionIds[otherToken] = (await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day') RETURNING id", [ids[0],otherHash])).rows[0].id
             expect((await status(otherToken)).body).toEqual({active:false,binding:null})
             await pool.query('UPDATE user_sessions SET revoked_at=now() WHERE token_hash=$1', [otherHash])
             expect((await status(otherToken)).status).toBe(401)
@@ -85,15 +87,15 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             const newOwner = await add(tokenB,temp)
             expect(newOwner.status).toBe(200)
             expect(newOwner.body.binding).not.toBe(old.body.binding)
-            const stale = await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[0],subscription:temp,expectedBinding:old.body.binding})
+            const stale = await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[0],expectedSessionId:sessionIds[tokenA],subscription:temp,expectedBinding:old.body.binding})
             expect(stale.status).toBe(409)
             expect(stale.headers['set-cookie']).toBeUndefined()
             expect((await request(app).post('/api/push/status').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[0],endpoint:temp.endpoint})).status).toBe(409)
-            const delayed = await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenA)).send({expectedUserId:ids[0],subscription:temp,expectedBinding:old.body.binding})
+            const delayed = await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenA)).send({expectedUserId:ids[0],expectedSessionId:sessionIds[tokenA],subscription:temp,expectedBinding:old.body.binding})
             expect(delayed.body).toEqual({binding:null})
-            const current = await request(app).post('/api/push/status').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],endpoint:temp.endpoint})
+            const current = await request(app).post('/api/push/status').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],expectedSessionId:sessionIds[tokenB],endpoint:temp.endpoint})
             expect(current.body).toEqual({active:true,binding:newOwner.body.binding})
-            const removed = await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],subscription:temp,expectedBinding:newOwner.body.binding})
+            const removed = await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],expectedSessionId:sessionIds[tokenB],subscription:temp,expectedBinding:newOwner.body.binding})
             expect(removed.body).toEqual({binding:newOwner.body.binding})
         })
         it('does not clear a newer cookie or alter activity from push session checks', async () => {
@@ -112,7 +114,7 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             expect(invalidDelete.headers['set-cookie']).toBeUndefined()
             await pool.query("UPDATE users SET last_seen_at='2000-01-01T00:00:00Z' WHERE id=$1",[ids[0]])
             const valid = await request(app).get('/api/push/session').set('Cookie',cookie(tokenA))
-            expect(valid.body).toEqual({userId:ids[0]})
+            expect(valid.body).toEqual({userId:ids[0],sessionId:sessionIds[tokenA]})
             expect((await pool.query('SELECT last_seen_at FROM users WHERE id=$1',[ids[0]])).rows[0].last_seen_at.toISOString()).toBe('2000-01-01T00:00:00.000Z')
         })
         it('frees the active device limit after sessions expire or are revoked', async () => {
@@ -122,19 +124,38 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             const fresh = {...valid,endpoint:`https://fcm.googleapis.com/fcm/send/${randomUUID()}`}
             expect((await add(tokenB,fresh)).status).toBe(200)
             expect(Number((await pool.query('SELECT count(*) FROM push_subscriptions WHERE user_id=$1',[ids[1]])).rows[0].count)).toBe(1)
-            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],endpoint:fresh.endpoint})
+            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],expectedSessionId:sessionIds[tokenB],endpoint:fresh.endpoint})
         })
         it('rejects stale logout and does not clear a newer cookie', async () => {
-            const stale = await request(app).post('/api/auth/logout').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[0]})
+            const stale = await request(app).post('/api/auth/logout').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[0],expectedSessionId:sessionIds[tokenA]})
             expect(stale.status).toBe(409)
             expect(stale.headers['set-cookie']).toBeUndefined()
             expect((await request(app).get('/api/push/session').set('Cookie',cookie(tokenB))).status).toBe(200)
             const token = randomBytes(32).toString('base64url')
-            await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day')", [ids[0],createHash('sha256').update(token).digest('hex')])
-            const logout = await request(app).post('/api/auth/logout').set('Cookie',cookie(token)).send({expectedUserId:ids[0]})
+            sessionIds[token] = (await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day') RETURNING id", [ids[0],createHash('sha256').update(token).digest('hex')])).rows[0].id
+            const logout = await request(app).post('/api/auth/logout').set('Cookie',cookie(token)).send({expectedUserId:ids[0],expectedSessionId:sessionIds[token]})
             expect(logout.status).toBe(204)
             expect(logout.headers['set-cookie']).toBeUndefined()
             expect((await request(app).get('/api/push/session').set('Cookie',cookie(token))).status).toBe(401)
+        })
+        it('rejects stale logout and push actions after a new login to the same account', async () => {
+            const oldToken = randomBytes(32).toString('base64url')
+            const oldSession = (await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day') RETURNING id", [ids[0],createHash('sha256').update(oldToken).digest('hex')])).rows[0].id
+            const login = await request(app).post('/api/auth/login').set('Cookie',cookie(oldToken)).send({username:names[0],password})
+            expect(login.status).toBe(200)
+            expect(login.body.sessionId).not.toBe(oldSession)
+            const newCookie = String(login.headers['set-cookie'][0]).split(';')[0]
+            const stale = {expectedUserId:ids[0],expectedSessionId:oldSession}
+            const logout = await request(app).post('/api/auth/logout').set('Cookie',newCookie).send(stale)
+            expect(logout.status).toBe(409)
+            expect(logout.headers['set-cookie']).toBeUndefined()
+            const status = await request(app).post('/api/push/status').set('Cookie',newCookie).send({...stale,endpoint:valid.endpoint})
+            expect(status.status).toBe(409)
+            const del = await request(app).delete('/api/push/subscriptions').set('Cookie',newCookie).send({...stale,subscription:valid})
+            expect(del.status).toBe(409)
+            const post = await request(app).post('/api/push/subscriptions').set('Cookie',newCookie).send({...stale,subscription:valid})
+            expect(post.status).toBe(409)
+            expect((await request(app).get('/api/push/session').set('Cookie',newCookie)).body).toEqual({userId:ids[0],sessionId:login.body.sessionId})
         })
         it('invalidates a queued binding on account reassignment or logout', async () => {
             const temp = {...valid,endpoint:`https://fcm.googleapis.com/fcm/send/${randomUUID()}`}
@@ -149,7 +170,7 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             expect(next).not.toBe(old)
             expect((await check(tokenB,old)).body).toEqual({active:false})
             expect((await check(tokenB,next)).body).toEqual({active:true})
-            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],endpoint:temp.endpoint})
+            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],expectedSessionId:sessionIds[tokenB],endpoint:temp.endpoint})
             expect((await check(tokenB,next)).body).toEqual({active:false})
             expect((await check(tokenA,'invalid')).status).toBe(400)
         })
@@ -227,13 +248,13 @@ if (process.env.STEP31_ISOLATED_TEST === '1') {
             expect(mocked.send.mock.calls[0][0].endpoint).toBe(other.endpoint)
             expect(JSON.parse(mocked.send.mock.calls[0][1]).url).toBe(`/messages/${chat}`)
             expect(mocked.send.mock.calls[0][1]).not.toContain('Приватний')
-            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],endpoint:other.endpoint})
+            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenB)).send({expectedUserId:ids[1],expectedSessionId:sessionIds[tokenB],endpoint:other.endpoint})
         }, 30000)
         it('serializes logout with an in-flight delivery and stops subsequent delivery', async () => {
             const temporaryToken = randomBytes(32).toString('base64url')
             const temporaryHash = createHash('sha256').update(temporaryToken).digest('hex')
-            await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day')", [ids[0],temporaryHash])
-            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenA)).send({expectedUserId:ids[0],endpoint:valid.endpoint})
+            sessionIds[temporaryToken] = (await pool.query("INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 day') RETURNING id", [ids[0],temporaryHash])).rows[0].id
+            await request(app).delete('/api/push/subscriptions').set('Cookie',cookie(tokenA)).send({expectedUserId:ids[0],expectedSessionId:sessionIds[tokenA],endpoint:valid.endpoint})
             expect((await add(temporaryToken)).status).toBe(200)
             let release!: () => void
             let started!: () => void

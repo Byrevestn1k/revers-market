@@ -40,16 +40,19 @@ export const createSession = async (userId: string, response: Response) => {
     // browser session and its device subscriptions before issuing the new one.
     const previous = response.req ? requestSessionHash(response.req) : null
     const client = await pool.connect()
+    let sessionId: string
     try {
         await client.query('BEGIN')
         if (previous) {
             await client.query('DELETE FROM push_subscriptions WHERE session_hash = $1', [previous])
             await client.query('UPDATE user_sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [previous])
         }
-        await client.query('INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)', [userId, hashToken(token), new Date(Date.now() + SESSION_TTL_MS)])
+        const session = await client.query('INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3) RETURNING id', [userId, hashToken(token), new Date(Date.now() + SESSION_TTL_MS)])
+        sessionId = session.rows[0].id
         await client.query('COMMIT')
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
     setSessionCookie(response, token)
+    return sessionId
 }
 
 export const requestSessionHash = (request: Request) => {
@@ -61,11 +64,12 @@ const resolveSessionUser = async (request: Request, updateActivity = true): Prom
     const token = getCookie(request)
     if (!token) return null
     const result = await pool.query(
-        `SELECT u.id, u.username, u.country_code, u.phone, u.email, u.email_verified, u.pending_email
+        `SELECT u.id, u.username, u.country_code, u.phone, u.email, u.email_verified, u.pending_email, s.id AS auth_session_id
          FROM user_sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`
         , [hashToken(token)],
     )
+    if (result.rowCount) request.authSessionId = result.rows[0].auth_session_id
     if (result.rowCount && updateActivity) await pool.query("UPDATE users SET last_seen_at = now() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '5 minutes')", [result.rows[0].id])
     return result.rowCount ? publicUser(result.rows[0]) : null
 }
@@ -102,7 +106,7 @@ export const readOnlyAuth: RequestHandler = async (request, _response, next: Nex
 }
 
 declare global {
-    namespace Express { interface Request { authUser?: AuthUser } }
+    namespace Express { interface Request { authUser?: AuthUser; authSessionId?: string } }
 }
 
 export const register = async (input: RegistrationInput, response: Response) => {
@@ -138,8 +142,8 @@ export const register = async (input: RegistrationInput, response: Response) => 
             const token = await createEmailVerification(user.id, email)
             emailVerificationSent = await sendVerificationEmail(email, token)
         } catch (mailError) { console.error('verification email failed:', mailError) }
-        await createSession(user.id, response)
-        return { status: 201, body: { user: publicUser(user), emailVerificationSent } }
+        const sessionId = await createSession(user.id, response)
+        return { status: 201, body: { user: publicUser(user), sessionId, emailVerificationSent } }
     } catch (error: unknown) {
         if ((error as { code?: string }).code === '23505') {
             return { status: 409, body: { error: 'ACCOUNT_NOT_AVAILABLE', message: 'Не вдалося створити обліковий запис із вказаними даними' } }
@@ -161,8 +165,8 @@ export const login = async (usernameOrEmail: string, password: string, response:
     if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
         return { status: 401, body: { error: 'INVALID_CREDENTIALS', message: 'Неправильні облікові дані' } }
     }
-    await createSession(user.id, response)
-    return { status: 200, body: { user: publicUser(user) } }
+    const sessionId = await createSession(user.id, response)
+    return { status: 200, body: { user: publicUser(user), sessionId } }
 }
 
 /** Повторна відправка листа підтвердження. */
@@ -187,19 +191,21 @@ export const confirmEmail = async (token: string) => {
 export const logout = async (request: Request, response: Response) => {
     const token = getCookie(request)
     const expected = request.body?.expectedUserId
+    const expectedSession = request.body?.expectedSessionId
     if (expected !== undefined && (typeof expected !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expected))) return { status: 400, body: { error: 'INVALID_USER' } }
+    if (expected !== undefined && (typeof expectedSession !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expectedSession))) return { status: 400, body: { error: 'INVALID_SESSION' } }
     if (expected !== undefined && !token) return { status: 401, body: { error: 'AUTH_REQUIRED' } }
     if (token) {
         const client = await pool.connect()
         try {
             await client.query('BEGIN')
             if (expected !== undefined) {
-                const active = await client.query('SELECT user_id FROM user_sessions WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()', [hashToken(token)])
+                const active = await client.query('SELECT id,user_id FROM user_sessions WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()', [hashToken(token)])
                 if (!active.rowCount) { await client.query('ROLLBACK'); return { status: 401, body: { error: 'AUTH_REQUIRED' } } }
-                if (active.rows[0].user_id !== expected) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } } }
+                if (active.rows[0].user_id !== expected || active.rows[0].id !== expectedSession) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } } }
             }
             await client.query('DELETE FROM push_subscriptions WHERE session_hash = $1', [hashToken(token)])
-            const revoked = await client.query('UPDATE user_sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL AND ($2::uuid IS NULL OR (user_id=$2 AND expires_at > now())) RETURNING user_id', [hashToken(token), expected ?? null])
+            const revoked = await client.query('UPDATE user_sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL AND ($2::uuid IS NULL OR (user_id=$2 AND id=$3 AND expires_at > now())) RETURNING user_id', [hashToken(token), expected ?? null, expectedSession ?? null])
             if (expected !== undefined && !revoked.rowCount) { await client.query('ROLLBACK'); return { status: 401, body: { error: 'AUTH_REQUIRED' } } }
             await client.query('COMMIT')
         } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }

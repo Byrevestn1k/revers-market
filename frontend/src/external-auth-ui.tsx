@@ -110,7 +110,7 @@ export function LoginMethods({ onPasswordStatus }: { onPasswordStatus?: (hasPass
     </section>
 }
 
-export function ExternalSignup({ onDone }: { onDone: (user: unknown, returnPath: string) => void }) {
+export function ExternalSignup({ onDone }: { onDone: (user: unknown, returnPath: string, sessionId: string) => void }) {
     const [pending, setPending] = useState<{ provider: Provider; email: string | null; displayName: string | null; originPage: 'login' | 'register'; emailConflict: boolean } | null>(null)
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(false)
@@ -127,7 +127,7 @@ export function ExternalSignup({ onDone }: { onDone: (user: unknown, returnPath:
         setBusy(true); setError('')
         try {
             const data = await fetchJson('/api/auth/external/finish/link', { method: 'POST' })
-            onDone(data.user, safeClientReturn(data.returnPath))
+            onDone(data.user, safeClientReturn(data.returnPath), data.sessionId)
         } catch (caught) { setError((caught as Error).message) }
         finally { setBusy(false) }
     }
@@ -136,7 +136,7 @@ export function ExternalSignup({ onDone }: { onDone: (user: unknown, returnPath:
         const form = Object.fromEntries(new FormData(event.currentTarget).entries())
         try {
             const data = await fetchJson('/api/auth/external/finish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: form.username, email: form.email, countryCode, phone }) })
-            onDone(data.user, safeClientReturn(data.returnPath))
+            onDone(data.user, safeClientReturn(data.returnPath), data.sessionId)
         } catch (caught) { setError((caught as Error).message) }
         finally { setBusy(false) }
     }

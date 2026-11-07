@@ -239,12 +239,12 @@ export const externalAuthRouter = (providerExchange: typeof exchangeProfile = ex
                 (user_id, provider, provider_user_id, provider_email, provider_username, provider_display_name, provider_avatar_url, last_used_at)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,now())`, [created.rows[0].id, profile.provider, profile.providerUserId, ...profileMetadata(profile)])
             await client.query('COMMIT')
-            await createSession(created.rows[0].id, response)
+            const sessionId = await createSession(created.rows[0].id, response)
             setPendingCookie(response, '', 0)
             let emailVerificationSent = false
             try { const token = await createEmailVerification(created.rows[0].id, email); emailVerificationSent = await sendVerificationEmail(email, token) }
             catch { /* Registration remains valid if mail is unavailable. */ }
-            response.status(201).json({ user: publicUser(created.rows[0]), emailVerificationSent, returnPath: safeReturnPath(flow.return_path) })
+            response.status(201).json({ user: publicUser(created.rows[0]), sessionId, emailVerificationSent, returnPath: safeReturnPath(flow.return_path) })
         } catch (error) {
             await client.query('ROLLBACK').catch(() => undefined)
             if ((error as { code?: string }).code === '23505') response.status(409).json({ error: 'ACCOUNT_EXISTS', message: 'Ці дані вже використано. Увійдіть у свій акаунт, щоб підключити цей спосіб входу.' })
@@ -288,7 +288,7 @@ export const externalAuthRouter = (providerExchange: typeof exchangeProfile = ex
             }
             await client.query('COMMIT')
             setPendingCookie(response, '', 0)
-            response.json({ user: request.authUser, returnPath: '/settings/profile?externalAuth=linked' })
+            response.json({ user: request.authUser, sessionId: request.authSessionId, returnPath: '/settings/profile?externalAuth=linked' })
         } catch (error) { await client.query('ROLLBACK').catch(() => undefined); next(error) }
         finally { client.release() }
     })

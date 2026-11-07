@@ -180,7 +180,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
 
     app.get('/api/auth/me', optionalAuth, (request, response) => {
         if (!request.authUser) { response.status(401).json({ error: 'AUTH_REQUIRED', message: 'Потрібно увійти в обліковий запис' }); return }
-        response.set('Cache-Control', 'no-store').json({ user: request.authUser })
+        response.set('Cache-Control', 'no-store').json({ user: request.authUser, sessionId: request.authSessionId })
     })
 
     // Push UI and service-worker requests may finish after another tab changes
@@ -190,22 +190,22 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         if (!request.authUser) { response.status(401).json({ error: 'AUTH_REQUIRED' }); return }
         next()
     })
-    app.get('/api/push/session', (request, response) => response.json({ userId: request.authUser!.id }))
+    app.get('/api/push/session', (request, response) => response.json({ userId: request.authUser!.id, sessionId: request.authSessionId }))
     app.get('/api/push/config', (_request, response) => { const config = pushConfig(); response.set('Cache-Control', 'no-store').json({ enabled: Boolean(config), publicKey: config?.publicKey ?? null }) })
     app.post('/api/push/status', withResult((request, response) => {
         response.set('Cache-Control', 'no-store')
-        if (request.body?.expectedUserId !== request.authUser!.id) return Promise.resolve({ status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } })
+        if (request.body?.expectedUserId !== request.authUser!.id || request.body?.expectedSessionId !== request.authSessionId) return Promise.resolve({ status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } })
         return pushSubscriptionStatus(request.authUser!.id, requestSessionHash(request)!, request.body?.endpoint)
     }))
     app.post('/api/push/binding', withResult((request, response) => { response.set('Cache-Control', 'no-store'); return pushBindingStatus(request.authUser!.id, requestSessionHash(request)!, request.body?.binding) }))
     app.post('/api/push/subscriptions', withResult(request => {
         // The expected identity records whose consent the UI obtained; the
         // authenticated session remains the sole source of authority.
-        if (request.body?.expectedUserId !== request.authUser!.id) return Promise.resolve({ status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } })
+        if (request.body?.expectedUserId !== request.authUser!.id || request.body?.expectedSessionId !== request.authSessionId) return Promise.resolve({ status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } })
         return savePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body?.subscription)
     }))
     app.delete('/api/push/subscriptions', withResult(request => {
-        if (request.body?.expectedUserId !== request.authUser!.id) return Promise.resolve({ status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } })
+        if (request.body?.expectedUserId !== request.authUser!.id || request.body?.expectedSessionId !== request.authSessionId) return Promise.resolve({ status: 409, body: { error: 'PUSH_ACCOUNT_CHANGED' } })
         return deletePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body ?? {})
     }))
 

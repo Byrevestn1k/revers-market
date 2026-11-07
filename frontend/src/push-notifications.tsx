@@ -31,22 +31,24 @@ function write(key: string, value: string) { try { localStorage.setItem(key, val
 function remove(key: string) { try { localStorage.removeItem(key) } catch { /* unavailable storage */ } }
 const bindingKey = (userId: string) => `deshchotreba.push.binding.${userId}`
 
-async function assertUser(userId: string) {
-    const session = await call('/api/push/session') as { userId: string }
-    if (session.userId !== userId) throw new Error('Акаунт змінився')
+async function assertUser(userId: string, sessionId: string) {
+    const session = await call('/api/push/session') as { userId: string; sessionId: string }
+    if (session.userId !== userId || session.sessionId !== sessionId) throw new Error('Акаунт або сесія змінилися')
 }
 
+type OwnerSnapshot = { owner: string | null; binding: string | null }
+function ownerSnapshot(): OwnerSnapshot { const owner = read(ownerKey); return { owner, binding: owner ? read(bindingKey(owner)) : null } }
+
 /** Revoke before logging out so a subscription cannot follow another account. */
-export async function disconnectPush(userId: string) {
+export async function disconnectPush(userId: string, sessionId: string, snapshot = ownerSnapshot()) {
     if (!supported()) return
     const worker = await registration()
-    await assertUser(userId)
-    const owner = read(ownerKey)
+    await assertUser(userId, sessionId)
+    const { owner, binding: expectedBinding } = snapshot
     const subscription = await worker.pushManager.getSubscription()
-    const expectedBinding = owner ? read(bindingKey(owner)) : null
-    let binding = owner === userId ? read(bindingKey(userId)) : null
+    let binding = expectedBinding
     if (subscription) {
-        const result = await call('/api/push/subscriptions', 'DELETE', { expectedUserId: userId, ...(expectedBinding ? { expectedBinding } : {}), subscription: subscription.toJSON() }) as { binding: string | null }
+        const result = await call('/api/push/subscriptions', 'DELETE', { expectedUserId: userId, expectedSessionId: sessionId, ...(expectedBinding ? { expectedBinding } : {}), subscription: subscription.toJSON() }) as { binding: string | null }
         binding = result.binding ?? binding
     }
     await closePushNotifications(worker, binding)
@@ -55,11 +57,12 @@ export async function disconnectPush(userId: string) {
 
 /** An account changed in another tab: revoke using proof of subscription ownership. */
 let reconciliation: Promise<void> = Promise.resolve()
-export function reconcilePushOwner(userId: string) {
+export function reconcilePushOwner(userId: string, sessionId: string) {
+    const snapshot = ownerSnapshot()
     const next = reconciliation.catch(() => undefined).then(async () => {
         if (!supported()) return
         const subscription = await (await registration()).pushManager.getSubscription()
-        if (!subscription || read(ownerKey) !== userId) await disconnectPush(userId)
+        if (!subscription || snapshot.owner !== userId) await disconnectPush(userId, sessionId, snapshot)
     })
     reconciliation = next
     return next
@@ -71,7 +74,7 @@ function applicationKey(value: string): Uint8Array<ArrayBuffer> {
     return Uint8Array.from(raw, char => char.charCodeAt(0))
 }
 
-export function PushSettings({ userId, compact = false }: { userId: string; compact?: boolean }) {
+export function PushSettings({ userId, sessionId, compact = false }: { userId: string; sessionId: string; compact?: boolean }) {
     const [available, setAvailable] = useState(false)
     const [enabled, setEnabled] = useState(false)
     const [busy, setBusy] = useState(false)
@@ -87,7 +90,7 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
         let subscribed = false
         if (current && read(ownerKey) === userId) {
             const previousBinding = read(bindingKey(userId))
-            const status = await call('/api/push/status', 'POST', { endpoint: current.endpoint, expectedUserId: userId }) as { active: boolean; binding: string | null }
+            const status = await call('/api/push/status', 'POST', { endpoint: current.endpoint, expectedUserId: userId, expectedSessionId: sessionId }) as { active: boolean; binding: string | null }
             subscribed = status.active === true
             if (subscribed && status.binding && read(bindingKey(userId)) === previousBinding && read(ownerKey) === userId) write(bindingKey(userId), status.binding)
             if (!subscribed) await closePushNotifications(worker, previousBinding)
@@ -102,13 +105,13 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
             try {
                 const config = await call('/api/push/config') as { enabled: boolean; publicKey: string | null }
                 if (!config.enabled || !config.publicKey) return
-                await reconcilePushOwner(userId)
+                await reconcilePushOwner(userId, sessionId)
                 await refreshStatus()
                 if (active) { setPublicKey(config.publicKey); setAvailable(true) }
             } catch { if (active) setError('Сповіщення зараз недоступні. Спробуйте пізніше.') }
         })()
         return () => { active = false }
-    }, [userId])
+    }, [userId, sessionId])
 
     async function enable() {
         setBusy(true); setError('')
@@ -116,13 +119,13 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
             // This call is deliberately made only in response to the button.
             const permission = await Notification.requestPermission()
             if (permission !== 'granted') { setError('Дозвіл не надано. Внутрішні сповіщення залишаються доступними.'); return }
-            await assertUser(userId)
+            await assertUser(userId, sessionId)
             const worker = await registration()
             const existing = await worker.pushManager.getSubscription()
             const subscription = existing ?? await worker.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationKey(publicKey) })
             const previousOwner = read(ownerKey)
             const previousBinding = previousOwner ? read(bindingKey(previousOwner)) : null
-            const result = await call('/api/push/subscriptions', 'POST', { expectedUserId: userId, subscription: subscription.toJSON() }) as { binding: string }
+            const result = await call('/api/push/subscriptions', 'POST', { expectedUserId: userId, expectedSessionId: sessionId, subscription: subscription.toJSON() }) as { binding: string }
             if (read(ownerKey) !== previousOwner || (previousOwner && read(bindingKey(previousOwner)) !== previousBinding)) throw new Error('Акаунт або підписка змінилися')
             ++statusVersion.current
             write(bindingKey(userId), result.binding); write(ownerKey, userId); setEnabled(true); setDismissed(false)
@@ -133,7 +136,7 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
 
     async function disable() {
         setBusy(true); setError('')
-        try { await disconnectPush(userId); ++statusVersion.current; setEnabled(false); window.dispatchEvent(new Event('push-settings-changed')) }
+        try { await disconnectPush(userId, sessionId); ++statusVersion.current; setEnabled(false); window.dispatchEvent(new Event('push-settings-changed')) }
         catch { setError('Не вдалося вимкнути сповіщення. Перевірте з’єднання та спробуйте ще раз.') }
         finally { setBusy(false) }
     }
@@ -144,7 +147,7 @@ export function PushSettings({ userId, compact = false }: { userId: string; comp
         window.addEventListener('focus', refresh)
         window.addEventListener('push-settings-changed', refresh)
         return () => { statusVersion.current++; window.removeEventListener('storage', refresh); window.removeEventListener('focus', refresh); window.removeEventListener('push-settings-changed', refresh) }
-    }, [userId])
+    }, [userId, sessionId])
 
     if (compact && (!available || enabled || dismissed)) return null
     if (!available && !error) return compact ? null : <section className="push-settings"><h2>Сповіщення на пристрої</h2><p>Сповіщення на цьому пристрої зараз недоступні. Внутрішні сповіщення залишаються доступними.</p></section>
