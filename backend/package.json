@@ -20,7 +20,8 @@
         "jose": "^6.2.12",
         "nodemailer": "^10.0.10",
         "pg": "^8.13.1",
-        "sharp": "^0.35.5"
+        "sharp": "^0.35.5",
+        "web-push": "^4.0.0"
     },
     "devDependencies": {
         "@types/cors": "^2.8.17",
@@ -28,6 +29,7 @@
         "@types/node": "^22.10.5",
         "@types/pg": "^8.11.10",
         "@types/supertest": "^6.0.2",
+        "@types/web-push": "^3.6.4",
         "supertest": "^7.0.0",
         "tsx": "^4.19.2",
         "typescript": "^5.7.2",

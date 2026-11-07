@@ -1,0 +1,1 @@
+module.exports = { testDir: '.', testMatch: 'pwa.spec.cjs', timeout: 60000, workers: 1, use: { browserName: 'chromium', headless: true, launchOptions: { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' } } }

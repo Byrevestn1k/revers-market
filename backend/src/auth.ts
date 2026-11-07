@@ -36,10 +36,19 @@ export const clearSessionCookie = (response: Response) => {
 
 export const createSession = async (userId: string, response: Response) => {
     const token = randomBytes(32).toString('base64url')
-    await pool.query(
-        'INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
-        [userId, hashToken(token), new Date(Date.now() + SESSION_TTL_MS)],
-    )
+    // A new login replaces the browser cookie in all tabs. Revoke the previous
+    // browser session and its device subscriptions before issuing the new one.
+    const previous = response.req ? requestSessionHash(response.req) : null
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        if (previous) {
+            await client.query('DELETE FROM push_subscriptions WHERE session_hash = $1', [previous])
+            await client.query('UPDATE user_sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [previous])
+        }
+        await client.query('INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)', [userId, hashToken(token), new Date(Date.now() + SESSION_TTL_MS)])
+        await client.query('COMMIT')
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
     setSessionCookie(response, token)
 }
 
@@ -169,7 +178,15 @@ export const confirmEmail = async (token: string) => {
 
 export const logout = async (request: Request, response: Response) => {
     const token = getCookie(request)
-    if (token) await pool.query('UPDATE user_sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL', [hashToken(token)])
+    if (token) {
+        const client = await pool.connect()
+        try {
+            await client.query('BEGIN')
+            await client.query('DELETE FROM push_subscriptions WHERE session_hash = $1', [hashToken(token)])
+            await client.query('UPDATE user_sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL', [hashToken(token)])
+            await client.query('COMMIT')
+        } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+    }
     clearSessionCookie(response)
 }
 

@@ -8,7 +8,8 @@ import { getShareAvatar, getSharePayload, injectShareMetadata, type ShareType } 
 import sharp from 'sharp'
 import { PhotoValidationError } from './photo-storage.js'
 import { checkDatabase } from './db/client.js'
-import { confirmEmail, login, logout, optionalAuth, register, resendVerification, requireAuth } from './auth.js'
+import { confirmEmail, login, logout, optionalAuth, register, resendVerification, requireAuth, requestSessionHash } from './auth.js'
+import { pushConfig, savePushSubscription, deletePushSubscription } from './web-push-service.js'
 import { confirmEmailCode, sendEmailCode } from './email-verification.js'
 import { requestPasswordReset, resetPassword, verifyPasswordResetCode } from './password-reset.js'
 import { changePassword } from './password-change.js'
@@ -167,6 +168,10 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     app.post('/api/auth/logout', withResult(async (request, response) => { await logout(request, response); return { status: 204 } }))
 
     app.get('/api/auth/me', requireAuth, (request, response) => response.json({ user: request.authUser }))
+
+    app.get('/api/push/config', requireAuth, (_request, response) => { const config = pushConfig(); response.set('Cache-Control', 'no-store').json({ enabled: Boolean(config), publicKey: config?.publicKey ?? null }) })
+    app.post('/api/push/subscriptions', requireAuth, withResult(request => savePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body?.subscription)))
+    app.delete('/api/push/subscriptions', requireAuth, withResult(request => deletePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body ?? {})))
 
     app.get('/api/profiles/:username', withResult((request) => getPublicProfile(String(request.params.username), request)))
 

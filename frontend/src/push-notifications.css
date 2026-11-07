@@ -1,0 +1,4 @@
+.push-settings { margin: 16px 0; padding: 16px; border: 1px solid #c9ddce; border-radius: 12px; background: #f5faf6; }
+.push-settings h2 { margin: 0 0 8px; font-size: 1.05rem; }
+.push-settings p { margin: 0 0 12px; line-height: 1.45; }
+.push-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -1,0 +1,15 @@
+{
+  "name": "ДещоТреба",
+  "short_name": "ДещоТреба",
+  "description": "Товари, запити і чати поруч",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#007c2b",
+  "icons": [
+    { "src": "/brand/pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/pwa-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
