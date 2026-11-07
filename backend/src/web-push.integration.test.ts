@@ -4,7 +4,7 @@ import request from 'supertest'
 import bcrypt from 'bcryptjs'
 
 const mocked = vi.hoisted(() => ({ send: vi.fn(), vapid: vi.fn() }))
-vi.mock('web-push', () => ({ default: { setVapidDetails: mocked.vapid, sendNotification: mocked.send } }))
+vi.mock('web-push', () => ({ setVapidDetails: mocked.vapid, sendNotification: mocked.send }))
 
 // Explicit opt-in prevents accidentally using the developer's main database.
 if (process.env.STEP31_ISOLATED_TEST === '1') {

@@ -1,4 +1,4 @@
-import webpush from 'web-push'
+import * as webpush from 'web-push'
 import { pool } from './db/client.js'
 
 type Subscription = { endpoint: string; keys: { p256dh: string; auth: string } }

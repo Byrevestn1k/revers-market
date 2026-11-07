@@ -4,7 +4,7 @@
 
 **Step 25:** історичний стан та результати перевірок наведено у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Код Step 26 базується на вказаному користувачем commit `1387aa2741ed4c768c1af9f9dddb9b947df20008`.
 
-**Current step:** Step 31 PWA and basic Web Push is being prepared on `codex/step-31-pwa-push`, based on `72977ee9f5fc591039b0eb023482fcb5021bed3b`. Implementation and configuration: [STEP_31_PWA_PUSH.md](STEP_31_PWA_PUSH.md); checks and limitations: [QA](qa/step-31/README.md). Independent Sol security review is required. No merge, push, deployment, or main database migration is authorized as part of this step.
+**Current step:** Step 31 PWA and basic Web Push is ready for independent Sol review on `codex/step-31-pwa-push`, based on `72977ee9f5fc591039b0eb023482fcb5021bed3b`. Implementation and configuration: [STEP_31_PWA_PUSH.md](STEP_31_PWA_PUSH.md); checks and limitations: [QA](qa/step-31/README.md). Independent Sol security review is required. No merge, push, deployment, or main database migration is authorized as part of this step.
 
 **Step 28 category extension:** migrations 061–062 and shared category attributes are implemented. After the Sol review fix, the backend rerun on a clean isolated database passed (308 passed, 1 live test skipped); earlier intermittent geographic test failures and remaining checks are documented in the QA protocol.
 
