@@ -1,6 +1,7 @@
 import { CurrencySelector, useRateSet, releaseRateSet } from './product-currency'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PwaInstallMenu } from './pwa-install'
+import { HelpButton } from './help-center'
 import type { ReactNode } from 'react'
 import type { Product, User } from './App'
 import { CategoryImage } from './CategoryPicker'
@@ -103,6 +104,7 @@ export default function PublicHome({ categories, request, user, onAccount, onCre
             <a className="market-logo" href="/" aria-label="ДещоТреба — головна"><img className="market-logo-full" src="/brand/logo-full.png" alt="ДещоТреба" /><img className="market-logo-mini" src="/brand/logo-mini.png" alt="ДещоТреба" /></a>
             <span className="market-language" aria-label="Мова: українська. Інші мови незабаром" title="Інші мови незабаром">Укр <span aria-hidden="true">⌄</span></span>
             {!user && <details className="pwa-guest-menu"><summary aria-label="Меню встановлення">⋯</summary><div><PwaInstallMenu /></div></details>}
+            {!user && <HelpButton />}
             <button className="market-account" onClick={onAccount}><span aria-hidden="true">♙</span>{user ? 'Мій профіль' : 'Зареєструватися / Увійти'}</button>
             <button className="market-add" onClick={onCreate}>＋ Додати пропозицію</button>
         </div></header>

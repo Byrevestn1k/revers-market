@@ -178,3 +178,7 @@ Step 21: READY FOR INDEPENDENT REVIEW; виправлення Seller Offer пе�
 ## Step 23 — підготовлено до незалежного огляду
 
 Поштові оператори та їхню сумісність впроваджено у залежній гілці `codex/step-23-postal-operators`. Повторні браузерні регресії Step 16 і Step 17 пройшли; статус — **READY FOR INDEPENDENT REVIEW**. Деталі та межі перевірок: [STEP_23_POSTAL_OPERATORS.md](STEP_23_POSTAL_OPERATORS.md).
+
+## Step 32 — підготовлено до незалежного огляду
+
+Вступ, контекстна допомога і статичні FAQ реалізовані в `codex/step-32-onboarding-help`; платний AI не підключено. Статус — **READY FOR SOL REVIEW** за умови результатів, зазначених у [STEP_32_ONBOARDING_HELP.md](STEP_32_ONBOARDING_HELP.md). Незалежний огляд ще не проведено.

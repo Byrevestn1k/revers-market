@@ -26,21 +26,20 @@ export function PwaInstallMenu() {
     return <button type="button" onClick={() => window.dispatchEvent(new Event('pwa:open-install'))}>Встановити застосунок <span>›</span></button>
 }
 
-export function PwaInvitation() {
+export function PwaInvitation({ suppressed = false }: { suppressed?: boolean }) {
     const [show, setShow] = useState(false)
     const [instructions, setInstructions] = useState(false)
     const [isInstalled, setInstalled] = useState(installed)
     const [editing, setEditing] = useState(false)
     useEffect(() => {
-        const open = () => { if (!installed()) { setInstructions(false); setShow(true); window.scrollTo({ top: 0, behavior: 'smooth' }) } }
+        const open = () => { if (!installed()) { setEditing(false); setInstructions(false); setShow(true); window.scrollTo({ top: 0, behavior: 'smooth' }) } }
         const finish = () => { deferredPrompt = null; setInstalled(true); setShow(false) }
-        const focus = () => setEditing(document.activeElement instanceof HTMLElement && document.activeElement.matches('input, textarea, select, [contenteditable="true"]'))
+        const focus = () => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches('input, textarea, select, [contenteditable="true"]')) setEditing(true) }
         const timer = window.setTimeout(() => { if (!installed() && !dismissed() && window.matchMedia('(max-width: 767px)').matches) setShow(true) }, 1200)
         window.addEventListener('pwa:open-install', open)
         window.addEventListener('appinstalled', finish)
         document.addEventListener('focusin', focus)
-        document.addEventListener('focusout', focus)
-        return () => { clearTimeout(timer); window.removeEventListener('pwa:open-install', open); window.removeEventListener('appinstalled', finish); document.removeEventListener('focusin', focus); document.removeEventListener('focusout', focus) }
+        return () => { clearTimeout(timer); window.removeEventListener('pwa:open-install', open); window.removeEventListener('appinstalled', finish); document.removeEventListener('focusin', focus) }
     }, [])
     const dismiss = () => { remember(); setShow(false); setInstructions(false) }
     const install = async () => {
@@ -51,7 +50,7 @@ export function PwaInvitation() {
             catch { setInstructions(true) }
         } else setInstructions(true)
     }
-    if (isInstalled || !show || editing) return null
+    if (isInstalled || !show || editing || suppressed) return null
     const supportsPush = !ios() && 'PushManager' in window && 'Notification' in window && 'serviceWorker' in navigator
     return <section className="pwa-invitation" aria-label="Встановлення застосунку">
         <img src="/brand/pwa-192.png" alt="" width="48" height="48" />
