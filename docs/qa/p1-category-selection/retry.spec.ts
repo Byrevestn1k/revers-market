@@ -68,6 +68,19 @@ for (const width of [390, 1280]) for (const kind of ['product', 'request'] as co
         await page.goto(`/my/products/${product.id}/edit`)
         await expect(page.locator('.category-picker input[type=hidden]')).toHaveValue(grain.id)
         await expect(page.getByLabel('Культура або сорт')).toHaveValue('Пшениця')
+        // Integration: the same product created after a category retry can be shared.
+        await page.unroute('**/api/categories')
+        await page.goto(`/products/${product.id}`)
+        await expect(page.getByRole('heading', { name: title })).toBeVisible()
+        await page.getByRole('button', { name: 'Поділитися' }).first().click()
+        const sharing = page.getByRole('group', { name: 'Способи поширення' })
+        const telegram = new URL((await sharing.getByText('Telegram').getAttribute('href'))!)
+        expect(telegram.searchParams.get('url')).toContain(`/products/${product.id}`)
+        expect(telegram.searchParams.get('text')).toContain(title)
+        const html = await (await context.request.get(`/products/${product.id}`)).text()
+        expect(html).toContain('property="og:title"')
+        expect(html).toContain('name="twitter:card"')
+        await page.screenshot({ path: `docs/qa/step30-category-integration/integration-share-${width}.png` })
     } else {
         const requests = (await (await context.request.get('/api/buy-requests?mine=true')).json()).buyRequests
         const item = requests.find((entry: any) => entry.title === title)

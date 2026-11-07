@@ -4,11 +4,11 @@
 
 **Step 25:** історичний стан та результати перевірок наведено у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Код Step 26 базується на вказаному користувачем commit `1387aa2741ed4c768c1af9f9dddb9b947df20008`.
 
-**Current step:** `STEP 30 — READY FOR INDEPENDENT SOL REVIEW` on `codex/step-30-social-sharing`. Details and remaining verification: [STEP_30_SOCIAL_SHARING.md](STEP_30_SOCIAL_SHARING.md), [QA](qa/step-30/). Do not merge, push or deploy without explicit user approval. Step 28 history: [STEP_28_BUY_REQUEST_SELLER_OFFER.md](STEP_28_BUY_REQUEST_SELLER_OFFER.md); Step 27: [STEP_27_CHAT_UX.md](STEP_27_CHAT_UX.md).
+**Current step:** Step 30 Social Sharing (`3653d334e9b50432d944ccdd75fb2f195ee4ec2f`) and Category Hotfix (`b1bb092e22503c67ee3e3346cc83854404d6b6b7`) each received independent Sol PASS. Both are combined on `codex/step30-category-integration`; the combined result is **READY FOR SOL INTEGRATION REVIEW**, not yet merged or pushed. Integration checks and limitations: [integration QA](qa/step30-category-integration/README.md). Step 30 details: [STEP_30_SOCIAL_SHARING.md](STEP_30_SOCIAL_SHARING.md); historical checks: [QA](qa/step-30/). The owner authorized merge and non-force push only after integration Sol PASS and a fresh Git-state check. No deployment or Step 31.
 
 **Step 28 category extension:** migrations 061–062 and shared category attributes are implemented. After the Sol review fix, the backend rerun on a clean isolated database passed (308 passed, 1 live test skipped); earlier intermittent geographic test failures and remaining checks are documented in the QA protocol.
 
-**Last updated:** 2026-11-06
+**Last updated:** 2026-11-07
 
 Step 24 work is on `codex/step-24-product-sorting-currency`; see [STEP_24_SORTING_CURRENCY.md](STEP_24_SORTING_CURRENCY.md). Browser QA is complete; independent Sol re-review is outstanding. Previous Step 20 work is on `codex/step-20-category-cleanup`. Scope: one canonical beekeeping products category, guarded category-link migrations, paused narrow honey subscription, and taxonomy audit. See [STEP_20_CATEGORY_AUDIT.md](STEP_20_CATEGORY_AUDIT.md) and [STEP_20_CATEGORY_CLEANUP.md](STEP_20_CATEGORY_CLEANUP.md). Merge and push require separate user authorization; pre-existing [mobile map group overlap](BACKLOG_MAP_GROUP_OVERLAP.md) and listed unverified scenarios remain. The final committed state requires independent Sol re-review.
 
