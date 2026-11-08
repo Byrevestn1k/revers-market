@@ -15,17 +15,17 @@ async function geocode(query: string, reverse?: Coordinates) {
     const response = await fetch(`https://${reverse ? 'revgeocode' : 'geocode'}.search.hereapi.com/v1/${reverse ? 'revgeocode' : 'geocode'}?${params}`, { signal: AbortSignal.timeout(10000), credentials: 'omit', referrerPolicy: 'no-referrer' })
     return response.ok ? (await response.json()).items?.[0] ?? null : null
 }
-async function resolveCity(name: string, fallback?: Coordinates, settlement?: SelectedSettlement | null): Promise<HomeCity | null> {
+async function resolveCity(name: string, fallback?: Coordinates, settlement?: SelectedSettlement | null, allowGeocoding = true): Promise<HomeCity | null> {
     if (settlement) {
         try {
-            const resolved = validCoordinates(settlement.coordinates) ? settlement : await resolveSettlement(settlement)
-            if (resolved.coordinates) return { name: settlement.name, ...resolved.coordinates, settlement: resolved }
+            const resolved = validCoordinates(settlement.coordinates) ? settlement : allowGeocoding ? await resolveSettlement(settlement) : null
+            if (resolved?.coordinates) return { name: settlement.name, ...resolved.coordinates, settlement: resolved }
         } catch { /* An already confirmed address remains a valid local origin. */ }
         return fallback ? { name: settlement.name, ...fallback, settlement, privateOrigin: true } : null
     }
     const known = CITIES.find(city => normalizeCity(city.name) === normalizeCity(name))
     if (known) return known
-    try {
+    if (allowGeocoding) try {
         const item = await geocode(name)
         if (item?.position) return { name: item.address?.city || name, latitude: item.position.lat, longitude: item.position.lng }
     } catch { /* A manually confirmed address can still supply the centre. */ }
@@ -35,6 +35,7 @@ let ipLookup: Promise<HomeCity | null> | undefined
 export function lookupIpCity() {
     return ipLookup ??= fetch('https://api.ipapi.is/', { signal: AbortSignal.timeout(6000), credentials: 'omit', referrerPolicy: 'no-referrer' })
         .then(response => response.ok ? response.json() : null).then(parseIpCity).catch(() => null)
+        .then(city => { if (!city) ipLookup = undefined; return city })
 }
 
 export function useSearchLocation(request: Request, userId?: string, initialCity?: HomeCity, ready = true) {
@@ -64,10 +65,10 @@ export function useSearchLocation(request: Request, userId?: string, initialCity
                     const { profile } = await request('/api/profile/me')
                     if (!current()) return
                     if (profile.exactAddress) {
-                        let item = null
-                        try { if (!profile.addressCoordinates) item = await geocode(profile.exactAddress) } catch { /* Keep the address, not a guessed home point. */ }
-                        const { city: cityName, coordinates: addressPoint } = profileSearchAddress(profile, item)
-                        const nextCity = await resolveCity(cityName, addressPoint ?? undefined, profile.addressSettlement)
+                        // Loading a private profile is not an action authorizing an external lookup.
+                        // Use saved data locally; address editing/GPS remain explicit user actions.
+                        const { city: cityName, coordinates: addressPoint } = profileSearchAddress(profile)
+                        const nextCity = await resolveCity(cityName, addressPoint ?? undefined, profile.addressSettlement, false)
                         if (!current()) return
                         if (nextCity) setCity(nextCity)
                         setAddress({ address: profile.exactAddress, city: nextCity?.name || cityName, settlement: profile.addressSettlement, coordinates: addressPoint })
@@ -75,7 +76,7 @@ export function useSearchLocation(request: Request, userId?: string, initialCity
                         return
                     }
                     if (profile.location) {
-                        const next = await resolveCity(profile.location, undefined, profile.settlement)
+                        const next = await resolveCity(profile.location, undefined, profile.settlement, false)
                         if (next && current()) { setCity(next); setAddress({ address: '', city: next.name, coordinates: null }); return }
                     }
                 } catch { if (current()) setMessage('Не вдалося завантажити адресу профілю. Можна обрати її для пошуку вручну.') }

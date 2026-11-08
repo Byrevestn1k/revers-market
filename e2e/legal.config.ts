@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test'
 // Build first. This server has no jobs, migrations, real credentials or database.
 export default defineConfig({
   testDir: '.',
-  testMatch: 'legal-foundation.spec.ts',
+  testMatch: ['legal-foundation.spec.ts', 'legal-p2.spec.ts'],
   workers: 1,
   timeout: 60_000,
   reporter: 'list',

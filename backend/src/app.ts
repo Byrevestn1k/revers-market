@@ -137,9 +137,16 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         } catch (error) { next(error) }
     })
     if (existsSync(builtRoot)) app.use(express.static(builtRoot))
-    // Web Push destinations and public legal documents are SPA routes. Share routes above keep
-    // their own server-rendered OG metadata and authorization handling.
-    app.get(['/messages/:id', '/my/requests', '/notifications', '/legal', '/legal/:document'], (_request, response, next) => {
+    // Only known client routes get the SPA shell; unknown API/assets keep their 404.
+    // Share routes above keep their metadata, availability and authorization checks.
+    app.get([
+        '/dashboard', '/discover', '/products', '/map', '/requests',
+        '/my/products', '/my/products/new', '/my/products/:id/edit', '/my/requests', '/my/requests/new',
+        '/favorites', '/messages', '/messages/:id', '/cabinet', '/orders', '/notifications',
+        '/settings/profile', '/settings/demand-subscriptions',
+        '/auth/login', '/auth/register', '/auth/external/finish', '/verify-email',
+        '/legal', '/legal/:document',
+    ], (_request, response, next) => {
         try {
             if (_request.path === '/legal' || _request.path.startsWith('/legal/')) response.set('X-Robots-Tag', 'noindex, nofollow')
             const isBuilt = import.meta.url.includes('/dist/') && existsSync(join(builtRoot, 'index.html'))
@@ -210,7 +217,10 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         return deletePushSubscription(request.authUser!.id, requestSessionHash(request)!, request.body ?? {})
     }))
 
-    app.get('/api/profiles/:username', withResult((request) => getPublicProfile(String(request.params.username), request)))
+    app.get('/api/profiles/:username', optionalAuth, withResult((request, response) => {
+        response.set('Cache-Control', 'no-store')
+        return getPublicProfile(String(request.params.username), request)
+    }))
 
     app.get('/api/profiles/:username/reviews', withResult((request) => listReviews(String(request.params.username))))
 
