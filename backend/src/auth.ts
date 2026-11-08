@@ -66,7 +66,7 @@ const resolveSessionUser = async (request: Request, updateActivity = true): Prom
     const result = await pool.query(
         `SELECT u.id, u.username, u.country_code, u.phone, u.email, u.email_verified, u.pending_email, s.id AS auth_session_id
          FROM user_sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`
+         WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now() AND (u.restricted_until IS NULL OR u.restricted_until <= now())`
         , [hashToken(token)],
     )
     if (result.rowCount) request.authSessionId = result.rows[0].auth_session_id

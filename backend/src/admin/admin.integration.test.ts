@@ -60,7 +60,7 @@ if (enabled) {
       } finally { await pool.query('DELETE FROM reports WHERE id=$1', [report.rows[0].id]); }
 
       expect(users.body.data.length).toBeLessThanOrEqual(2);
-      for (const row of users.body.data) expect(Object.keys(row).sort()).toEqual(['createdAt', 'id', 'lastSeenAt', 'username']);
+      for (const row of users.body.data) expect(Object.keys(row).sort()).toEqual(['createdAt', 'id', 'lastSeenAt', 'nickname', 'restrictedUntil', 'username', 'version']);
       const metrics = await request(app).get('/api/admin/dashboard?from=2000-01-01&to=2000-01-02').set('Cookie', cookies.analyst);
       expect(metrics.status).toBe(200);
       expect(metrics.body.metrics.find((m: { id: string }) => m.id === 'dau').value).toBeNull();

@@ -175,7 +175,7 @@ export class MapService {
     private async products(center: MapPoint, filters: MapFilterState, aggregate = false): Promise<MapMarker[] | GeoBucket[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
         const distancePoint = filters.exactDistance ? 'p' : 'public_point'
-        const conditions = [`p.status = 'active'`, 'p.quantity > p.reserved_quantity', filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        const conditions = ['NOT p.moderation_hidden', `p.status = 'active'`, 'p.quantity > p.reserved_quantity', filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
         if (aggregate && (filters.nationwide || filters.includeOwnerListings)) conditions.push('$1::numeric IS NOT NULL', '$2::numeric IS NOT NULL')
         if (filters.cityName && !filters.cityBoundary) {
             const match = settlementCondition('public_point.settlement_code', 'public_point.geo_zone', filters, parameters)
@@ -221,7 +221,7 @@ export class MapService {
     private async buyRequests(center: MapPoint, filters: MapFilterState, aggregate = false): Promise<MapMarker[] | GeoBucket[]> {
         const parameters: unknown[] = [center.latitude, center.longitude, filters.radiusKm]
         const distancePoint = filters.exactDistance ? 'r' : 'public_point'
-        const conditions = [`r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
+        const conditions = ['NOT r.moderation_hidden', `r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`, filters.nationwide || filters.includeOwnerListings ? '$3::numeric IS NOT NULL' : `${distanceSql(distancePoint)} <= $3`, 'public_point.latitude IS NOT NULL', 'public_point.longitude IS NOT NULL']
         if (aggregate && (filters.nationwide || filters.includeOwnerListings)) conditions.push('$1::numeric IS NOT NULL', '$2::numeric IS NOT NULL')
         if (filters.buyRequestIds) { parameters.push(filters.buyRequestIds); conditions.push(`r.id = ANY($${parameters.length}::uuid[])`) }
         if (filters.cityName && !filters.cityBoundary) {

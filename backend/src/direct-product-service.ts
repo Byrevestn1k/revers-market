@@ -17,7 +17,7 @@ const visibleDelivery = (p: any) => p.delivery_options ?? (p.delivery_mode === '
 const dto = (row: any) => ({ id: row.id, createdBy: row.created_by, parentId: row.parent_id, price: Number(row.unit_price), currency: row.product_terms.currency, unit: row.product_terms.unit, quantity: Number(row.quantity), delivery: row.delivery, postalOperator: row.postal_operator, deliveryPrice: Number(row.delivery_price), comment: row.comment, status: row.status, createdAt: row.created_at, orderId: row.order_id })
 const terms = (p: any) => ({ title: p.title, description: p.description, attributes: p.attributes ?? {}, price: Number(p.price), currency: p.currency, unit: p.unit, deliveryOptions: p.delivery_options, deliveryMode: p.delivery_mode })
 const token = (value: any) => createHash('sha256').update(JSON.stringify([value.title, value.description, value.attributes, value.price, value.currency, value.unit, value.deliveryOptions, value.deliveryMode])).digest('hex')
-const available = (p: any) => p.status === 'active' && (!p.expires_at || p.expires_at > new Date()) && Number(p.quantity) > Number(p.reserved_quantity)
+const available = (p: any) => !p.moderation_hidden && p.status === 'active' && (!p.expires_at || p.expires_at > new Date()) && Number(p.quantity) > Number(p.reserved_quantity)
 const supports = (p: any, method: unknown, operator: unknown) => {
     if (typeof method !== 'string' || !['SELF_PICKUP', 'SELLER_DELIVERY', 'POSTAL_DELIVERY'].includes(method)) return false
     const option = Array.isArray(p.delivery_options) ? p.delivery_options.find((o: any) => o.method === method) : null

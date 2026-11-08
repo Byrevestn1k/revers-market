@@ -455,8 +455,8 @@ export const getOrCreateProfileConversation = async (user: AuthUser, otherId: st
 export const getOrCreateListingConversation = async (user: AuthUser, listingType: 'product' | 'buy-request', listingId: string) => {
     const isProduct = listingType === 'product'
     const listing = isProduct
-        ? await pool.query<{ owner_id: string; title: string }>("SELECT owner_id, title FROM products WHERE id = $1 AND status = 'active'", [listingId])
-        : await pool.query<{ owner_id: string; title: string }>("SELECT buyer_id AS owner_id, title FROM buy_requests WHERE id = $1 AND status IN ('open','partially_selected','partially_completed','partially_fulfilled')", [listingId])
+        ? await pool.query<{ owner_id: string; title: string }>("SELECT owner_id, title FROM products WHERE id = $1 AND NOT moderation_hidden AND status = 'active'", [listingId])
+        : await pool.query<{ owner_id: string; title: string }>("SELECT buyer_id AS owner_id, title FROM buy_requests WHERE id = $1 AND NOT moderation_hidden AND status IN ('open','partially_selected','partially_completed','partially_fulfilled')", [listingId])
     const row = listing.rows[0]
     if (!row || row.owner_id === user.id) return { status: 404, body: { error: 'LISTING_NOT_AVAILABLE' } }
     if (await usersAreBlocked(pool, user.id, row.owner_id)) return { status: 403, body: { error: 'USER_BLOCKED' } }
@@ -464,8 +464,8 @@ export const getOrCreateListingConversation = async (user: AuthUser, listingType
     try {
         await client.query('BEGIN')
         const locked = isProduct
-            ? await client.query("SELECT owner_id, title FROM products WHERE id = $1 AND status = 'active' FOR UPDATE", [listingId])
-            : await client.query("SELECT buyer_id AS owner_id, title FROM buy_requests WHERE id = $1 AND status IN ('open','partially_selected','partially_completed','partially_fulfilled') FOR UPDATE", [listingId])
+            ? await client.query("SELECT owner_id, title FROM products WHERE id = $1 AND NOT moderation_hidden AND status = 'active' FOR UPDATE", [listingId])
+            : await client.query("SELECT buyer_id AS owner_id, title FROM buy_requests WHERE id = $1 AND NOT moderation_hidden AND status IN ('open','partially_selected','partially_completed','partially_fulfilled') FOR UPDATE", [listingId])
         const owner = locked.rows[0]
         if (!owner || owner.owner_id === user.id) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'LISTING_NOT_AVAILABLE' } } }
         const reference = isProduct ? 'c.product_id' : 'c.buy_request_id'

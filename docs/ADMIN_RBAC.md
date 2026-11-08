@@ -1,4 +1,4 @@
-# Admin RBAC — Частина 1
+# Admin RBAC — Частини 1–2
 
 Permissions перевіряються backend для кожного `/api/admin/*` запиту. Cookie session із чинною автентифікацією + `admin.access` обов’язкові; приховане меню не є контролем доступу. Призначення зберігаються окремо від користувацького профілю: той самий користувач може купувати й продавати.
 
@@ -8,7 +8,7 @@ Permissions перевіряються backend для кожного `/api/admin
 |---|---|---|---|---|---|
 | admin.access | ✓ | ✓ | ✓ | ✓ | ✓ |
 | analytics.read | ✓ | ✓ | | | ✓ |
-| users.read | ✓ | ✓ | | ✓ | |
+| users.read | ✓ | ✓ | ✓ | ✓ | |
 | products.read | ✓ | ✓ | ✓ | | |
 | requests.read | ✓ | ✓ | ✓ | | |
 | offers.read | ✓ | ✓ | | ✓ | |
@@ -42,6 +42,19 @@ ADMIN_BOOTSTRAP_ACK=GRANT_SUPER_ADMIN npm run admin:bootstrap --workspace backen
 
 ## Audit та залишкові межі
 
-Існуючий `audit_logs` перевикористано. Admin list повертає лише `admin.*`, actor/time/entity/action/result/reason, без raw metadata. Паролі, токени, приватний текст і координати не записуються новим модулем. Відхилені запити повертають 4xx; вони не створюють durable audit-подій у цьому MVP. Історію інших moderation/dispute операцій треба інтегрувати окремо.
+Існуючий `audit_logs` перевикористано. Admin list повертає `admin.*` та історичні `report.moderated`, actor/time/entity/action/result/reason, без raw metadata. Паролі, токени, приватний текст і координати не записуються новим модулем. Відхилені запити повертають 4xx; вони не створюють durable audit-подій у цьому MVP. Історію інших moderation/dispute операцій треба інтегрувати окремо.
 
-Старі `MODERATOR_USER_IDS` routes не конвертовані в RBAC у Частині 1. Розширення доступу робити через permissions, а не через перевірку `role === admin`. Для нових HTTP дій потрібні власні permissions, валідація, захист сесії/Origin, транзакційний audit та негативні тести.
+Reports API переведено на RBAC у Частині2; legacy PATCH reports повертає410 і не приймає рішення. Решта історичних category/dispute `MODERATOR_USER_IDS` routes не переписується цим етапом. Розширення доступу робити через permissions, а не через перевірку `role === admin`. Для нових HTTP дій потрібні власні permissions, валідація, захист сесії/Origin, транзакційний audit та негативні тести.
+
+## Нові permissions Частини2
+
+| Permission | Super Admin | Admin | Moderator | Support Agent | Analyst |
+|---|---|---|---|---|---|
+| products.moderate | ✓ | ✓ | ✓ | | |
+| requests.moderate | ✓ | ✓ | ✓ | | |
+| moderation.decide | ✓ | ✓ | ✓ | | |
+| users.restrict | ✓ | ✓ | | | |
+
+Moderator додатково отримує users.read для дозволеного перегляду публічного профілю/історії. Дозвіл users.restrict можна надати через контрольоване визначення role permissions; назва Moderator сама по собі не дозволяє бан. Support за замовчуванням лише читає; Analyst не отримує операційного редагування. Super/Admin не можуть через HTTP обмежувати себе або активного staff-користувача. roles.manage залишається тільки Super Admin із правилами Частини1.
+
+Усі action endpoints використовують mutationProtection, version + requestKey, транзакційний audit і повторну перевірку permission під тим самим lock, що grants. Причина — allowlisted code, ban — тільки тимчасовий до30 днів. Активне обмеження перевіряється на кожне використання сесії; новий login не обходить ban. Власник об’єкта може редагувати свої комерційні поля, але не moderation flag. Точний контракт, видимість, обмеження оскаржень і локальний запуск: [ADMIN_PANEL_PART2.md](ADMIN_PANEL_PART2.md).

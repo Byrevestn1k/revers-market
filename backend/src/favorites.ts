@@ -9,9 +9,9 @@ const favoriteType = (value: unknown): FavoriteType | null => typeof value === '
 
 const targetExists = async (type: FavoriteType, id: string) => {
     const query = type === 'product'
-        ? "SELECT 1 FROM products WHERE id = $1 AND status = 'active'"
+        ? "SELECT 1 FROM products WHERE id = $1 AND NOT moderation_hidden AND status = 'active'"
         : type === 'buy_request'
-            ? "SELECT 1 FROM buy_requests WHERE id = $1 AND status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')"
+            ? "SELECT 1 FROM buy_requests WHERE id = $1 AND NOT moderation_hidden AND status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')"
             : 'SELECT 1 FROM users WHERE id = $1'
     return Boolean((await pool.query(query, [id])).rowCount)
 }
@@ -41,7 +41,7 @@ export const listFavorites = async (user: AuthUser) => {
         LEFT JOIN users u ON f.target_type = 'profile' AND u.id = f.target_id
         LEFT JOIN products p ON f.target_type = 'product' AND p.id = f.target_id
         LEFT JOIN buy_requests r ON f.target_type = 'buy_request' AND r.id = f.target_id
-        WHERE f.user_id = $1
+        WHERE f.user_id = $1 AND (f.target_type <> 'product' OR NOT p.moderation_hidden) AND (f.target_type <> 'buy_request' OR NOT r.moderation_hidden)
           AND ((f.target_type = 'profile' AND u.id IS NOT NULL)
             OR (f.target_type = 'product' AND p.status <> 'draft')
             OR (f.target_type = 'buy_request' AND r.id IS NOT NULL))

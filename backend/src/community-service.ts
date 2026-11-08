@@ -1,3 +1,4 @@
+import { getAdminAccess } from './admin/access.js'
 import type { PoolClient } from 'pg'
 import type { AuthUser } from './auth.js'
 import { pool } from './db/client.js'
@@ -270,20 +271,19 @@ export const getBlockStatus = async (user: AuthUser, otherUserId: string) => {
 }
 
 export const listModerationReports = async (user: AuthUser) => {
-    if (!isModerator(user)) return { status: 403, body: { error: 'MODERATOR_REQUIRED' } }
-    const result = await pool.query('SELECT id, reporter_id AS "reporterId", target_type AS "targetType", target_id AS "targetId", reason, details, status, moderation_note AS "moderationNote", created_at AS "createdAt", updated_at AS "updatedAt" FROM reports ORDER BY created_at DESC LIMIT 200')
+    const access = await getAdminAccess(user.id)
+    if (!access.permissions.includes('admin.access') || !access.permissions.includes('moderation.read')) return { status: 403, body: { error: 'PERMISSION_DENIED' } }
+    const result = await pool.query(`SELECT id,target_type AS "targetType",target_id AS "targetId",
+      CASE WHEN reason='Неправильна категорія' THEN 'Неправильна категорія' ELSE 'Інша причина' END AS reason,
+      status,created_at AS "createdAt" FROM reports ORDER BY created_at DESC,id LIMIT 100`)
     return { status: 200, body: { reports: result.rows } }
 }
 
-export const updateReportModeration = async (user: AuthUser, reportId: string, status: unknown, note: unknown) => {
-    if (!isModerator(user)) return { status: 403, body: { error: 'MODERATOR_REQUIRED' } }
-    if (typeof status !== 'string' || !['open', 'under_review', 'resolved', 'dismissed'].includes(status)) return invalid('Некоректний статус модерації')
-    if (note !== undefined && typeof note !== 'string') return invalid('Некоректна примітка модератора')
-    const result = await pool.query('UPDATE reports SET status = $1, moderator_id = $2, moderation_note = $3, updated_at = now() WHERE id = $4 RETURNING id, status, moderation_note AS "moderationNote", updated_at AS "updatedAt"', [status, user.id, note ?? null, reportId])
-    if (!result.rowCount) return { status: 404, body: { error: 'REPORT_NOT_FOUND' } }
-    await audit(pool, user.id, 'report.moderated', 'report', reportId, { status })
-    return { status: 200, body: { report: result.rows[0] } }
-}
+// No legacy mutation bypass: clients must send version, reason and requestKey to
+// the protected /api/admin/moderation/:id/actions endpoint.
+export const updateReportModeration = async (_user: AuthUser, _reportId: string, _status: unknown, _note: unknown) => ({
+    status: 410, body: { error: 'USE_ADMIN_DECISION_API' },
+})
 
 export const usersAreBlocked = async (queryable: Queryable, firstUserId: string, secondUserId: string) => Boolean((await queryable.query(
     'SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1) LIMIT 1',

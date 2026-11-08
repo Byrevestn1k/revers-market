@@ -1,0 +1,19 @@
+# Independent local database; never starts or migrates the normal application DB.
+services:
+  admin-qa-db:
+    image: postgis/postgis:16-3.4-alpine
+    ports:
+      - '127.0.0.1:55432:5432'
+    environment:
+      POSTGRES_DB: admin_part2_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ADMIN_QA_DB_PASSWORD:?Set a local database password}
+    volumes:
+      - admin-qa-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d admin_part2_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  admin-qa-data:

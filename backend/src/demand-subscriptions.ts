@@ -128,7 +128,7 @@ const matchingRequests = async (subscription: DemandSubscription, user: AuthUser
       public_point.latitude::float8 AS public_latitude, public_point.longitude::float8 AS public_longitude
       FROM buy_requests r JOIN users u ON u.id = r.buyer_id JOIN categories c ON c.id = r.category_id
       ${requestPublicLocationSql}
-      WHERE r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')
+      WHERE NOT r.moderation_hidden AND r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')
         AND r.buyer_id <> $1 AND c.is_active AND ${categoryFilterSql('r.category_id', 2)}
       ORDER BY r.created_at DESC, r.id DESC`, [user.id, subscription.category.id]);
   const criteria = await verifiedCriteria(subscription);
@@ -223,7 +223,7 @@ export const notifyDemandSubscriptions = async (queryable: Queryable, requestId:
       (r.receipt_method IS NULL AND r.preferred_delivery = 'preferred') AS delivery_preferred,
       public_point.latitude::float8 AS public_latitude, public_point.longitude::float8 AS public_longitude
       FROM buy_requests r JOIN users u ON u.id = r.buyer_id ${requestPublicLocationSql}
-      WHERE r.id = $1 AND r.status = 'open'`, [requestId]);
+      WHERE NOT r.moderation_hidden AND r.id = $1 AND r.status = 'open'`, [requestId]);
   if (!request.rowCount) return;
   const row = request.rows[0];
   const candidates = await queryable.query<DemandSubscription>(`WITH RECURSIVE request_categories AS (

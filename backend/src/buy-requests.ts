@@ -316,7 +316,7 @@ export const createBuyRequest = async (user: AuthUser, input: Record<string, unk
 }
 
 export const getBuyRequest = async (id: string, user?: AuthUser) => {
-    const result = await pool.query(`${requestSelect} WHERE r.id = $1 AND (r.status <> 'cancelled' OR r.buyer_id = $2)`, [id, user?.id ?? null])
+    const result = await pool.query(`${requestSelect} WHERE r.id = $1 AND (NOT r.moderation_hidden OR r.buyer_id=$2) AND (r.status <> 'cancelled' OR r.buyer_id = $2)`, [id, user?.id ?? null])
     if (!result.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     const isOwner = user?.id === result.rows[0].buyer_id
     return { status: 200, body: { buyRequest: requestDto(result.rows[0], isOwner) } }
@@ -325,6 +325,7 @@ export const getBuyRequest = async (id: string, user?: AuthUser) => {
 export const listBuyRequests = async (query: Record<string, unknown>, user?: AuthUser) => {
     const params: unknown[] = []
     const conditions = [user && query.mine === 'true' ? `r.buyer_id = $${params.push(user.id)}` : `r.status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')`]
+    if (!(user && query.mine === 'true')) conditions.push('NOT r.moderation_hidden')
     if (user && query.mine !== 'true' && query.excludeMine === 'true') conditions.push(`r.buyer_id <> $${params.push(user.id)}`)
     if (typeof query.buyerUsername === 'string' && query.buyerUsername.trim()) { params.push(query.buyerUsername.trim().toLowerCase()); conditions.push(`u.username_normalized = $${params.length}`) }
     if (typeof query.categoryId === 'string' && uuid(query.categoryId)) conditions.push(categoryFilterSql('r.category_id', params.push(query.categoryId)))
@@ -494,7 +495,7 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
             return { status: 200, body: { offer: await offerDto(result.rows[0]) } }
         }
     }
-    const request = await client.query('SELECT buyer_id, category_id, title, attributes, requested_quantity, unit, currency, status, deadline FROM buy_requests WHERE id = $1 FOR UPDATE', [requestId])
+    const request = await client.query('SELECT buyer_id, category_id, title, attributes, requested_quantity, unit, currency, status, deadline, moderation_hidden FROM buy_requests WHERE id = $1 FOR UPDATE', [requestId])
     if (!request.rowCount) return { status: 404, body: { error: 'BUY_REQUEST_NOT_FOUND' } }
     if (request.rows[0].deadline && request.rows[0].deadline <= new Date()) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (request.rows[0].buyer_id === user.id) return { status: 403, body: { error: 'BUYER_CANNOT_OFFER' } }
@@ -502,7 +503,8 @@ export const createOffer = async (user: AuthUser, requestId: string, input: Reco
     if (!['open', 'partially_selected', 'partially_completed', 'partially_fulfilled'].includes(request.rows[0].status)) return { status: 409, body: { error: 'BUY_REQUEST_CLOSED' } }
     if (input.unit !== request.rows[0].unit || input.currency !== request.rows[0].currency) return invalid(['unit', 'currency'])
     await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
-    const product = input.productId ? await client.query('SELECT title, description, attributes, quantity, reserved_quantity, delivery_options FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
+    if (request.rows[0]?.moderation_hidden) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'LISTING_HIDDEN' } } }
+    const product = input.productId ? await client.query('SELECT title, description, attributes, quantity, reserved_quantity, delivery_options FROM products WHERE id = $1 AND owner_id = $2 AND status = $3 AND category_id = $4 AND NOT moderation_hidden AND quantity > reserved_quantity FOR SHARE', [input.productId, user.id, 'active', request.rows[0].category_id]) : null
     if (input.productId && !product?.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
     const attributes = input.attributes === undefined ? (input.creationMode === 'request_terms' ? request.rows[0].attributes : product?.rows[0]?.attributes ?? {}) : input.attributes
     if (!await validateAttributes(request.rows[0].category_id, attributes, client)) return invalid(['attributes'])
@@ -544,6 +546,7 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const linked = (await client.query('SELECT buy_request_id FROM offers WHERE id = $1', [offerId])).rows[0]
         if (!linked) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'OFFER_NOT_FOUND' } } }
         const request = await client.query('SELECT * FROM buy_requests WHERE id = $1 FOR UPDATE', [linked.buy_request_id])
+        if (request.rows[0]?.moderation_hidden) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'LISTING_HIDDEN' } } }
         const offer = await client.query('SELECT o.*, o.xmin::text AS revision, u.username AS seller_username FROM offers o JOIN users u ON u.id = o.seller_id WHERE o.id = $1 FOR UPDATE OF o', [offerId])
         if (!offer.rowCount) { await client.query('ROLLBACK'); return { status: 404, body: { error: 'OFFER_NOT_FOUND' } } }
         if (!request.rowCount || request.rows[0].buyer_id !== user.id) { await client.query('ROLLBACK'); return { status: 403, body: { error: 'FORBIDDEN' } } }
@@ -582,7 +585,7 @@ export const acceptOffer = async (user: AuthUser, offerId: string, input: Record
         const offerStatus = accepted === Number(row.offered_quantity) ? 'accepted' : 'partially_accepted'
         await client.query('SELECT pg_advisory_xact_lock($1, $2)', offerPhotoLock)
         if (row.product_id) {
-            const stock = await client.query('UPDATE products SET reserved_quantity = reserved_quantity + $1, updated_at = now() WHERE id = $2 AND status = $3 AND quantity - reserved_quantity >= $1 RETURNING id', [selectionQuantity, row.product_id, 'active'])
+            const stock = await client.query('UPDATE products SET reserved_quantity = reserved_quantity + $1, updated_at = now() WHERE id = $2 AND status = $3 AND NOT moderation_hidden AND quantity - reserved_quantity >= $1 RETURNING id', [selectionQuantity, row.product_id, 'active'])
             if (!stock.rowCount) { await client.query('ROLLBACK'); return { status: 409, body: { error: 'PRODUCT_STOCK_UNAVAILABLE' } } }
         }
         await client.query('UPDATE offers SET accepted_quantity = $1, status = $2, updated_at = now() WHERE id = $3', [accepted, offerStatus, offerId])
@@ -641,7 +644,7 @@ export const updateOffer = async (user: AuthUser, offerId: string, input: Record
             if (input.productId === null) {
                 // Removing an existing link is allowed by the current editable-offer rules.
             } else {
-            const product = await client.query("SELECT id FROM products WHERE id=$1 AND owner_id=$2 AND category_id=$3 AND status='active' AND quantity > reserved_quantity", [input.productId, user.id, request.category_id])
+            const product = await client.query("SELECT id FROM products WHERE id=$1 AND owner_id=$2 AND category_id=$3 AND status='active' AND NOT moderation_hidden AND quantity > reserved_quantity", [input.productId, user.id, request.category_id])
             if (!product.rowCount) return { status: 400, body: { error: 'PRODUCT_NOT_AVAILABLE' } }
             }
         }

@@ -72,7 +72,8 @@ const productSelect = `
 const getProductRow = async (queryable: Queryable, id: string, ownerId?: string): Promise<ProductWithPhotos | null> => {
     const conditions = ownerId ? 'p.id = $1 AND (p.status = \'active\' OR p.owner_id = $2)' : 'p.id = $1 AND p.status = \'active\''
     const parameters = ownerId ? [id, ownerId] : [id]
-    const result = await queryable.query<ProductRow>(`${productSelect} WHERE ${conditions}`, parameters)
+    const visibility = ownerId ? '(NOT p.moderation_hidden OR p.owner_id=$2)' : 'NOT p.moderation_hidden'
+    const result = await queryable.query<ProductRow>(`${productSelect} WHERE ${conditions} AND ${visibility}`, parameters)
     const row = result.rows[0]
     if (!row) return null
     const photos = await queryable.query<PhotoRow>('SELECT id, storage_key, url, alt, sort_order FROM product_photos WHERE product_id = $1 ORDER BY sort_order, id', [id])
@@ -114,9 +115,9 @@ export const listPopularCategories = async () => {
             UNION ALL
             SELECT child.id, roots.root_id FROM categories child JOIN roots ON child.parent_id = roots.id
         ), listings AS (
-            SELECT category_id FROM products WHERE status = 'active'
+            SELECT category_id FROM products WHERE status = 'active' AND NOT moderation_hidden
             UNION ALL
-            SELECT category_id FROM buy_requests WHERE status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')
+            SELECT category_id FROM buy_requests WHERE NOT moderation_hidden AND status IN ('open', 'partially_selected', 'partially_completed', 'partially_fulfilled')
         )
         SELECT roots.root_id AS "categoryId", COUNT(*)::text AS count
         FROM listings JOIN roots ON roots.id = listings.category_id
@@ -172,6 +173,7 @@ export const listProducts = async (query: Record<string, unknown>, user?: AuthUs
     const limit = Math.min(50, Math.max(1, Number.parseInt(String(query.limit ?? '20'), 10) || 20))
     const conditions = user && query.mine === 'true' ? ['p.owner_id = $1'] : ['p.status = \'active\'', 'p.quantity > p.reserved_quantity']
     const parameters: unknown[] = user && query.mine === 'true' ? [user.id] : []
+    if (!(user && query.mine === 'true')) conditions.push('NOT p.moderation_hidden')
     if (query.ids !== undefined) {
         if (!Array.isArray(query.ids) || query.ids.length > 20000 || query.ids.some(id => typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) return invalid(['ids'])
         parameters.push(query.ids); conditions.push(`p.id = ANY($${parameters.length}::uuid[])`)

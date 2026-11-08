@@ -1,6 +1,6 @@
 # Project state
 
-**Admin panel:** Частина 1 на окремій `codex/admin-panel-analytics`: RBAC, `/admin`, read-only ресурси, початковий Dashboard. Межі, міграція та наступні частини — [ADMIN_PANEL_PLAN.md](ADMIN_PANEL_PLAN.md). Потрібен незалежний Sol Review; без push, merge, deployment чи міграцій основної БД.
+**Admin panel:** Частини1–2 на `codex/admin-panel-analytics`: React-admin/RBAC, Dashboard, операційне управління й модерація. Частина1: Sol REVIEW PASS (за handoff власника); Частина2 підготовлена для незалежного Sol Review. Контракти, локальна перевірка власником і залишкові межі — [ADMIN_PANEL_PART2.md](ADMIN_PANEL_PART2.md). Без push, merge, deployment чи міграцій основної БД.
 
 **Step 26:** готово до фінального незалежного перегляду на `codex/step-26-direct-product-deal`. Пакет і обмеження — у [STEP_26_FINAL_REVIEW.md](STEP_26_FINAL_REVIEW.md). Merge, push і deployment потребують окремого дозволу користувача.
 

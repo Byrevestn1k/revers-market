@@ -4,7 +4,8 @@ import { pool } from '../db/client.js';
 import { createSearchRateLimiter } from '../search-rate-limit.js';
 import { loadAdminAccess, mutationProtection, requirePermission } from './access.js';
 import { dashboard, parsePeriod } from './metrics.js';
-import { listResource, resources } from './resources.js';
+import { listResource, resources, resourceDetail } from './resources.js';
+import { operations, applyOperation } from './operations.js';
 import { changeGrant, uuid } from './grants.js';
 
 const handle = (handler: RequestHandler): RequestHandler => (request, response, next) => {
@@ -25,6 +26,17 @@ export function adminRouter() {
       const result = await listResource(name, request);
       if (!result) { response.status(400).json({ error: 'INVALID_PAGINATION' }); return; }
       response.json(result);
+    }));
+  }
+  for (const name of Object.keys(resources) as (keyof typeof resources)[]) {
+    router.get(`/${name}/:id`, requirePermission(resources[name].permission), handle(async (request, response) => {
+      const result = await resourceDetail(name, String(request.params.id));
+      response.status(result ? 200 : 404).json(result ?? { error: 'OBJECT_NOT_FOUND' });
+    }));
+  }
+  for (const name of Object.keys(operations) as (keyof typeof operations)[]) {
+    router.post(`/${name}/:id/actions`, requirePermission(operations[name].permission), mutationProtection, handle(async (request, response) => {
+      const result = await applyOperation(name, request); response.status(result.status).json(result.body);
     }));
   }
   router.get('/roles', requirePermission('roles.read'), handle(async (_request, response) => {

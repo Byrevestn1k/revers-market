@@ -31,8 +31,10 @@ const unsupported = async (): Promise<never> => { throw new Error('Ця опер
 export const dataProvider: DataProvider = {
   getList: async (resource, params) => {
     const query = new URLSearchParams({ page: String(params.pagination?.page ?? 1), perPage: String(params.pagination?.perPage ?? 25), q: String(params.filter?.q ?? '') });
+    for (const [key,value] of Object.entries(params.filter ?? {})) if (value != null && value !== '') query.set(key,String(value));
+    query.set('sort', params.sort?.field ?? 'createdAt'); query.set('order', params.sort?.order ?? 'DESC');
     return adminRequest(`/api/admin/${resource}?${query}`);
   },
-  getOne: unsupported, getMany: unsupported, getManyReference: unsupported,
+  getOne: (resource, params) => adminRequest(`/api/admin/${resource}/${params.id}`), getMany: unsupported, getManyReference: unsupported,
   create: unsupported, update: unsupported, updateMany: unsupported, delete: unsupported, deleteMany: unsupported,
 };
