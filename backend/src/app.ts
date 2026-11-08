@@ -137,10 +137,11 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
         } catch (error) { next(error) }
     })
     if (existsSync(builtRoot)) app.use(express.static(builtRoot))
-    // The Web Push destinations are SPA routes. Public share routes above keep
+    // Web Push destinations and public legal documents are SPA routes. Share routes above keep
     // their own server-rendered OG metadata and authorization handling.
-    app.get(['/messages/:id', '/my/requests', '/notifications'], (_request, response, next) => {
+    app.get(['/messages/:id', '/my/requests', '/notifications', '/legal', '/legal/:document'], (_request, response, next) => {
         try {
+            if (_request.path === '/legal' || _request.path.startsWith('/legal/')) response.set('X-Robots-Tag', 'noindex, nofollow')
             const isBuilt = import.meta.url.includes('/dist/') && existsSync(join(builtRoot, 'index.html'))
             const index = isBuilt ? join(builtRoot, 'index.html') : join(frontendRoot, 'index.html')
             let html = readFileSync(index, 'utf8')

@@ -80,15 +80,21 @@ export function useSearchLocation(request: Request, userId?: string, initialCity
                     }
                 } catch { if (current()) setMessage('Не вдалося завантажити адресу профілю. Можна обрати її для пошуку вручну.') }
             }
-            if (!initialCity && !savedSearchCity()) {
-                const candidate = await lookupIpCity()
-                const localized = candidate ? await resolveCity(candidate.name, candidate) : null
-                if (localized && current()) setSuggestion(localized)
-            }
         }
         load().finally(() => { if (current()) setBusy(false) })
         return () => { operation.current++ }
     }, [userId, initialCity?.name, initialCity?.latitude, initialCity?.longitude, ready])
+    const suggestByIp = async () => {
+        const version = ++operation.current
+        setBusy(true); setMessage(''); setSuggestion(null)
+        try {
+            const candidate = await lookupIpCity()
+            // Do not forward the inferred location to another geocoder.
+            if (version !== operation.current) return
+            if (candidate) setSuggestion(candidate)
+            else setMessage('Не вдалося визначити місто за IP. Оберіть населений пункт вручну.')
+        } finally { if (version === operation.current) setBusy(false) }
+    }
     const chooseCity = (next: HomeCity | null) => {
         operation.current++; setBusy(false); setSuggestion(null); setCity(next); remember(next)
         setAddress({ address: '', city: next?.name ?? '', settlement: next?.settlement, coordinates: null }); setMessage(next ? 'Населений пункт змінено лише для пошуку. Оберіть адресу для пошуку поруч.' : 'Населений пункт не обрано — пошук відбуватиметься по всій Україні.')
@@ -130,7 +136,7 @@ export function useSearchLocation(request: Request, userId?: string, initialCity
             setBusy(false); setMessage(item ? 'Будиночок встановлено за вашим поточним місцем.' : 'Точку визначено. Перевірте місто пошуку: адресу визначити не вдалося.')
         }, () => { if (version === operation.current) { setBusy(false); setMessage('Не вдалося визначити місце. Оберіть адресу вручну.') } }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 })
     }
-    return { city, address, busy: busy || addressBusy, message, suggestion, chooseCity, changeAddress, choosePoint, locate, setAddressBusy: addressBusyChanged, dismissSuggestion: () => setSuggestion(null) }
+    return { city, address, busy: busy || addressBusy, message, suggestion, chooseCity, changeAddress, choosePoint, locate, suggestByIp, setAddressBusy: addressBusyChanged, dismissSuggestion: () => setSuggestion(null) }
 }
 
 export default function SearchLocationControls({ location, nearbyRadius, setNearbyRadius, onNearby, nearbyDisabled, nearbyTitle, hideCity = false, pickingPoint = false, onPickPoint }: { location: ReturnType<typeof useSearchLocation>; nearbyRadius: number; setNearbyRadius: (value: number) => void; onNearby: () => void; nearbyDisabled: boolean; nearbyTitle: string; hideCity?: boolean; pickingPoint?: boolean; onPickPoint?: () => void }) {
@@ -154,6 +160,8 @@ export default function SearchLocationControls({ location, nearbyRadius, setNear
             {onPickPoint && <button type="button" className="outline-button" onClick={onPickPoint} disabled={busy} aria-pressed={pickingPoint}>{pickingPoint ? 'Скасувати вибір точки' : 'Поставити точку на мапі'}</button>}
             <button type="button" className="primary-button compact map-nearby-button" disabled={busy || (nearbyDisabled && validCoordinates(address.coordinates))} title={nearbyTitle} onClick={findNearby}>Знайти поруч</button>
         </div>
+        <p className="map-search-hint">«Моє місце» запитує дозвіл браузера на координати; для визначення адреси вони можуть передаватися HERE. Можна обрати населений пункт вручну. <a href="/legal/privacy#providers">Про передачу даних</a></p>
+        {!city && <div className="map-search-hint"><p>За вашим бажанням ipapi.is може визначити приблизне місто за IP. Натискання кнопки передасть цьому сервісу вашу IP-адресу.</p><button type="button" className="outline-button" disabled={busy} onClick={() => void location.suggestByIp()}>Визначити місто за IP через ipapi.is</button></div>}
         {pickingPoint && <p className="map-search-hint" role="status">Натисніть на потрібне місце на мапі нижче. Escape — скасувати.</p>}
         {suggestion && <div className="map-city-suggestion" role="status">Ваше місто — {suggestion.name}? <small>Приблизно за IP · ipapi.is</small><button type="button" onClick={() => location.chooseCity(suggestion)}>Так</button><button type="button" onClick={location.dismissSuggestion}>Ні, оберу вручну</button></div>}
         {message && <p className="map-search-hint" role="status">{message}</p>}

@@ -6,6 +6,7 @@ import './brand.css'
 import './App.css'
 import './external-auth.css'
 import { HelpCenter } from './help-center'
+import { LegalBoundary, LegalHelpEntry, SiteFooter } from './LegalPages'
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
     window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js').catch(() => undefined) })
@@ -13,6 +14,6 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>
-        <HelpCenter><App /></HelpCenter>
+        <LegalBoundary><HelpCenter><App /><SiteFooter /><LegalHelpEntry /></HelpCenter></LegalBoundary>
     </StrictMode>,
 )

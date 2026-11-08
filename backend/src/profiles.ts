@@ -246,7 +246,7 @@ export const getPublicProfile = async (username: string, request: Request) => {
     const row = result.rows[0]
     if (!row) return { status: 404, body: { error: 'PROFILE_NOT_FOUND' } }
     const profile = toPublicProfile(row)
-    if (row.phone_visibility === 'authenticated' && request.authUser) profile.phone = row.phone
+    if (row.phone_visibility === 'authenticated' && row.phone_disclosure_consent && request.authUser) profile.phone = row.phone
     return { status: 200, body: { profile, ...(includeReviews ? { reviews: row.public_reviews ?? [] } : {}) } }
 }
 
