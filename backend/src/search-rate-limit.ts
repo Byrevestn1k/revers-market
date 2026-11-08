@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 
 type Entry = { count: number; resetAt: number };
 
-export function createSearchRateLimiter(options: { max?: number; windowMs?: number; maxKeys?: number; all?: boolean } = {}): RequestHandler {
+export function createSearchRateLimiter(options: { max?: number; windowMs?: number; maxKeys?: number; all?: boolean; errorCode?: string; message?: string } = {}): RequestHandler {
   const max = options.max ?? 120;
   const windowMs = options.windowMs ?? 60_000;
   const maxKeys = options.maxKeys ?? 10_000;
@@ -22,7 +22,7 @@ export function createSearchRateLimiter(options: { max?: number; windowMs?: numb
     if (!entry || entry.resetAt <= now) {
       if (entries.size >= maxKeys && !entries.has(key)) {
         response.setHeader('Retry-After', String(Math.ceil(windowMs / 1000)));
-        response.status(429).json({ error: 'SEARCH_RATE_LIMIT', message: 'Забагато пошукових запитів. Спробуйте трохи пізніше.' });
+        response.status(429).json({ error: options.errorCode ?? 'SEARCH_RATE_LIMIT', message: options.message ?? 'Забагато пошукових запитів. Спробуйте трохи пізніше.' });
         return;
       }
       entry = { count: 0, resetAt: now + windowMs };
@@ -30,7 +30,7 @@ export function createSearchRateLimiter(options: { max?: number; windowMs?: numb
     }
     if (entry.count >= max) {
       response.setHeader('Retry-After', String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000))));
-      response.status(429).json({ error: 'SEARCH_RATE_LIMIT', message: 'Забагато пошукових запитів. Спробуйте трохи пізніше.' });
+      response.status(429).json({ error: options.errorCode ?? 'SEARCH_RATE_LIMIT', message: options.message ?? 'Забагато пошукових запитів. Спробуйте трохи пізніше.' });
       return;
     }
     entry.count++;

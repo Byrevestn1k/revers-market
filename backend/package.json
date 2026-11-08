@@ -9,7 +9,8 @@
         "db:migrate": "tsx src/db/migrate.ts",
         "start": "node dist/server.js",
         "typecheck": "tsc --noEmit",
-        "test": "vitest run"
+        "test": "vitest run",
+        "admin:bootstrap": "tsx src/admin/bootstrap.ts"
     },
     "dependencies": {
         "@types/nodemailer": "^8.0.1",

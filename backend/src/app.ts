@@ -1,3 +1,4 @@
+import { adminRouter } from './admin/router.js'
 import { exchangeRates } from './exchange-rates.js'
 import cors from 'cors'
 import express from 'express'
@@ -139,7 +140,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
     if (existsSync(builtRoot)) app.use(express.static(builtRoot))
     // The Web Push destinations are SPA routes. Public share routes above keep
     // their own server-rendered OG metadata and authorization handling.
-    app.get(['/messages/:id', '/my/requests', '/notifications'], (_request, response, next) => {
+    app.get(['/admin', '/admin/*', '/messages/:id', '/my/requests', '/notifications'], (_request, response, next) => {
         try {
             const isBuilt = import.meta.url.includes('/dist/') && existsSync(join(builtRoot, 'index.html'))
             const index = isBuilt ? join(builtRoot, 'index.html') : join(frontendRoot, 'index.html')
@@ -148,6 +149,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
             response.set('Cache-Control', 'no-store').type('html').send(html)
         } catch (error) { next(error) }
     })
+    app.use('/api/admin', adminRouter())
     app.use('/api/auth/external', externalAuthRouter(options.providerExchange))
     app.get(['/api/products', '/api/buy-requests', '/api/map/markers'], createSearchRateLimiter())
 
@@ -164,7 +166,7 @@ export const createApp = (options: { providerExchange?: typeof exchangeProfile }
 
     app.post('/api/auth/register', withResult((request, response) => register(request.body ?? {}, response)))
 
-    app.post('/api/auth/login', withResult((request, response) => login(String(request.body?.username ?? ''), String(request.body?.password ?? ''), response)))
+    app.post('/api/auth/login', createSearchRateLimiter({ all: true, max: 10, errorCode: 'LOGIN_RATE_LIMIT', message: 'Забагато спроб входу. Спробуйте через хвилину.' }), withResult((request, response) => login(String(request.body?.username ?? ''), String(request.body?.password ?? ''), response)))
     app.post('/api/auth/password-reset/request', withResult((request) => requestPasswordReset(String(request.body?.method ?? ''), String(request.body?.contact ?? ''), String(request.body?.countryCode ?? ''))))
     app.post('/api/auth/password-reset/verify', withResult((request) => verifyPasswordResetCode(String(request.body?.method ?? ''), String(request.body?.contact ?? ''), String(request.body?.code ?? ''), String(request.body?.countryCode ?? ''))))
     app.post('/api/auth/password-reset/confirm', withResult((request) => resetPassword(String(request.body?.resetGrant ?? ''), String(request.body?.password ?? ''), String(request.body?.confirmation ?? ''))))
