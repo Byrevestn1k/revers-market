@@ -1,5 +1,7 @@
 # Project state
 
+**Admin panel:** Частина 1 на окремій `codex/admin-panel-analytics`: RBAC, `/admin`, read-only ресурси, початковий Dashboard. Межі, міграція та наступні частини — [ADMIN_PANEL_PLAN.md](ADMIN_PANEL_PLAN.md). Потрібен незалежний Sol Review; без push, merge, deployment чи міграцій основної БД.
+
 **Step 26:** готово до фінального незалежного перегляду на `codex/step-26-direct-product-deal`. Пакет і обмеження — у [STEP_26_FINAL_REVIEW.md](STEP_26_FINAL_REVIEW.md). Merge, push і deployment потребують окремого дозволу користувача.
 
 **Step 25:** історичний стан та результати перевірок наведено у [STEP_25_NOTIFICATION_CENTER.md](STEP_25_NOTIFICATION_CENTER.md). Код Step 26 базується на вказаному користувачем commit `1387aa2741ed4c768c1af9f9dddb9b947df20008`.
