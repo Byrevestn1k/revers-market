@@ -182,3 +182,7 @@ Step 21: READY FOR INDEPENDENT REVIEW; виправлення Seller Offer пе�
 ## Step 32 — підготовлено до незалежного огляду
 
 Вступ, контекстна допомога і статичні FAQ реалізовані в `codex/step-32-onboarding-help`; платний AI не підключено. Після Sol REVIEW FAIL виправлено захист незбережених форм і запуск підказок гостю після авторизації. Статус — **READY FOR SOL RE-REVIEW**; перевірки та їхні межі наведено в [STEP_32_ONBOARDING_HELP.md](STEP_32_ONBOARDING_HELP.md).
+
+## Step 32 — UX refinement
+
+У гілці `codex/step-32-ux-refinement` вдосконалено навчання і вибір дії для нового товару. Деталі, результати перевірок і питання щодо статусів: [STEP_32_UX_REFINEMENT.md](STEP_32_UX_REFINEMENT.md). Очікується незалежний огляд Sol.

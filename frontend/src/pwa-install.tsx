@@ -33,13 +33,15 @@ export function PwaInvitation({ suppressed = false }: { suppressed?: boolean }) 
     const [editing, setEditing] = useState(false)
     useEffect(() => {
         const open = () => { if (!installed()) { setEditing(false); setInstructions(false); setShow(true); window.scrollTo({ top: 0, behavior: 'smooth' }) } }
+        const offer = () => { if (!installed() && !dismissed() && window.matchMedia('(max-width: 767px)').matches) { setEditing(false); setInstructions(false); setShow(true) } }
         const finish = () => { deferredPrompt = null; setInstalled(true); setShow(false) }
         const focus = () => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches('input, textarea, select, [contenteditable="true"]')) setEditing(true) }
         const timer = window.setTimeout(() => { if (!installed() && !dismissed() && window.matchMedia('(max-width: 767px)').matches) setShow(true) }, 1200)
         window.addEventListener('pwa:open-install', open)
+        window.addEventListener('pwa:offer-install', offer)
         window.addEventListener('appinstalled', finish)
         document.addEventListener('focusin', focus)
-        return () => { clearTimeout(timer); window.removeEventListener('pwa:open-install', open); window.removeEventListener('appinstalled', finish); document.removeEventListener('focusin', focus) }
+        return () => { clearTimeout(timer); window.removeEventListener('pwa:open-install', open); window.removeEventListener('pwa:offer-install', offer); window.removeEventListener('appinstalled', finish); document.removeEventListener('focusin', focus) }
     }, [])
     const dismiss = () => { remember(); setShow(false); setInstructions(false) }
     const install = async () => {
@@ -55,7 +57,7 @@ export function PwaInvitation({ suppressed = false }: { suppressed?: boolean }) 
     return <section className="pwa-invitation" aria-label="Встановлення застосунку">
         <img src="/brand/pwa-192.png" alt="" width="48" height="48" />
         <div className="pwa-invitation-content"><strong>Встановіть застосунок ДещоТреба</strong>
-            {instructions ? ios() ? <p>У браузері натисніть «Поділитися» <span aria-hidden="true">⎋</span>, оберіть «На початковий екран» і підтвердьте додавання.</p> : <p>Відкрийте меню браузера та виберіть «Встановити застосунок» або «Додати на головний екран», якщо така дія доступна.</p> : <p>Іконка на головному екрані, швидкий доступ до товарів, запитів і чатів{supportsPush ? ', сповіщення про пропозиції та повідомлення' : ''}.</p>}
+            {instructions ? ios() ? <p>У браузері натисніть «Поділитися» <span aria-hidden="true">⎋</span>, оберіть «На початковий екран» і підтвердьте додавання.</p> : <p>Відкрийте меню браузера та виберіть «Встановити застосунок» або «Додати на головний екран», якщо така дія доступна.</p> : <p>Іконка на головному екрані, швидкий доступ до товарів, запитів і чатів{supportsPush ? ', а з вашим дозволом — сповіщення про пропозиції та повідомлення' : ''}.</p>}
             <div className="pwa-invitation-actions">{!instructions && <button type="button" onClick={() => void install()}>Встановити застосунок</button>}<button type="button" onClick={dismiss}>{instructions ? 'Зрозуміло' : 'Не зараз'}</button></div>
         </div>
     </section>

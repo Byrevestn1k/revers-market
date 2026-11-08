@@ -58,6 +58,7 @@ export default function DemandSubscriptions({ categories, http, notify }: Props)
       setSubscriptions(current => draft.id ? current.map(item => item.id === draft.id ? result.subscription : item) : [result.subscription, ...current]);
       setDraft(null);
       notify('Підписку збережено');
+      window.dispatchEvent(new Event('pwa:offer-install'));
     });
   };
   const toggle = (item: Subscription) => void mutate(async () => {

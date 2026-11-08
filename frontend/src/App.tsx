@@ -721,7 +721,7 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
         const next = {
             categoryId, title: title.trim(), description: data.description, attributes, quantity: Number(data.quantity), unit: data.unit,
             price: Number(data.price), currency: data.currency, deliveryMode: deliveryOptions[0] ? { SELF_PICKUP: 'pickup', SELLER_DELIVERY: 'seller_delivery', POSTAL_DELIVERY: 'carrier', FLEXIBLE: 'flexible' }[deliveryOptions[0].method] : product?.deliveryMode ?? 'pickup', deliveryOptions: deliveryOptions.length ? deliveryOptions : undefined, geoZone: location.city.trim(),
-            ...addressFields(location), status,
+            ...addressFields(location), status: product ? status : ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value === 'draft' ? 'draft' : 'active',
             ...((photoChanged || !product) ? { photos: photos.filter(Boolean).map((photo) => ({ ...(photo.startsWith('data:') ? { dataUrl: photo } : { url: photo }), alt: title.trim() })) } : {}),
         }
         const locationChanged = !product || next.geoZone !== product.geoZone || next.settlementCode !== (product.settlement?.code ?? null) || next.address !== (product.address ?? null) || next.addressVisibility !== (product.addressVisibility ?? 'private') || next.mapLocationMode !== (product.mapLocationMode ?? 'profile') || next.latitude !== (product.coordinates?.latitude ?? null) || next.longitude !== (product.coordinates?.longitude ?? null)
@@ -752,16 +752,16 @@ function ProductEditor({ categories, product, onSaved, onCancel }: { categories:
             <ListingBasics categories={categories} attributes={attributes} categoryId={categoryId} onCategoryChange={changeCategory} title={title} onTitleChange={setTitle} description={product?.description} errors={errors} />
             <CategoryAttributes categoryId={categoryId} value={attributes} onChange={setAttributes} sourceText={title} />
             <fieldset className="listing-section"><legend>Фото товару</legend><PhotoPicker photos={photos} onChange={setImages} max={8} error={errors.photos} /></fieldset>
-            <fieldset className="listing-section"><legend>Кількість і ціна</legend><QuantityFields quantity={product?.quantity} unit={product?.unit ?? 'piece'} errors={errors} />
+            <fieldset className="listing-section" data-guide="listing-quantity"><legend>Кількість і ціна</legend><QuantityFields quantity={product?.quantity} unit={product?.unit ?? 'piece'} errors={errors} />
                 <div className="field-row"><label>Ціна за одиницю<input name="price" type="number" min="0" step=".01" defaultValue={product?.price.amount ?? 0} required /><FieldError message={errors.price} /></label><CurrencyField currency={product?.price.currency} error={errors.currency} /></div>
             </fieldset>
             <ListingLocationFields value={location} onChange={setLocation} request={request} onBusyChange={setLocationBusy} error={errors.location || errors.settlementCode || errors.geoZone || errors.address || errors.latitude || errors.longitude} />
             <DeliveryOptionsFields role="seller" value={deliveryOptions} onChange={setDeliveryOptions} /><FieldError message={errors.deliveryOptions} />
-            <fieldset className="listing-section"><legend>Умови публікації</legend>
+            {product && <fieldset className="listing-section"><legend>Умови публікації</legend>
                 <label>Статус<select value={status} onChange={(event) => setStatus(event.target.value)}>{Object.entries(STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-            </fieldset>
+            </fieldset>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <div className="listing-form-actions"><button type="button" className="outline-button" onClick={onCancel}>Скасувати</button><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : product ? 'Зберегти зміни' : status === 'active' ? 'Опублікувати товар' : 'Зберегти товар'}</button></div>
+            <div className="listing-form-actions" data-guide="listing-publish"><button type="button" className="outline-button" onClick={onCancel}>Скасувати</button><button type="submit" value="active" className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : product ? 'Зберегти зміни' : 'Опублікувати товар'}</button>{!product && <button type="submit" value="draft" className="outline-button" disabled={busy || locationBusy}>Зберегти чернетку</button>}</div>
         </form>
     </section>
 }
@@ -807,7 +807,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
             <ListingBasics categories={categories} attributes={attributes} categoryId={categoryId} onCategoryChange={changeCategory} title={title} onTitleChange={setTitle} errors={errors} />
             <CategoryAttributes categoryId={categoryId} value={attributes} onChange={setAttributes} sourceText={title} />
             <fieldset className="listing-section"><legend>Фотографії</legend><PhotoPicker photos={photos} onChange={setPhotos} max={8} error={errors.photos} /></fieldset>
-            <fieldset className="listing-section"><legend>Кількість і бюджет</legend><QuantityFields errors={errors} />
+            <fieldset className="listing-section" data-guide="listing-quantity"><legend>Кількість і бюджет</legend><QuantityFields errors={errors} />
                 <div className="field-row"><label>Ціна від, за одиницю<input name="minPrice" type="number" min="0" step=".01" placeholder="Не вказано" /><FieldError message={errors.minPrice} /></label><label>Ціна до, за одиницю<input name="maxPrice" type="number" min="0" step=".01" placeholder="Не вказано" /><FieldError message={errors.maxPrice} /></label></div>
                 <p className="listing-location-note">Бюджет необов’язковий. Якщо його не вказано, ціну можна узгодити з продавцем.</p>
                 <FieldError message={errors.priceRange} /><CurrencyField error={errors.currency} />
@@ -821,7 +821,7 @@ function BuyRequestForm({ categories, onSaved, onCancel }: { categories: Categor
                 <label>Потрібно до дати<input name="deadline" type="date" /><FieldError message={errors.deadline} /></label>
             </fieldset>
             {error && <p className="form-error" role="alert">{error}</p>}
-            <div className="listing-form-actions"><button type="button" className="outline-button" onClick={onCancel}>Скасувати</button><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : 'Опублікувати запит'}</button></div>
+            <div className="listing-form-actions" data-guide="listing-publish"><button type="button" className="outline-button" onClick={onCancel}>Скасувати</button><button className="primary-button" disabled={busy || locationBusy}>{busy ? 'Збереження…' : 'Опублікувати запит'}</button></div>
         </form>
     </section>
 }
@@ -1062,8 +1062,8 @@ function AppContent() {
     const openProductEdit = (product: Product) => { setEditing(product); navigate(productEditPath(product.id)) }
     const logout = async () => { if (!user || !sessionId) return; const wasDirty = hasUnsavedListing(); if (!confirmListingNavigation('/discover')) return; try { await disconnectPush(user.id, sessionId).catch(() => undefined); await request('/api/auth/logout', { method: 'POST', body: JSON.stringify({ expectedUserId: user.id, expectedSessionId: sessionId }) }); setUser(null); setSessionId(null); setView('find'); setAuthOpen(false); setPendingCreate(false); setMine([]); setProfileAvatar(null); navigate('/discover', true) } catch { if (wasDirty) restoreUnsavedListing(); notify('Не вдалося вийти. Перевірте з’єднання та спробуйте ще раз.') } }
     const rememberLocation = (location?: AddressValue) => { if (validCoordinates(location?.coordinates)) setMapFocus({ name: location!.city, ...location!.coordinates!, settlement: location!.settlement }) }
-    const saved = (location?: AddressValue) => { rememberLocation(location); setEditing(undefined); loadProducts(page); loadMine(); go('mine'); notify('Товар збережено') }
-    const requestSaved = (location?: AddressValue) => { rememberLocation(location); go('map'); notify('Запит опубліковано на мапі') }
+    const saved = (location?: AddressValue) => { rememberLocation(location); setEditing(undefined); loadProducts(page); loadMine(); go('mine'); notify('Товар збережено'); window.dispatchEvent(new Event('pwa:offer-install')) }
+    const requestSaved = (location?: AddressValue) => { rememberLocation(location); go('map'); notify('Запит опубліковано на мапі'); window.dispatchEvent(new Event('pwa:offer-install')) }
     const removeProduct = async (product: Product) => { if (!window.confirm(`Видалити товар «${product.title}»?`)) return; try { await request(`/api/products/${product.id}`, { method: 'DELETE' }); await loadProducts(page); await loadMine(); notify('Товар видалено') } catch (error) { notify((error as Error).message) } }
     const startListingChat = async (kind: 'products' | 'buy-requests', item: { id: string }) => { try { const result = await request(`/api/${kind}/${item.id}/conversation`, { method: 'POST', body: '{}' }); navigate(conversationPath(result.conversation.id)) } catch (error) { notify((error as Error).message) } }
     const toggleFavorite = async (targetType: FavoriteTargetType, targetId: string, remove = false) => {

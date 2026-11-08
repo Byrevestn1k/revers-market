@@ -57,11 +57,11 @@ export default function DeliveryOptionsFields({ role, value, onChange, ownPlace 
     <SettlementPicker value={null} legacyName={option.place?.settlementCode ? 'Населений пункт вибрано' : ''} label="Місце продавця" onChange={(settlement: Settlement | null) => update(method, { place: { settlementCode: settlement?.code ?? null, region: settlement?.region ?? null, publicPoint: null } })} />
     {(method === 'SELF_PICKUP' || option.radiusKm !== undefined && option.radiusKm > 0) && <><p className="listing-location-note">Оберіть на мапі публічну приблизну точку, від якої рахувати радіус.</p><LocationPointPicker point={option.place?.publicPoint ?? null} onChange={point => update(method, { place: { settlementCode: option.place?.settlementCode ?? null, region: option.place?.region ?? null, publicPoint: { latitude: Number(point.latitude.toFixed(2)), longitude: Number(point.longitude.toFixed(2)) } } })} /></>}
   </div> : null;
-  return <fieldset className="listing-section" disabled={disabled}><legend>Способи отримання</legend>
+  return <fieldset className="listing-section" data-guide="delivery-options" disabled={disabled}><legend>Способи отримання</legend>
     <p className="listing-location-note">Можна вибрати декілька способів. Точний збіг враховує територію кожного способу.</p>
     {(Object.keys(labels) as DeliveryMethod[]).filter(method => !sourceOptions || sourceOptions.some(option => option.method === method)).map(method => {
       const option = selected(method);
-      return <div key={method} className="delivery-option"><label className="subscription-active"><input type="checkbox" checked={Boolean(option) || flexible} disabled={flexible && method !== 'FLEXIBLE'} aria-describedby={flexible && method !== 'FLEXIBLE' ? 'flexible-delivery-explanation' : undefined} onChange={event => toggle(method, event.target.checked)} /> {labels[method]}</label>
+      return <div key={method} className="delivery-option" data-guide={'delivery-' + method}><label className="subscription-active"><input type="checkbox" checked={Boolean(option) || flexible} disabled={flexible && method !== 'FLEXIBLE'} aria-describedby={flexible && method !== 'FLEXIBLE' ? 'flexible-delivery-explanation' : undefined} onChange={event => toggle(method, event.target.checked)} /> {labels[method]}</label>
         <p className="delivery-explanation">{explanations[role][method]}</p>
         {method === 'SELLER_DELIVERY' && role === 'buyer' && Boolean(option) && destination && <p className="delivery-destination">Місце доставки: {destination}</p>}
         {method === 'FLEXIBLE' && flexible && <p id="flexible-delivery-explanation" className="delivery-explanation">Конкретний спосіб отримання узгоджується між сторонами. Позначені способи не є підтвердженням їх доступності.</p>}

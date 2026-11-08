@@ -24,7 +24,7 @@ export function ListingBasics({ categories, categoryId, onCategoryChange, title,
         }, 650)
         return () => { window.clearTimeout(timer); controller.abort() }
     }, [title, draftDescription, categoryId, attributes])
-    return <fieldset className="listing-section"><legend>Про оголошення</legend>
+    return <fieldset className="listing-section" data-guide="listing-basics"><legend>Про оголошення</legend>
         <label>Назва товару<input name="title" value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Наприклад, велосипед Trek Marlin 5" required minLength={2} maxLength={160} /><FieldError message={errors.title} /></label>
         {assessment && (assessment.suggestions.length > 0 || assessment.certainty === 'uncertain') && <div className="category-recommendation" aria-live="polite">
             <strong>{assessment.reason ?? (assessment.certainty === 'uncertain' ? categoryId ? 'Категорію не вдалося визначити точно. Перевірте свій вибір.' : 'Категорію не вдалося визначити точно. Оберіть її вручну.' : 'Рекомендована категорія:')}</strong>

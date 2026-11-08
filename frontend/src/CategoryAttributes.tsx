@@ -53,7 +53,7 @@ export default function CategoryAttributes({ categoryId, value, onChange, source
     if (!definitions.length && !error) return null
     const storageMatch = /(?:^|\s)(\d{1,5})\s*(?:гб|gb)(?=\s|$|[,.])/iu.exec(sourceText)
     const storageSuggestion = definitions.find(item => item.code === 'storage' && value.storage === undefined && storageMatch && Number(storageMatch[1]) <= (item.maxValue ?? Infinity))
-    return <fieldset className="listing-section"><legend>Характеристики категорії</legend><p className="form-hint">Заповнюйте відомі характеристики; опис можна залишити окремо.</p>
+    return <fieldset className="listing-section" data-guide="category-attributes"><legend>Характеристики категорії</legend><p className="form-hint">Заповнюйте відомі характеристики; опис можна залишити окремо.</p>
         {storageSuggestion && storageMatch && <p className="form-hint">Знайдено в назві: пам’ять {storageMatch[1]} ГБ. <button type="button" onClick={() => update('storage', Number(storageMatch[1]))}>Застосувати підказку</button></p>}
         {error && <p role="alert" className="form-error">{error}</p>}
         {definitions.map(definition => <div key={definition.code} className="listing-field">

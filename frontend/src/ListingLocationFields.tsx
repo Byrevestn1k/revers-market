@@ -63,7 +63,7 @@ export default function ListingLocationFields({ value, onChange, request, error,
             .catch(() => { if (!controller.signal.aborted) setPinLabel('вибрана точка на мапі') })
     }
     const visibility = value.addressVisibility ?? 'private'
-    return <fieldset className="listing-section" disabled={busy}><legend>Місце оголошення на мапі</legend>
+    return <fieldset className="listing-section" data-guide="listing-location" disabled={busy}><legend>Місце оголошення на мапі</legend>
         <label>Публічна точка цього оголошення<select value={mode} onChange={(event) => setMode(event.target.value as ListingMapLocationMode)}><option value="profile">Збігається з публічним місцем профілю</option><option value="pin">Обрати точку на мапі</option><option value="address">Обрати адресу вручну</option></select></label>
         {displayLabel && <p className="listing-location-note" role="status"><strong>Місце: {displayLabel}</strong></p>}
         {mode === 'profile' && <p className="listing-location-note">Використовується публічне місце з профілю. Адреса профілю не копіюється в оголошення й не відкривається через нього.</p>}
