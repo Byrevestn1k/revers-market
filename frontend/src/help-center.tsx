@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PwaInvitation } from './pwa-install'
 import { guideForPath, helpArticles } from './help-content'
 import './help-center.css'
@@ -43,6 +43,7 @@ export function HelpCenter({ children }: { children: ReactNode }) {
     const [targetMissing, setTargetMissing] = useState(false)
     const [scenarios, setScenarios] = useState(false)
     const [domRevision, setDomRevision] = useState(0)
+    const panelRef = useRef<HTMLElement>(null)
     const [auth, setAuth] = useState({ ready: false, signedIn: false })
     const updateAuth = useCallback((ready: boolean, signedIn: boolean) => setAuth(previous => previous.ready === ready && previous.signedIn === signedIn ? previous : { ready, signedIn }), [])
     const [authIntent, setAuthIntent] = useState<string | null>(null)
@@ -66,11 +67,41 @@ export function HelpCenter({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (step === null || !open || minimized) return
         const selector = steps[step]?.selector
-        const target = selector ? document.querySelector(selector) : null
+        const target = selector ? document.querySelector<HTMLElement>(selector) : null
         if (!target) return
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
         target.classList.add('help-target')
-        return () => target.classList.remove('help-target')
+        const panel = panelRef.current
+        const anchor = target.matches('input:not([type="hidden"]), textarea, select, button, [tabindex]') ? target : target.querySelector<HTMLElement>('input:not([type="hidden"]):not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? target
+        document.body.classList.add('help-tour-active')
+        const reveal = () => {
+            if (!target.isConnected || !panel) return
+            const panelRect = panel.getBoundingClientRect()
+            const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+            document.body.style.setProperty('--help-tour-padding', `${Math.ceil(viewportHeight - panelRect.top + 80)}px`)
+            const header = document.querySelector<HTMLElement>('.mobile-topbar')
+            const headerRect = header?.getBoundingClientRect()
+            const fixedHeader = header && headerRect && getComputedStyle(header).position === 'sticky' && headerRect.top <= 0 && headerRect.bottom > 0 ? headerRect.bottom : 0
+            const upper = Math.max(32, fixedHeader + 32)
+            const rect = anchor.getBoundingClientRect()
+            const overlaps = rect.right > panelRect.left && rect.left < panelRect.right && rect.bottom > panelRect.top && rect.top < panelRect.bottom
+            const nav = document.querySelector<HTMLElement>('.mobile-nav')
+            const navRect = nav && getComputedStyle(nav).display !== 'none' ? nav.getBoundingClientRect() : null
+            const overlapsNav = navRect && rect.right > navRect.left && rect.left < navRect.right && rect.bottom > navRect.top && rect.top < navRect.bottom
+            if (rect.top >= upper && rect.bottom <= viewportHeight - 12 && !overlaps && !overlapsNav) return
+            anchor.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' })
+            const aligned = anchor.getBoundingClientRect()
+            window.scrollBy({ top: aligned.top - upper, behavior: 'instant' })
+        }
+        const observer = new ResizeObserver(reveal)
+        if (panel) observer.observe(panel)
+        observer.observe(target)
+        const container = target.closest('form, .demand-subscriptions, .map-view')
+        if (container && container !== target) observer.observe(container)
+        window.addEventListener('resize', reveal)
+        window.visualViewport?.addEventListener('resize', reveal)
+        window.addEventListener('help:reveal', reveal)
+        reveal()
+        return () => { observer.disconnect(); window.removeEventListener('resize', reveal); window.visualViewport?.removeEventListener('resize', reveal); window.removeEventListener('help:reveal', reveal); document.body.classList.remove('help-tour-active'); document.body.style.removeProperty('--help-tour-padding'); target.classList.remove('help-target') }
     }, [step, path, domRevision, open, minimized])
     useEffect(() => {
         const show = () => { setOpen(true); setMinimized(false) }
@@ -126,7 +157,7 @@ export function HelpCenter({ children }: { children: ReactNode }) {
         const selector = step === null ? undefined : steps[step]?.selector
         if (!selector) return
         const target = document.querySelector(selector)
-        if (target) { setTargetMissing(false); if (window.matchMedia('(max-width: 767px)').matches) setMinimized(true); target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.classList.add('help-target'); window.setTimeout(() => target.classList.remove('help-target'), 3000) }
+        if (target) { setTargetMissing(false); window.dispatchEvent(new Event('help:reveal')) }
         else setTargetMissing(true)
     }
     return <HelpAuthContext.Provider value={updateAuth}>
@@ -139,7 +170,7 @@ export function HelpCenter({ children }: { children: ReactNode }) {
             <button type="button" disabled={!auth.ready} onClick={() => choose('/my/products/new')}><strong>Продати товар</strong><span>Опублікуйте товар або знайдіть запити покупців</span></button></>}
             <button type="button" className="help-text-button" onClick={finish}>Пропустити вступ</button>
         </section></div>}
-        {open && !onboarding && <aside className={'help-panel' + (minimized ? ' help-panel-minimized' : '')} aria-label="Центр допомоги">
+        {open && !onboarding && <aside ref={panelRef} className={'help-panel' + (minimized ? ' help-panel-minimized' : '') + (step !== null && !minimized ? ' help-panel-guided' : '')} aria-label="Центр допомоги">
             <header><strong>Центр допомоги</strong><div><button type="button" onClick={() => setMinimized(value => !value)}>{minimized ? 'Розгорнути' : 'Згорнути'}</button><button type="button" aria-label="Закрити допомогу" onClick={() => { if (step !== null) setPaused({ path, step }); setOpen(false); setStep(null) }}>×</button></div></header>
             {!minimized && <div className="help-panel-body">
                 <button type="button" className="help-text-button" onClick={() => { setOpen(false); setOnboarding(true) }}>Почати вступ знову</button>
